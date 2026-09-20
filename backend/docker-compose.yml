@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: architecture-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: architecture_degradation
+      POSTGRES_USER: architecture
+      POSTGRES_PASSWORD: architecture_dev_password
+    ports:
+      # Host port 5434 (not 5432): a native Windows PostgreSQL service
+      # (postgresql-x64-17) already owns host port 5432 and would shadow this
+      # container. Keep POSTGRES_PORT in .env in sync with this mapping.
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  neo4j:
+    image: neo4j:2025.08.0
+    container_name: architecture-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/neo4j_dev_password
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
