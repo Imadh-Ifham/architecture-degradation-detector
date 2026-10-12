@@ -1,0 +1,16 @@
+{
+  // The real Python project lives in backend/ (uv-managed .venv).
+  // Point it at the project interpreter instead of the global Python install.
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+  "python.terminal.activateEnvironment": true,
+
+  // backend/ is the import root, so `app.*` and `tests.*` are first-party packages.
+  // Without this, Pylance cannot resolve them (the workspace root is the repo, not backend/).
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+
+  // Pytest must run from backend/ because app/core/config.py loads a relative `.env`.
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.cwd": "${workspaceFolder}/backend",
+  "python.testing.pytestArgs": ["tests"]
+}

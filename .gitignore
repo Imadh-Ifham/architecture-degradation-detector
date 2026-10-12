@@ -1,0 +1,8 @@
+# Ignore everything in the .vscode folder
+.vscode/*
+
+# But do not ignore these specific shared files
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
