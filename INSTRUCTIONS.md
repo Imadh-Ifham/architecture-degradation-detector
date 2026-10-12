@@ -4,7 +4,7 @@ Conventions for everyone contributing to **architecture-degradation-detector (EA
 
 Read this before you write code or open a pull request. These rules are not optional; they are how we keep history clean and the repo recoverable.
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the system design and [`backend/README.md`](./backend/README.md) for the backend layout.
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the system design, [`backend/README.md`](./backend/README.md) for the backend layout, and [Section 7](#7-backend-code-layout--file-placement) for the file-placement contract.
 
 ---
 
@@ -51,28 +51,28 @@ We use **Conventional Commits**. Every commit message must follow this structure
 
 ### 2.1 Rules
 
-| Part | Rule |
-| ---- | ---- |
-| `type` | **Required.** One of the types in the table below. |
-| `scope` | Optional. The area touched, e.g. `api`, `core`, `recovery`, `infra`. |
+| Part      | Rule                                                                                                                   |
+| --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `type`    | **Required.** One of the types in the table below.                                                                     |
+| `scope`   | Optional. The area touched, e.g. `api`, `core`, `recovery`, `infra`.                                                   |
 | `subject` | Required. Imperative mood ("add", not "added"/"adds"), no trailing period, ≤ 72 characters, lowercase after the colon. |
-| `body` | Optional. Wrapped at 72 chars. Explain **what** and **why**, not how. Blank line after the subject. |
-| `footer` | Optional. Issue references (`Refs: #12`, `Closes: #12`) and the co-author trailer for AI-assisted commits. |
+| `body`    | Optional. Wrapped at 72 chars. Explain **what** and **why**, not how. Blank line after the subject.                    |
+| `footer`  | Optional. Issue references (`Refs: #12`, `Closes: #12`) and the co-author trailer for AI-assisted commits.             |
 
 ### 2.2 Commit types
 
-| Type | Use for |
-| ---- | ------- |
-| `feat` | A new feature or capability. |
-| `fix` | A bug fix. |
-| `docs` | Documentation only. |
-| `chore` | Maintenance, tooling, dependency bumps, config. |
-| `refactor` | Behavior-preserving restructuring. |
-| `test` | Adding or fixing tests only. |
-| `perf` | Performance improvement. |
-| `build` | Build system or packaging changes. |
-| `ci` | CI/CD pipeline changes. |
-| `style` | Formatting/lint-only changes. |
+| Type       | Use for                                         |
+| ---------- | ----------------------------------------------- |
+| `feat`     | A new feature or capability.                    |
+| `fix`      | A bug fix.                                      |
+| `docs`     | Documentation only.                             |
+| `chore`    | Maintenance, tooling, dependency bumps, config. |
+| `refactor` | Behavior-preserving restructuring.              |
+| `test`     | Adding or fixing tests only.                    |
+| `perf`     | Performance improvement.                        |
+| `build`    | Build system or packaging changes.              |
+| `ci`       | CI/CD pipeline changes.                         |
+| `style`    | Formatting/lint-only changes.                   |
 
 ### 2.3 Examples
 
@@ -183,16 +183,164 @@ Treat it as external reference material: do **not** vendor its code into this re
 
 The system uses **two databases**, each for what it is best at:
 
-| Store | Role | Why |
-| ----- | ---- | --- |
-| **Neo4j** (graph) | Stores recovered/validated **architecture models as graphs** — components, interfaces, dependencies, and their evolution across releases. | Architectural structure is inherently a graph; traversals (paths, cycles, layering violations) are first-class. |
-| **PostgreSQL** (relational) | Stores **research metadata** — projects, releases, analysis runs, degradation findings, and scores. | Structured, relational, transactional records with strong querying and reporting. |
+| Store                       | Role                                                                                                                                      | Why                                                                                                             |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Neo4j** (graph)           | Stores recovered/validated **architecture models as graphs** — components, interfaces, dependencies, and their evolution across releases. | Architectural structure is inherently a graph; traversals (paths, cycles, layering violations) are first-class. |
+| **PostgreSQL** (relational) | Stores **research metadata** — projects, releases, analysis runs, degradation findings, and scores.                                       | Structured, relational, transactional records with strong querying and reporting.                               |
 
 Adapters live under [`backend/app/infrastructure/`](./backend/app/infrastructure) (`neo4j/` and `postgres/`). Both services are defined in [`backend/docker-compose.yml`](./backend/docker-compose.yml). Never hardcode credentials or connection strings — configure them through the environment (`backend/.env.example`).
 
 ---
 
-## 7. Quick reference
+## 7. Backend code layout & file placement
+
+This section is the **placement contract**. Before creating any file, find its row below. It is written to be unambiguous for humans _and_ for AI coding agents: if a file does not fit a path listed here, it does not belong in the repository — raise it in the PR instead.
+
+### 7.1 Layers and import direction
+
+```
+app/api/              routes + controllers (HTTP)
+      │
+      ▼
+app/components/       research logic  ──►  ports.py Protocols
+      ▲                                        ▲
+      │                                        │ implement
+app/infrastructure/   databases, AI, external tools
+```
+
+| Layer          | Path                  | Purpose                                                           | May import                                                                                                              |
+| -------------- | --------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| API            | `app/api/`            | Routes + controllers, request/response schemas, dependency wiring | `components/`, `domain/`, `core/`, `shared/`, and `infrastructure/` **only** to construct adapters in `dependencies.py` |
+| Components     | `app/components/`     | Research logic                                                    | its own subcomponents, `domain/`, `core/`, `shared/`                                                                    |
+| Domain         | `app/domain/`         | Cross-component research artifacts                                | `shared/`                                                                                                               |
+| Infrastructure | `app/infrastructure/` | Database, AI and external-tool adapters                           | `domain/`, `core/`, `shared/`                                                                                           |
+| Core           | `app/core/`           | Settings, logging, cross-cutting app configuration                | `shared/`                                                                                                               |
+| Shared         | `app/shared/`         | Small generic helpers                                             | Python standard library only                                                                                            |
+
+**Forbidden dependencies** — a PR that introduces one must be rejected:
+
+- `components/` → `infrastructure/`. Depend on a Protocol in `ports.py` instead.
+- `components/` → `api/`.
+- `infrastructure/` → `api/` or `components/`.
+- `domain/` → anything except `shared/`.
+- `shared/` → any other layer.
+- Importing a vendor LLM SDK anywhere outside `app/infrastructure/ai/providers/`.
+- Importing `sqlalchemy` or `neo4j` inside `app/components/`.
+
+### 7.2 Where does this file go?
+
+| I am adding…                                   | Path                                                        | Example                                        |
+| ---------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| An HTTP endpoint (route + controller)          | `app/api/<feature>.py`                                      | `app/api/architecture_recovery.py`             |
+| The aggregating router                         | `app/api/router.py`                                         | `api_router`                                   |
+| Request/response models (HTTP contract)        | `app/api/schemas/<feature>.py`                              | `RecoveryRequest`                              |
+| `Depends` providers and wiring                 | `app/api/dependencies.py`                                   | `get_recovery_service()`                       |
+| A research step (subcomponent)                 | `app/components/<component>/<subcomponent>/`                | `.../architecture_recovery/static_extraction/` |
+| Component orchestration                        | `app/components/<component>/service.py`                     | `ArchitectureRecoveryService`                  |
+| A model used by one subcomponent               | that subcomponent's `models.py`                             | `SourceFile`                                   |
+| A model shared by two or more components       | `app/domain/<name>.py`                                      | `RecoveredArchitecture`                        |
+| An interface the component needs from outside  | `app/components/<component>/ports.py`                       | `ArchitectureGraphRepository`                  |
+| A database query / CRUD implementation         | `app/infrastructure/<db>/repositories/<name>_repository.py` | `Neo4jArchitectureGraphRepository`             |
+| SQLAlchemy table definitions                   | `app/infrastructure/postgres/models/<name>.py`              | `AnalysisRun`                                  |
+| A database connection or session factory       | `app/infrastructure/<db>/database.py`                       | `get_db`, `get_neo4j_session`                  |
+| An LLM provider adapter                        | `app/infrastructure/ai/providers/<vendor>.py`               | `openai_provider.py`                           |
+| Which model handles which task                 | `app/infrastructure/ai/model_configuration.py`              |                                                |
+| Prompt templates                               | `app/components/<c>/<subcomponent>/prompts.py`              |                                                |
+| A database migration                           | `backend/alembic/versions/`                                 | `0001_create_runs.py`                          |
+| Settings and environment config                | `app/core/config.py`                                        | `settings`                                     |
+| A tiny generic helper with no domain knowledge | `app/shared/`                                               |                                                |
+| A dev or ops script                            | `backend/scripts/`                                          |                                                |
+
+If your file matches no row, stop and discuss it in the PR. **Do not invent a new top-level folder.**
+
+### 7.3 Component & subcomponent pattern (mandatory)
+
+One folder = one subcomponent, and every folder has exactly this shape:
+
+```
+<folder>/
+├── __init__.py      # re-exports the public class only — no logic
+├── service.py       # one class, one public entry method
+└── models.py        # data structures local to this folder
+```
+
+Rules:
+
+1. **Maximum depth is `components/<component>/<subcomponent>/`.** Never nest a subcomponent inside a subcomponent.
+2. A subcomponent may add **private modules** when it outgrows three files (`parsers/`, `heuristics.py`, `prompts.py`) — but never another subcomponent folder.
+3. `service.py` must not import FastAPI, SQLAlchemy, Neo4j, or any LLM SDK.
+4. The component's `service.py` orchestrates its subcomponents and is the **only** way in. Subcomponents never import each other; if subcomponent A needs B's output, the component passes it in.
+5. `api/` imports only `components/<component>/service.py`, never a subcomponent directly.
+6. Every directory gets an `__init__.py`. An empty folder is not committed — use `.gitkeep` only for folders that must exist before they have code.
+
+Standard shape of a component:
+
+```
+app/components/architecture_recovery/
+├── __init__.py
+├── service.py                     # ArchitectureRecoveryService — orchestration
+├── models.py                      # artifacts and evidence types for this component
+├── ports.py                       # Protocols for the outside world
+├── static_extraction/
+│   ├── __init__.py
+│   ├── service.py                 # StaticExtractionService
+│   └── models.py
+├── deployment_analysis/
+├── interface_analysis/
+├── runtime_extraction/
+├── evidence_correlation/
+└── reconstruction/
+```
+
+The request path end to end:
+
+```
+GET /architecture-recovery/runs/{id}
+  app/api/architecture_recovery.py                       route + controller
+    app/api/dependencies.py                              wiring (Depends)
+      app/components/<component>/service.py              orchestration
+        app/components/<c>/<subcomponent>/service.py     research logic
+          app/components/<c>/ports.py                    Protocol
+            app/infrastructure/<db>/repositories/…       implementation
+              app/infrastructure/<db>/database.py        connection
+```
+
+### 7.4 Naming
+
+| Thing                     | Convention                                        | Example                            |
+| ------------------------- | ------------------------------------------------- | ---------------------------------- |
+| Module / file             | `snake_case.py`                                   | `architecture_graph_repository.py` |
+| Subcomponent folder       | `snake_case`                                      | `evidence_correlation/`            |
+| Class                     | `PascalCase` + role suffix                        | `StaticExtractionService`          |
+| Repository implementation | `<Tech><Thing>Repository`                         | `Neo4jArchitectureGraphRepository` |
+| Protocol / port           | `PascalCase`, no `I` prefix, no `Protocol` suffix | `ArchitectureGraphRepository`      |
+| API schema                | `PascalCase` + `Request`/`Response`               | `RecoveryRequest`                  |
+| Test module               | `test_<module>.py`                                | `test_static_extraction.py`        |
+
+### 7.5 Tests mirror the source tree
+
+`app/x/y.py` maps to `tests/x/test_y.py`, packaged with `__init__.py` at every level:
+
+```
+app/components/architecture_recovery/static_extraction/service.py
+tests/components/architecture_recovery/static_extraction/test_service.py
+```
+
+Every new `service.py` ships with its matching test module in the same PR.
+
+### 7.6 Checklist before you create a file
+
+1. Which layer does this belong to? → [§7.1](#71-layers-and-import-direction)
+2. Is that import allowed? → the forbidden list in §7.1
+3. Can it live in an existing file instead of a new one?
+4. Does a `ports.py` Protocol already exist for what I need?
+5. Have I added the `__init__.py`?
+6. Does it need a test module? → [§7.5](#75-tests-mirror-the-source-tree)
+7. Am I inventing a new top-level folder? **Stop** — that is an architecture change, not a code change.
+
+---
+
+## 8. Quick reference
 
 ```bash
 # Start of session — always sync with develop

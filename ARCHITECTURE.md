@@ -4,7 +4,7 @@
 
 This document describes the **intended future architecture**. It documents boundaries, responsibilities, data flows, and planned structures. It does **not** describe what is implemented today.
 
-> **Current state:** structure-only skeleton. The physical repository contains top-level boundaries (`frontend/`, `backend/app/*`, and the four component folders). All subcomponents described below are **planned** and will be created in later tasks.
+> **Current state:** the backend skeleton exists — settings, a FastAPI app with health endpoints, and both database adapters. The four component folders are intentionally still empty. Everything described below about **component internals** (subcomponents and their files) is **planned** and will be created as the research work is implemented.
 
 ---
 
@@ -44,7 +44,7 @@ The physical skeleton established now:
 │       ├── components/
 │       │   ├── architecture_recovery/
 │       │   ├── architecture_validation/
-│       │   ├── architecture_degradation_detection/
+│       │   ├── degradation_detection/
 │       │   └── degradation_scoring/
 │       ├── domain/
 │       ├── infrastructure/
@@ -137,9 +137,53 @@ The physical skeleton established now:
 
 ---
 
-## 4. Planned Future Component Structure
+## 4. Component Internal Structure
 
-The following internal structure is **planned** but **not created yet**. It is documented here so that later tasks create subcomponents in the intended places and respect the established boundaries.
+**Status: planned.** The four component folders exist and are intentionally empty. The structure below is the standard that every component and every subcomponent must follow, so that later work lands in the intended places and respects the established boundaries.
+
+### 4.1 The standard folder shape
+
+One folder = one subcomponent, and every folder has the same three files:
+
+```
+<folder>/
+├── __init__.py      # re-exports the public class only
+├── service.py       # one class, one public entry method — no framework imports
+└── models.py        # data structures local to this folder
+```
+
+Applied to a component:
+
+```
+components/<component>/
+├── __init__.py
+├── service.py                  # orchestrates the subcomponents
+├── models.py                   # artifacts and evidence types used by this component
+├── ports.py                    # Protocols for anything outside: repositories, AI, extractors
+└── <subcomponent>/
+    ├── __init__.py
+    ├── service.py
+    └── models.py
+```
+
+Rules:
+
+- Maximum depth is `components/<component>/<subcomponent>/`. Never nest a subcomponent inside a subcomponent.
+- Subcomponents never import each other. The component's `service.py` orchestrates them and passes artifacts between them.
+- `service.py` never imports FastAPI, SQLAlchemy, Neo4j, or any LLM SDK.
+- Dependencies on the outside world are declared as Protocols in `ports.py` and implemented under `app/infrastructure/`.
+- A subcomponent may add private modules (`parsers/`, `heuristics.py`, `prompts.py`) when it outgrows three files — but never another subcomponent folder.
+
+### 4.2 Planned subcomponents per component
+
+| Component                 | Subcomponents                                                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `architecture_recovery`   | `static_extraction`, `deployment_analysis`, `interface_analysis`, `runtime_extraction`, `evidence_correlation`, `reconstruction` |
+| `architecture_validation` | `adr_extraction`, `intent_extraction`, `constraint_extraction`, `validation`                                                     |
+| `degradation_detection`   | `release_analysis`, `architecture_comparison`, `detection`, `cause_analysis`                                                     |
+| `degradation_scoring`     | `scoring_engine`, `severity`, `rules`                                                                                            |
+
+### 4.3 Resulting tree (created incrementally)
 
 ```
 components/
@@ -148,20 +192,27 @@ components/
 │   ├── deployment_analysis/
 │   ├── interface_analysis/
 │   ├── runtime_extraction/
+│   ├── evidence_correlation/
 │   └── reconstruction/
-│
 ├── architecture_validation/
 │   ├── adr_extraction/
+│   ├── intent_extraction/
+│   ├── constraint_extraction/
 │   └── validation/
-│
-├── architecture_degradation_detection/
-│   └── change_analysis/
-│
+├── degradation_detection/
+│   ├── release_analysis/
+│   ├── architecture_comparison/
+│   ├── detection/
+│   └── cause_analysis/
 └── degradation_scoring/
-    └── scoring/
+    ├── scoring_engine/
+    ├── severity/
+    └── rules/
 ```
 
-These folders must not be created as part of the initial skeleton. They will be introduced when the corresponding research work begins.
+Each folder above also gets `__init__.py`, `service.py` and `models.py` when it is created.
+
+**Where everything else goes** — routers, schemas, repositories, ORM tables, prompts, migrations — is defined in [`INSTRUCTIONS.md` §7](./INSTRUCTIONS.md#7-backend-code-layout--file-placement). Follow it when adding files.
 
 ---
 
@@ -172,12 +223,13 @@ Different components — and different subcomponents within a component — have
 ### Planned structure
 
 ```
-infrastructure/
-└── ai/
-    ├── interface              # Provider- and model-agnostic abstraction
-    ├── model_registry         # Known models and their capabilities
-    ├── model_configuration    # Which model is used for which task
-    └── providers              # Concrete provider adapters
+app/infrastructure/ai/
+├── interface.py               # Provider- and model-agnostic abstraction
+├── model_registry.py          # Known models and their capabilities
+├── model_configuration.py     # Which model is used for which task
+└── providers/                 # Concrete provider adapters
+    ├── __init__.py
+    └── <vendor>.py
 ```
 
 > These folders and files are **not created now**.
@@ -207,13 +259,17 @@ This keeps research logic independent of vendor APIs, allows swapping models wit
 The system uses exactly two databases, each chosen for a distinct kind of data:
 
 ```
-infrastructure/
-└── database/
-    ├── postgres/
-    └── neo4j/
+app/infrastructure/
+├── postgres/
+│   ├── database.py            # engine, SessionLocal, Base, get_db
+│   ├── models/                # SQLAlchemy tables              [planned]
+│   └── repositories/          # query / CRUD implementations   [planned]
+└── neo4j/
+    ├── database.py            # driver, get_neo4j_session
+    └── repositories/          # Cypher-based graph access      [planned]
 ```
 
-> These folders are **not created now**.
+> The connection layer (`database.py`) exists. `models/` and `repositories/` are **planned** and are added as tables and queries are needed. Repositories implement the Protocols declared in each component's `ports.py` — components never import them directly.
 
 | Database       | Data it holds                                                                                                                                                   | Why                                                                                                                                   |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -274,25 +330,27 @@ All access is mediated by the backend API. This keeps the frontend a pure presen
 
 ---
 
-## 8. Scope of the Current Skeleton
+## 8. Scope
 
-Created now:
+**Implemented today:**
 
 - `frontend/` (placeholder)
-- `backend/app/api/`, `backend/app/core/`, `backend/app/domain/`, `backend/app/infrastructure/`, `backend/app/shared/`
-- `backend/app/components/` with the four component folders
-- `ARCHITECTURE.md`
+- backend skeleton: `app/api/`, `app/core/`, `app/components/`, `app/domain/`, `app/infrastructure/`, `app/shared/`
+- settings and environment configuration (`app/core/config.py`)
+- FastAPI application (`app/main.py`) and the health router (`app/api/health.py`) exposing `/health/postgres` and `/health/neo4j`
+- database connection layer: `app/infrastructure/postgres/database.py`, `app/infrastructure/neo4j/database.py`
+- alembic scaffolding, `docker-compose.yml` (PostgreSQL + Neo4j), pytest setup
 
-Deliberately **not** created or implemented:
+**Not implemented yet:**
 
-- any subfolder inside the four components
-- FastAPI endpoints
-- database connections
-- LLM integrations
-- extraction logic
+- any subfolder inside the four research components ([§4](#4-component-internal-structure))
+- per-component routers and request/response schemas
+- repositories and SQLAlchemy models
+- LLM/AI layer ([§5](#5-ai--llm-architecture))
+- extraction, correlation and reconstruction logic
 - graph logic
 - degradation detection logic
 - scoring logic
 - frontend UI
 
-This document is the reference for how those pieces will be added later.
+This document defines _what_ the system is and which boundaries exist. [`INSTRUCTIONS.md` §7](./INSTRUCTIONS.md#7-backend-code-layout--file-placement) defines _where each file goes_ — read it before adding code.
