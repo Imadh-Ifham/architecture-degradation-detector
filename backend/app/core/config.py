@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     repositories_root: Path = Path(gettempdir()) / "add-repositories"
     git_clone_timeout_seconds: int = 300
 
+    # Repository inventory limits. The inventory walks a working tree without
+    # reading it; these bound that walk and the few manifests it does open.
+    inventory_max_files: int = 20_000
+    inventory_max_file_size_bytes: int = 5_000_000
+    inventory_max_depth: int = 32
+    inventory_max_manifest_bytes: int = 262_144
+    inventory_grouping_depth: int = 2
+    # Extra directory names to exclude, comma-separated.
+    inventory_extra_excluded_directories: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

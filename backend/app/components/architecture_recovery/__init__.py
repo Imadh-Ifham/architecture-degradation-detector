@@ -11,5 +11,8 @@ Description:
 from app.components.architecture_recovery.repository_ingestion.service import (
     RepositoryIngestionService,
 )
+from app.components.architecture_recovery.repository_inventory.service import (
+    RepositoryInventoryService,
+)
 
-__all__ = ["RepositoryIngestionService"]
+__all__ = ["RepositoryIngestionService", "RepositoryInventoryService"]
