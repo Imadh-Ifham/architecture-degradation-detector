@@ -3,19 +3,33 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.repositories import get_repository_ingestion_service
+from app.api.repositories import (
+    get_repository_ingestion_service,
+    get_repository_inventory_service,
+)
 from app.components.architecture_recovery.repository_ingestion.service import (
     RepositoryIngestionService,
+)
+from app.components.architecture_recovery.repository_inventory import (
+    INVENTORY_FILE_NAME,
+    RepositoryInventoryError,
 )
 from app.main import app
 
 
 class StubGitClient:
+    """Writes a small working tree instead of cloning a repository."""
+
     commit = "a" * 40
 
     def clone(self, url: str, branch: str, destination: Path) -> None:
         destination.mkdir(parents=True, exist_ok=True)
-        (destination / "README.md").write_text("stub", encoding="utf-8")
+        (destination / "README.md").write_text("# stub\n", encoding="utf-8")
+
+        service = destination / "services" / "cart"
+        service.mkdir(parents=True, exist_ok=True)
+        (service / "go.mod").write_text("module example/cart\n", encoding="utf-8")
+        (service / "main.go").write_text("package main\n", encoding="utf-8")
 
     def head_commit(self, repository: Path) -> str:
         return self.commit
@@ -97,3 +111,57 @@ def test_remove_unknown_repository_returns_404(client: TestClient) -> None:
     response = client.delete("/repositories/unknown-id")
 
     assert response.status_code == 404
+
+
+def test_ingesting_a_repository_inventories_the_clone(client: TestClient) -> None:
+    """A successful clone is inventoried automatically."""
+
+    created = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    assert created["inventory_error"] is None
+
+    inventory = created["inventory"]
+
+    assert inventory is not None
+    assert inventory["file_count"] == 3
+    assert inventory["component_count"] == 1
+    assert inventory["relationship_count"] > 0
+    assert inventory["by_language"] == {"go": 2}
+    assert inventory["truncated"] is False
+
+    # Written next to the working tree, never inside it.
+    written = Path(inventory["path"])
+    assert written.name == INVENTORY_FILE_NAME
+    assert written.is_file()
+    assert written.parent == Path(created["path"]).parent
+    assert not (Path(created["path"]) / INVENTORY_FILE_NAME).exists()
+
+
+def test_inventory_failure_does_not_fail_the_ingest(client: TestClient) -> None:
+    """The clone is the primary operation; an inventory problem must not undo it."""
+
+    class FailingInventoryService:
+        def run_for_ingested(self, repository):
+            raise RepositoryInventoryError("workspace is not writable")
+
+    app.dependency_overrides[get_repository_inventory_service] = (
+        lambda: FailingInventoryService()
+    )
+
+    response = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+
+    assert body["inventory"] is None
+    assert body["inventory_error"] == "workspace is not writable"
+
+    # The clone survives, and is still listed.
+    assert [item["id"] for item in client.get("/repositories").json()] == [body["id"]]

@@ -74,6 +74,7 @@ The physical skeleton established now:
 **Planned subcomponents:**
 
 - **Repository ingestion** — clone a target repository at a given branch into a local workspace, and remove it again.
+- **Repository inventory** — inventory the working tree into a versioned JSON document (files, classifications, candidate components, relationships) that later stages consume.
 - **Static extraction** — derive structural information from source code and build artifacts.
 - **Deployment analysis** — derive deployment topology and environment structure from deployment descriptors and configuration.
 - **Interface analysis** — identify interfaces, contracts, and communication boundaries between parts of the system.
