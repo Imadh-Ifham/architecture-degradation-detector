@@ -2,7 +2,7 @@
 
 Backend for the _Detection of Architectural Degradation during the Maintenance Phase_ research system.
 
-> **Status:** in progress. Repository ingestion and health endpoints exist; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
+> **Status:** in progress. Repository ingestion and repository inventory exist; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
 
 ## Structure
 
@@ -13,7 +13,8 @@ backend/
     ├── core/                                     # Cross-cutting application concerns
     ├── components/                               # Research components
     │   ├── architecture_recovery/
-    │   │   └── repository_ingestion/             # Clone/remove a repository in a local workspace
+    │   │   ├── repository_ingestion/             # Clone/remove a repository in a local workspace
+    │   │   └── repository_inventory/             # Inventory a working tree into repository_inventory.json
     │   ├── architecture_validation/
     │   ├── architecture_degradation_detection/
     │   └── degradation_scoring/
@@ -46,5 +47,36 @@ Clone failures and invalid sources (`file://`, local paths, option-injection
 attempts) are rejected before `git` runs; credentials embedded in a url are
 redacted before anything is stored or returned. Re-ingesting the same url and
 branch replaces the existing clone.
+
+### Repository inventory
+
+The `repository_inventory` subcomponent walks a working tree and writes a single
+`repository_inventory.json` next to it (a sibling of `source/`, never inside it).
+The document holds four collections: `files`, `classifications`, `components`
+(candidate service boundaries) and `relationships`.
+
+- **No contents are read** except a bounded subset: only files already
+  classified as build or deployment manifests, and only up to a size cap. That
+  is what turns a guessed boundary into a confirmed one.
+- **Components are candidates.** A directory holding code without a build
+  manifest is reported as `inferred`; an artifact that names a service yields
+  `confirmed`. Directory proximity alone is never treated as proof.
+- **Output is deterministic**, so inventories of two releases can be diffed to
+  detect structural drift.
+- Stages (scanning, classification, manifest inspection, component detection,
+  relationship discovery, writing) are separate collaborators, each replaceable.
+
+Run it over an ingested repository:
+
+```python
+from app.components.architecture_recovery.repository_inventory import (
+    RepositoryInventoryService,
+)
+
+RepositoryInventoryService().run_for_ingested(ingested_repository)
+```
+
+Limits and extra exclusions are configurable through the `INVENTORY_*` settings
+(see `backend/.env.example`).
 
 See the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the intended future architecture.
