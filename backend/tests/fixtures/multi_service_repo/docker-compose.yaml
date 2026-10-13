@@ -1,0 +1,7 @@
+services:
+  cart:
+    build: ./services/cart
+  checkout:
+    build: ./services/checkout
+  web-ui:
+    build: ./services/web-ui
