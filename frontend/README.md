@@ -54,12 +54,15 @@ The base URL is configurable through `VITE_API_BASE_URL` (default `/api`). Copy
 
 ```
 src/
+├── components/
+│   ├── BackendStatus.tsx        # shows the backend message + environment
+│   └── RepositoryIngestion.tsx  # ingest and remove repositories
 ├── layouts/
 │   └── RootLayout.tsx     # app shell (header + <Outlet />)
 ├── lib/
 │   └── api.ts             # typed HTTP client for the backend
 ├── pages/
-│   ├── Home.tsx           # calls the backend root, shows message + environment
+│   ├── Home.tsx           # home page (ingestion form + backend status)
 │   └── NotFound.tsx       # 404 route
 ├── index.css              # Tailwind entry point
 ├── main.tsx               # entry point (RouterProvider)
