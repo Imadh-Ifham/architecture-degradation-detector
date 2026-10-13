@@ -132,11 +132,15 @@ class RepositoryInventoryService:
         inventory = self.build(root, repository)
         return write_inventory(inventory, output_directory)
 
-    def run_for_ingested(self, repository: IngestedRepository) -> Path:
+    def run_for_ingested(
+        self, repository: IngestedRepository
+    ) -> tuple[Path, RepositoryInventory]:
         """Inventory an ingested repository, writing beside its working tree.
 
         The inventory lands next to `source/` and `metadata.json` so it is
         removed along with the clone and never pollutes the working tree.
+        Returns the written path together with the document, so a caller does
+        not have to read the file back.
         """
 
         reference = RepositoryRef(
@@ -146,11 +150,10 @@ class RepositoryInventoryService:
             commit=repository.commit,
         )
 
-        return self.run(
-            root=repository.path,
-            output_directory=repository.path.parent,
-            repository=reference,
-        )
+        inventory = self.build(repository.path, reference)
+        path = write_inventory(inventory, repository.path.parent)
+
+        return path, inventory
 
     def _analyse_manifests(
         self, root: Path, files: list[FileRecord]

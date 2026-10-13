@@ -5,6 +5,11 @@ Date: 2026-10-13
 Description:
     Exposes the repository ingestion subcomponent over HTTP: clone a
     repository onto the machine, list what is present, and remove it again.
+
+    A successful clone is followed immediately by a repository inventory, and
+    the summary is included in the response. The two subcomponents stay
+    independent: this transport layer is the only place that knows the
+    inventory runs after an ingestion.
 """
 
 from functools import lru_cache
@@ -25,11 +30,29 @@ from app.components.architecture_recovery.repository_ingestion.service import (
 from app.components.architecture_recovery.repository_ingestion.validation import (
     redact_credentials,
 )
+from app.components.architecture_recovery.repository_inventory import (
+    RepositoryInventoryError,
+    RepositoryInventoryService,
+    RepositoryInventorySummaryResponse,
+    inventory_options_from_settings,
+)
 from app.core.config import settings
+from app.domain.repository import IngestedRepository
 from app.infrastructure.git.client import GitClient, GitCommandError
 
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
+
+
+class RepositoryIngestionResponse(IngestedRepositoryResponse):
+    """An ingested repository plus the inventory taken from the fresh clone.
+
+    `inventory` is null when the inventory could not be produced, in which case
+    `inventory_error` explains why. The clone itself is unaffected either way.
+    """
+
+    inventory: RepositoryInventorySummaryResponse | None = None
+    inventory_error: str | None = None
 
 
 @lru_cache
@@ -53,16 +76,30 @@ def get_repository_ingestion_service() -> RepositoryIngestionService:
     )
 
 
+@lru_cache
+def get_repository_inventory_service() -> RepositoryInventoryService:
+    """Provide the inventory service shared by all requests.
+
+    Cached so the scan limits are read once. Declared as a FastAPI dependency
+    so tests can override it.
+    """
+
+    return RepositoryInventoryService(options=inventory_options_from_settings())
+
+
 @router.post(
     "",
-    response_model=IngestedRepositoryResponse,
+    response_model=RepositoryIngestionResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def ingest_repository(
     request: RepositoryIngestionRequest,
     service: RepositoryIngestionService = Depends(get_repository_ingestion_service),
-) -> IngestedRepositoryResponse:
-    """Clone `request.url` at `request.branch` into the workspace."""
+    inventory_service: RepositoryInventoryService = Depends(
+        get_repository_inventory_service
+    ),
+) -> RepositoryIngestionResponse:
+    """Clone `request.url` at `request.branch`, then inventory the clone."""
 
     try:
         repository = service.ingest(request.url, request.branch)
@@ -79,7 +116,15 @@ def ingest_repository(
             detail=redact_credentials(_describe_git_failure(error)),
         ) from error
 
-    return IngestedRepositoryResponse.model_validate(repository)
+    # The clone has succeeded, so from here on nothing may report the ingest as
+    # failed: an inventory problem is surfaced in the body instead.
+    inventory, inventory_error = _inventory_after_ingest(repository, inventory_service)
+
+    return RepositoryIngestionResponse(
+        **IngestedRepositoryResponse.model_validate(repository).model_dump(),
+        inventory=inventory,
+        inventory_error=inventory_error,
+    )
 
 
 @router.get("", response_model=list[IngestedRepositoryResponse])
@@ -108,6 +153,26 @@ def remove_repository(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(error),
         ) from error
+
+
+def _inventory_after_ingest(
+    repository: IngestedRepository,
+    inventory_service: RepositoryInventoryService,
+) -> tuple[RepositoryInventorySummaryResponse | None, str | None]:
+    """Inventory a freshly cloned working tree.
+
+    Returns the summary and an error message, exactly one of which is set.
+    Only `RepositoryInventoryError` is caught: that covers the expected
+    failures (an unwritable output directory, a missing working tree). An
+    unexpected exception is a defect and is deliberately allowed to surface.
+    """
+
+    try:
+        path, inventory = inventory_service.run_for_ingested(repository)
+    except RepositoryInventoryError as error:
+        return None, str(error)
+
+    return RepositoryInventorySummaryResponse.from_inventory(path, inventory), None
 
 
 def _describe_git_failure(error: GitCommandError) -> str:

@@ -776,7 +776,7 @@ def test_run_writes_beside_the_ingested_working_tree(workspace: Path) -> None:
         ingested_at=datetime.now(timezone.utc),
     )
 
-    written = RepositoryInventoryService().run_for_ingested(ingested)
+    written, inventory = RepositoryInventoryService().run_for_ingested(ingested)
 
     # The inventory is a sibling of the working tree, never inside it.
     assert written.parent == workspace.parent
@@ -790,6 +790,8 @@ def test_run_writes_beside_the_ingested_working_tree(workspace: Path) -> None:
         "branch": "main",
         "commit": "a" * 40,
     }
+    # The document is returned as well, so a caller need not read it back.
+    assert inventory.repository.id == "repo-1"
 
 
 def test_identifiers_are_stable_across_runs() -> None:

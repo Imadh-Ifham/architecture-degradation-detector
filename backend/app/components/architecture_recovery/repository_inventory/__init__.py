@@ -56,6 +56,9 @@ from app.components.architecture_recovery.repository_inventory.scanning import (
     ScanResult,
     build_file_id,
 )
+from app.components.architecture_recovery.repository_inventory.schemas import (
+    RepositoryInventorySummaryResponse,
+)
 from app.components.architecture_recovery.repository_inventory.service import (
     RepositoryInventoryService,
     default_inventory_service,
@@ -93,6 +96,7 @@ __all__ = [
     "RepositoryInventory",
     "RepositoryInventoryError",
     "RepositoryInventoryService",
+    "RepositoryInventorySummaryResponse",
     "RepositoryRef",
     "RepositoryScanner",
     "ScanResult",
