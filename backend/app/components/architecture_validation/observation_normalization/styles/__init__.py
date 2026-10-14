@@ -19,14 +19,32 @@ Description:
 
 from app.domain.recovered_architecture import ArchitectureStyle
 
-from .base import StyleAdapter
-from .event_driven import EventDrivenAdapter
+from .base import COMMUNICATION_LABELS, DEPENDENCY_LABELS, StyleAdapter
+from .event_driven import PUBLISH_LABELS, SUBSCRIBE_LABELS, EventDrivenAdapter
 from .generic import GenericAdapter
 from .layered import LayeredAdapter
 from .microservices import MicroservicesAdapter
 from .monolith import MonolithAdapter
 
 GENERIC_STYLE_NAME = "generic"
+
+KNOWN_LABELS = (
+    COMMUNICATION_LABELS | DEPENDENCY_LABELS | PUBLISH_LABELS | SUBSCRIBE_LABELS
+)
+"""Every relationship label some adapter in this package recognises.
+
+Assembled at the registry rather than in `base.py`, because the question it
+answers is about the style layer as a whole: *did anything here understand this
+word?* The event-driven adapter knows `publishes` and `consumes` and nothing
+else does, so a check written against `base.py` alone would report those as
+unrecognised on every event-driven release.
+
+Used for counting, never for branching. A label outside this set is still
+absorbed into a dependency with the original kept - the set exists so the run
+can say how many words it did not understand, which is the difference between
+"normalised generically" and "normalised generically, and here is what we did
+not know".
+"""
 
 _ADAPTERS: dict[ArchitectureStyle, StyleAdapter] = {
     adapter.style: adapter
@@ -59,6 +77,7 @@ def registered_styles() -> tuple[ArchitectureStyle, ...]:
 
 __all__ = [
     "GENERIC_STYLE_NAME",
+    "KNOWN_LABELS",
     "StyleAdapter",
     "adapter_for",
     "registered_styles",

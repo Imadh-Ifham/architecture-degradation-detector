@@ -17,8 +17,7 @@ Description:
 from app.domain.recovered_architecture import ArchitectureStyle, RecoveredArchitecture
 
 from ...models import ObservedFact
-from .._identity import fact_id
-from .base import base_attributes, classify_label
+from .base import classify_label, observed_fact
 
 
 class MicroservicesAdapter:
@@ -38,22 +37,19 @@ class MicroservicesAdapter:
                 # than becoming a fact about something that does not exist.
                 continue
 
-            relationship_kind = classify_label(relationship.label)
             facts.append(
-                ObservedFact(
-                    fact_id=fact_id(
-                        source.name, relationship_kind, target.name, architecture.release_id
-                    ),
-                    release_id=architecture.release_id,
-                    subject=source.name,
-                    relationship=relationship_kind,
-                    object=target.name,
+                observed_fact(
+                    architecture,
+                    subject=source,
+                    relationship=classify_label(relationship.label),
+                    object_=target,
                     style_resolved=self.style,
                     quality=relationship.quality,
-                    attributes=base_attributes(
-                        relationship.label,
-                        {"interaction": relationship.label.lower(), **relationship.attributes},
-                    ),
+                    label=relationship.label,
+                    extra={
+                        "interaction": relationship.label.lower(),
+                        **relationship.attributes,
+                    },
                 )
             )
         return tuple(facts)

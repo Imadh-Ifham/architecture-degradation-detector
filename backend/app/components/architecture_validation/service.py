@@ -15,6 +15,13 @@ Description:
     skip. When no decision governs a fact, reasoning is never called at all -
     so an uncovered fact reaches its bucket with provably zero model calls,
     rather than with a call whose result was discarded.
+
+    A subcomponent that is not written yet is reported as a pending stage and
+    the run carries on. The alternative - the whole run failing on the first
+    stub - would make a nine-stage component undemonstrable until the last
+    stage was finished, and would hide the fact that the earlier stages work.
+    Only `NotImplementedError` is treated this way, so a stage that genuinely
+    broke still fails loudly.
 """
 
 import uuid
@@ -65,6 +72,7 @@ class _Stage:
         self.status = StageStatus.COMPLETED
         self.counts: dict = {}
         self.note: str | None = None
+        self.warnings: tuple[str, ...] = ()
         self._started = 0.0
 
     def __enter__(self) -> "_Stage":
@@ -81,6 +89,10 @@ class _Stage:
         self.status = StageStatus.SKIPPED
         self.note = note
 
+    def pending(self, note: str | None = None) -> None:
+        self.status = StageStatus.PENDING
+        self.note = note or "not implemented yet"
+
     def record(self) -> StageRecord:
         return StageRecord(
             name=self.name,
@@ -88,7 +100,37 @@ class _Stage:
             counts=self.counts,
             duration_ms=int((perf_counter() - self._started) * 1000),
             note=self.note,
+            warnings=self.warnings,
         )
+
+
+def _attempt(stage: _Stage, call, *arguments):
+    """Make one subcomponent call, returning whether it had an implementation.
+
+    Catches `NotImplementedError` around that single call and nothing else, so
+    a stub nobody has written yet and a subcomponent that broke stay
+    distinguishable in the run record.
+    """
+
+    try:
+        return call(*arguments), True
+    except NotImplementedError as error:
+        stage.pending(str(error) or None)
+        return None, False
+
+
+def _run_status(stages: list[StageRecord]) -> str:
+    """Describe the run as a whole from how its stages ended.
+
+    A run with stages still pending is reported as incomplete rather than
+    completed, so a caller never reads a partial run as a finished one.
+    """
+
+    if any(stage.status is StageStatus.FAILED for stage in stages):
+        return "failed"
+    if any(stage.status is StageStatus.PENDING for stage in stages):
+        return "incomplete"
+    return "completed"
 
 
 class ArchitectureValidationService:
@@ -136,7 +178,7 @@ class ArchitectureValidationService:
         architecture = self._architecture_reader.read(repository_id, release_id)
 
         stages: list[StageRecord] = []
-        facts, stage = self._normalise(architecture)
+        facts, stage, style = self._normalise(architecture)
         stages.append(stage)
 
         stages.append(self._extract_intent(repository_id, release_id))
@@ -155,32 +197,72 @@ class ArchitectureValidationService:
             run_id=run_id,
             repository_id=repository_id,
             release_id=release_id,
-            status="completed",
+            status=_run_status(stages),
             stages=tuple(stages),
             facts=tuple(classified),
             published_ref=published_ref,
             model_calls=sum(fact.model_calls for fact in classified),
+            style_resolved=style[0],
+            style_source=style[1],
         )
 
     def _normalise(self, architecture: RecoveredArchitecture):
+        """Normalise, and return the facts, the stage record and the style.
+
+        The style travels back as a pair rather than being read off a fact,
+        because a run with no facts still resolved a style and still has to
+        report whose answer it was.
+        """
+
         with _Stage("observation_normalization") as stage:
-            outcome = self._normalization.normalise(architecture)
+            outcome, ran = _attempt(stage, self._normalization.normalise, architecture)
+            if not ran:
+                return (), stage.record(), (None, None)
+
             stage.counts = {
                 "facts": len(outcome.facts),
-                "derived_relationships": outcome.derived_relationships,
+                "relationships": outcome.relationship_count,
+                "identity_collisions": len(outcome.identity_collisions),
+                "merged_facts": outcome.merged_fact_count,
+                "absorbed_labels": len(outcome.absorbed_labels),
             }
-            if outcome.style_resolved == "generic":
-                stage.note = "architecture style not resolved; confidence capped"
-            return outcome.facts, stage.record()
+            stage.note = self._style_note(outcome)
+            stage.warnings = outcome.warnings
+            return (
+                outcome.facts,
+                stage.record(),
+                (outcome.style_resolved, outcome.style_source),
+            )
+
+    def _style_note(self, outcome) -> str | None:
+        """The one style case that belongs in the note rather than the warnings.
+
+        The note is for what happened to the stage - skipped, pending, failed
+        - plus anything that caps the whole run. An undetermined style does
+        cap it: every verdict built on these facts inherits the ceiling, so a
+        reader scanning statuses has to see it without opening the warnings.
+
+        An *inferred* style is an observation and stays in the warnings, where
+        normalisation already put it. Repeating it here would print the same
+        sentence twice on every run, and a field that usually repeats another
+        one stops being read.
+        """
+
+        if outcome.style_resolved == "generic":
+            return "architecture style not resolved; confidence capped"
+        return None
 
     def _extract_intent(self, repository_id: str, release_id: str) -> StageRecord:
         with _Stage("intent_extraction") as stage:
-            outcome = self._intent.extract(repository_id, release_id)
-            stage.counts = {
-                "candidates": len(outcome.candidates),
-                "sources_run": len(outcome.sources_run),
-                **outcome.counts_by_tier,
-            }
+            outcome, ran = _attempt(
+                stage, self._intent.extract, repository_id, release_id
+            )
+            if ran:
+                stage.counts = {
+                    "candidates": len(outcome.candidates),
+                    "sources_run": len(outcome.sources_run),
+                    **outcome.counts_by_tier,
+                }
             return stage.record()
 
     def _validate_each(self, facts) -> tuple[list[ClassifiedFact], list[StageRecord]]:
@@ -197,30 +279,62 @@ class ArchitectureValidationService:
         verification = _Stage("independent_verification")
         classification = _Stage("classification")
 
+        group = (knowledge, evidence, reasoning, verification, classification)
         counts = {"resolved": 0, "uncovered": 0, "ambiguous": 0, "reasoned": 0}
         classified: list[ClassifiedFact] = []
 
         with knowledge, evidence, reasoning, verification, classification:
             for fact in facts:
-                resolution = self._knowledge.resolve(fact)
+                resolution, ran = _attempt(knowledge, self._knowledge.resolve, fact)
+                if not ran:
+                    break
 
                 if resolution.uncovered or resolution.ambiguous:
                     # Nothing to reason against. The model is never called,
                     # which is why the published fact can report zero calls.
                     counts["uncovered" if resolution.uncovered else "ambiguous"] += 1
-                    classified.append(
-                        self._classification.classify(fact, resolution, None, None)
+                    result, ran = _attempt(
+                        classification,
+                        self._classification.classify,
+                        fact,
+                        resolution,
+                        None,
+                        None,
                     )
+                    if not ran:
+                        break
+                    classified.append(result)
                     continue
 
                 counts["resolved"] += 1
-                package = self._evidence.assemble(fact, resolution)
-                verdict = self._reasoning.judge(package)
-                checked = self._verification.verify(verdict, package)
-                counts["reasoned"] += 1
-                classified.append(
-                    self._classification.classify(fact, resolution, verdict, checked)
+                package, ran = _attempt(
+                    evidence, self._evidence.assemble, fact, resolution
                 )
+                if not ran:
+                    break
+
+                verdict, ran = _attempt(reasoning, self._reasoning.judge, package)
+                if not ran:
+                    break
+
+                checked, ran = _attempt(
+                    verification, self._verification.verify, verdict, package
+                )
+                if not ran:
+                    break
+
+                counts["reasoned"] += 1
+                result, ran = _attempt(
+                    classification,
+                    self._classification.classify,
+                    fact,
+                    resolution,
+                    verdict,
+                    checked,
+                )
+                if not ran:
+                    break
+                classified.append(result)
 
         knowledge.counts = {k: counts[k] for k in ("resolved", "uncovered", "ambiguous")}
         evidence.counts = {"packages": counts["resolved"]}
@@ -228,9 +342,31 @@ class ArchitectureValidationService:
         verification.counts = {"verifications": counts["reasoned"]}
         classification.counts = {"facts": len(classified)}
 
+        if not facts:
+            # Not one of these five was called. Reporting them as completed
+            # would be the same lie as a stub reporting a completed pass: a
+            # board of green stages over a run that validated nothing.
+            for stage in group:
+                if stage.status is StageStatus.COMPLETED:
+                    stage.skip("normalisation produced no facts to validate")
+            return classified, [stage.record() for stage in group]
+
+        # A stage after the one that stalled was never reached, so it reports
+        # itself skipped with the reason rather than as a clean pass over
+        # nothing it never saw. Named before the short-circuit below, because
+        # "no fact had a governing decision" would otherwise be attached to a
+        # pass that never happened - which reads as knowledge having looked.
+        stalled = next((s for s in group if s.status is StageStatus.PENDING), None)
+        if stalled is not None:
+            for stage in group[group.index(stalled) + 1 :]:
+                if stage.status is StageStatus.COMPLETED:
+                    stage.skip(f"{stalled.name} is not implemented yet")
+
         if counts["reasoned"] == 0:
-            reasoning.skip("no fact had a governing decision to reason against")
-            verification.skip("nothing to verify")
+            if reasoning.status is StageStatus.COMPLETED:
+                reasoning.skip("no fact had a governing decision to reason against")
+            if verification.status is StageStatus.COMPLETED:
+                verification.skip("nothing to verify")
 
         return classified, [
             knowledge.record(),
@@ -243,10 +379,13 @@ class ArchitectureValidationService:
     def _queue_for_review(self, classified: list[ClassifiedFact]) -> StageRecord:
         with _Stage("architect_review") as stage:
             needing_review = tuple(f for f in classified if f.route == "review")
-            queued = self._review.enqueue(needing_review) if needing_review else ()
-            stage.counts = {"queued": len(queued)}
             if not needing_review:
+                stage.counts = {"queued": 0}
                 stage.skip("no fact was routed for review")
+                return stage.record()
+
+            queued, ran = _attempt(stage, self._review.enqueue, needing_review)
+            stage.counts = {"queued": len(queued) if ran else 0}
             return stage.record()
 
     def _publish(
@@ -268,8 +407,14 @@ class ArchitectureValidationService:
                 facts=tuple(classified),
                 model_calls=sum(fact.model_calls for fact in classified),
             )
-            published_ref = self._publishing.publish(interim, architecture)
-            stage.counts = {"nodes": len(architecture.elements), "edges": len(classified)}
+            published_ref, ran = _attempt(
+                stage, self._publishing.publish, interim, architecture
+            )
+            if ran:
+                stage.counts = {
+                    "nodes": len(architecture.elements),
+                    "edges": len(classified),
+                }
             return published_ref, stage.record()
 
 

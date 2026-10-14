@@ -36,6 +36,7 @@ from app.domain.recovered_architecture import (
     DerivationMethod,
     EvidenceQuality,
     RecoveredArchitecture,
+    StyleSource,
 )
 from app.domain.validated_architecture import (
     NODE_LINK_EDGE_KEY,
@@ -124,6 +125,7 @@ class TestRecoveredArchitectureContract:
             repository_id="online-boutique",
             release_id="v0.9.0",
             style=ArchitectureStyle.MICROSERVICES,
+            style_source=StyleSource.C1,
             elements=(),
             relationships=(),
             provenance=_provenance(),

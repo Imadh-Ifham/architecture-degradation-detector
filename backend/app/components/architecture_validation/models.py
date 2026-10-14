@@ -151,6 +151,33 @@ class Span:
 
 
 @dataclass(frozen=True)
+class FactEndpoint:
+    """One end of an observed relationship, in its three forms.
+
+    Three, because three different readers need three different things and
+    deriving any of them later means a join somebody will get wrong:
+
+      `canonical`  the identity. What a decision is matched against, and what
+                   the fact's id is hashed from. Two spellings of one element
+                   share this and nothing else.
+      `name`       the name recovery used. What a person reads on a screen or
+                   in a model's prompt; `payment-service`, not `payment`.
+      `id`         recovery's own element id. What makes a fact traceable back
+                   to the edge it came from in the input snapshot.
+
+    Nested rather than six flat fields on the fact, so each meaning is named
+    once instead of twice and an id cannot exist without the name beside it.
+    """
+
+    id: str
+    name: str
+    canonical: str
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "name": self.name, "canonical": self.canonical}
+
+
+@dataclass(frozen=True)
 class ObservedFact:
     """One relationship in the architecture, as validation sees it.
 
@@ -160,15 +187,32 @@ class ObservedFact:
 
     `style_resolved` records which adapter produced this fact. When it is the
     generic adapter, the style could not be determined and `quality_ceiling`
-    reflects that.
+    reflects that. `style_source` records whose answer that style was -
+    recovery detected it, or validation inferred it - and travels on the fact
+    rather than only on the run, because a fact can be read on its own and the
+    strength of a verdict about it depends on the answer.
+
+    `subject` and `object` are `FactEndpoint`s rather than strings. The
+    canonical form is the identity and the only thing a rule may be matched
+    on; the reported name and the element id travel beside it because a screen
+    needs the first and traceability needs the second, and recovering either
+    one afterwards means a join.
+
+    `release_id` and `release_sort_key` are both carried, and both are needed.
+    The string is what serialises and what C3 reads; the key is what orders,
+    because `"v0.10.0" > "v0.9.0"` is false as text. Neither is derived from
+    the other on demand - a reader that has to remember to sort by one field
+    rather than the obvious one eventually forgets.
     """
 
     fact_id: str
     release_id: str
-    subject: str
+    release_sort_key: tuple[int, ...]
+    subject: FactEndpoint
     relationship: RelationshipKind
-    object: str
+    object: FactEndpoint
     style_resolved: str
+    style_source: str
     quality: str
     attributes: dict = field(default_factory=dict)
 
@@ -410,10 +454,17 @@ class StageStatus(StrEnum):
     `SKIPPED` is a real outcome rather than a failure: a stage that had nothing
     to do because an earlier stage short-circuited is not the same as a stage
     that ran and found nothing.
+
+    `PENDING` is the same distinction one step earlier: a stage whose
+    subcomponent is not written yet has not failed, and a run that reaches the
+    end with stages pending is the honest description of a component being
+    built in sequence. It can only arise while subcomponents are still stubs,
+    and stops arising once the last one is implemented.
     """
 
     COMPLETED = "completed"
     SKIPPED = "skipped"
+    PENDING = "pending"
     FAILED = "failed"
 
 
@@ -424,6 +475,14 @@ class StageRecord:
     Published as a list rather than keyed by stage name. A list keeps the
     pipeline's shape out of every consumer's type definitions, so adding or
     reordering a stage stays a change here and nowhere else.
+
+    `note` and `warnings` are different things and are kept apart. The note
+    says something about the stage - why it was skipped, what stopped it, how
+    it resolved the style - and there is at most one. The warnings are what
+    the stage observed about the *architecture*: names that collapsed into one
+    identity, relationships that named an element nobody declared. A
+    subcomponent that reports one of those and has it dropped on the way out
+    has reported nothing, which is why they are published rather than logged.
     """
 
     name: str
@@ -431,14 +490,16 @@ class StageRecord:
     counts: dict = field(default_factory=dict)
     duration_ms: int = 0
     note: str | None = None
+    warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         return {
             "name": self.name,
             "status": self.status,
             "counts": dict(self.counts),
-            "durationMs": self.duration_ms,
+            "duration_ms": self.duration_ms,
             "note": self.note,
+            "warnings": list(self.warnings),
         }
 
 
@@ -449,6 +510,13 @@ class ValidationRunResult:
     `model_calls` is totalled across the run so the cost of a run is visible
     without adding up the facts, and so a run that should have made no calls
     can be shown to have made none.
+
+    `style_resolved` and `style_source` are on the run as well as on every
+    fact, and both are `None` when normalisation did not run. They are here
+    because they describe the whole run rather than one relationship: one
+    answer decided which adapter produced every fact in it, and a reader
+    looking at a result should not have to open a fact to find out whose
+    answer that was.
     """
 
     run_id: str
@@ -459,3 +527,5 @@ class ValidationRunResult:
     facts: tuple[ClassifiedFact, ...] = ()
     published_ref: str | None = None
     model_calls: int = 0
+    style_resolved: str | None = None
+    style_source: str | None = None

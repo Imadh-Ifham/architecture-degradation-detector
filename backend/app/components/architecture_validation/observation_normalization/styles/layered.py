@@ -20,8 +20,7 @@ from app.domain.recovered_architecture import (
 )
 
 from ...models import ObservedFact, RelationshipKind
-from .._identity import fact_id
-from .base import base_attributes
+from .base import observed_fact
 
 LAYER_RANKS = {
     "presentation": 1,
@@ -65,22 +64,15 @@ class LayeredAdapter:
                 extra["layer_relationship"] = True
 
             facts.append(
-                ObservedFact(
-                    fact_id=fact_id(
-                        source.name,
-                        RelationshipKind.DEPENDS_ON,
-                        target.name,
-                        architecture.release_id,
-                    ),
-                    release_id=architecture.release_id,
-                    subject=source.name,
+                observed_fact(
+                    architecture,
+                    subject=source,
                     relationship=RelationshipKind.DEPENDS_ON,
-                    object=target.name,
+                    object_=target,
                     style_resolved=self.style,
                     quality=relationship.quality,
-                    attributes=base_attributes(
-                        relationship.label, {**extra, **relationship.attributes}
-                    ),
+                    label=relationship.label,
+                    extra={**extra, **relationship.attributes},
                 )
             )
         return tuple(facts)

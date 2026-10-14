@@ -40,21 +40,56 @@ from app.components.architecture_validation.models import (
     Verification,
     VerificationOutcome,
 )
+from app.components.architecture_validation.architect_review import (
+    ArchitectReviewService,
+)
+from app.components.architecture_validation.classification import ClassificationService
+from app.components.architecture_validation.decision_knowledge import (
+    DecisionKnowledgeService,
+)
+from app.components.architecture_validation.evidence_retrieval import (
+    EvidenceRetrievalService,
+)
+from app.components.architecture_validation.graph_publishing import (
+    GraphPublishingService,
+)
+from app.components.architecture_validation.independent_verification import (
+    IndependentVerificationService,
+)
+from app.components.architecture_validation.intent_extraction import (
+    IntentExtractionService,
+)
 from app.components.architecture_validation.observation_normalization import (
     ObservationNormalizationService,
+)
+from app.components.architecture_validation.pipeline import IMPLEMENTED_STAGES
+from app.components.architecture_validation.validation_reasoning import (
+    ValidationReasoningService,
 )
 from app.components.architecture_validation.service import (
     STAGE_ORDER,
     ArchitectureValidationService,
 )
-from app.domain.recovered_architecture import ArchitectureStyle, ElementKind
-from app.infrastructure.recovered_architecture.fixture_reader import (
+from dataclasses import replace
+
+from app.domain.recovered_architecture import (
+    ArchitectureStyle,
+    EvidenceQuality,
+    ElementKind,
+    RecoveredArchitecture,
+    RecoveryProvenance,
+    StyleSource,
+)
+from app.infrastructure.recovery_gateway.fixture_reader import (
     FixtureArchitectureReader,
 )
-from app.infrastructure.recovered_architecture.translation import manifest_paths
+from app.infrastructure.recovery_gateway.snapshot_file_reader import (
+    SnapshotFileReader,
+)
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "validation"
 SUBJECT = FIXTURES / "subject"
+SNAPSHOTS = Path(__file__).resolve().parents[3] / "data" / "snapshots"
 
 
 class StubIntent:
@@ -221,8 +256,8 @@ def build(release="v0.10.0", resolve_first=True):
         "publishing": StubPublishing(),
     }
     service = ArchitectureValidationService(
-        architecture_reader=FixtureArchitectureReader(FIXTURES),
-        normalization=ObservationNormalizationService(WorkspaceReader()),
+        architecture_reader=SnapshotFileReader(SNAPSHOTS),
+        normalization=ObservationNormalizationService(),
         **stubs,
     )
     return service, stubs
@@ -325,17 +360,26 @@ class TestAgainstTheRecordedInventory:
         normalisation = result.stages[0]
         assert normalisation.status is StageStatus.COMPLETED
         assert normalisation.counts["facts"] > 0
-        assert normalisation.counts["derived_relationships"] > 0
+        assert normalisation.counts["relationships"] > 0
 
-    def test_the_style_is_inferred_from_the_recorded_inventory(self):
+    def test_the_recorded_inventory_carries_no_style_and_the_run_infers_it(self):
+        """Recovery supplies no style field today, so the gateway reports its
+        absence and the normaliser answers - labelled as its own answer, never
+        as recovery's."""
+
         architecture = FixtureArchitectureReader(FIXTURES).read("online-boutique", "v0.10.0")
 
-        assert architecture.style is ArchitectureStyle.MICROSERVICES
+        assert architecture.style_source is StyleSource.INFERRED_BY_C2
         assert all(
             element.kind is ElementKind.SERVICE for element in architecture.elements
         )
 
-    def test_recovery_supplies_no_element_relationships_so_they_are_derived(self):
+        outcome = ObservationNormalizationService().normalise(architecture)
+
+        assert outcome.style_resolved == ArchitectureStyle.MICROSERVICES
+        assert outcome.style_source == StyleSource.INFERRED_BY_C2
+
+    def test_the_inventory_itself_still_carries_no_element_relationships(self):
         """The finding this whole input layer exists for."""
 
         architecture = FixtureArchitectureReader(FIXTURES).read("online-boutique", "v0.10.0")
@@ -350,16 +394,23 @@ class TestAgainstTheRecordedInventory:
 
         assert current - previous == {"shoppingassistantservice"}
 
-    def test_the_derived_dependencies_match_the_real_manifests(self):
-        """checkoutservice declares six, and they are the six in the manifest."""
+    def test_the_recorded_dependencies_match_the_real_manifests(self):
+        """checkoutservice declares six, and they are the six in the manifest.
 
-        service = ObservationNormalizationService(WorkspaceReader())
-        architecture = FixtureArchitectureReader(FIXTURES).read("online-boutique", "v0.10.0")
-        document = json.loads((FIXTURES / "inventory_v0.10.0.json").read_text(encoding="utf-8"))
+        Read off the recorded snapshot rather than produced here: the
+        dependencies are recovery's to supply, and the recording is what the
+        methodology sanctions while its extraction is unfinished.
+        """
 
-        outcome = service.normalise(architecture, manifest_paths(document))
+        architecture = SnapshotFileReader(SNAPSHOTS).read("online-boutique", "v0.10.0")
 
-        checkout = {f.object for f in outcome.facts if f.subject == "checkoutservice"}
+        outcome = ObservationNormalizationService().normalise(architecture)
+
+        checkout = {
+            fact.object.name
+            for fact in outcome.facts
+            if fact.subject.name == "checkoutservice"
+        }
         assert checkout == {
             "productcatalogservice",
             "shippingservice",
@@ -383,3 +434,329 @@ class TestAgainstTheRecordedInventory:
 
         assert any("deny-all" in path for path in policies)
         assert not any("shoppingassistant" in path for path in policies)
+
+
+def build_unimplemented(release="v0.10.0"):
+    """Assemble the pipeline from the real subcomponents, stubs and all.
+
+    This is what the API wires today, so it is the configuration the run
+    endpoint is actually exercised in.
+    """
+
+    return ArchitectureValidationService(
+        architecture_reader=SnapshotFileReader(SNAPSHOTS),
+        normalization=ObservationNormalizationService(),
+        intent=IntentExtractionService(),
+        knowledge=DecisionKnowledgeService(),
+        evidence=EvidenceRetrievalService(),
+        reasoning=ValidationReasoningService(),
+        verification=IndependentVerificationService(),
+        classification=ClassificationService(),
+        review=ArchitectReviewService(),
+        publishing=GraphPublishingService(),
+    )
+
+
+class TestStagesNotBuiltYet:
+    """A nine-stage component has to be runnable before stage nine exists."""
+
+    def test_a_run_completes_with_only_one_subcomponent_implemented(self):
+        """Without this the component is undemonstrable until the last stage
+        is finished, and the stages that do work cannot be shown at all."""
+
+        result = build_unimplemented().run(
+            repository_id="online-boutique", release_id="v0.10.0"
+        )
+
+        assert result.status == "incomplete"
+        assert [stage.name for stage in result.stages] == list(STAGE_ORDER)
+
+    def test_the_implemented_stage_still_reports_what_it_did(self):
+        result = build_unimplemented().run(
+            repository_id="online-boutique", release_id="v0.10.0"
+        )
+        stages = {stage.name: stage for stage in result.stages}
+        normalisation = stages["observation_normalization"]
+
+        assert normalisation.status is StageStatus.COMPLETED
+        assert normalisation.counts["facts"] > 0
+
+    def test_no_unimplemented_stage_claims_to_have_completed(self):
+        """A stub reporting a completed pass would be the one failure mode
+        that makes the whole board worthless."""
+
+        result = build_unimplemented().run(
+            repository_id="online-boutique", release_id="v0.10.0"
+        )
+
+        for stage in result.stages:
+            if stage.name in IMPLEMENTED_STAGES:
+                continue
+            assert stage.status in {StageStatus.PENDING, StageStatus.SKIPPED}
+            assert stage.note
+
+    def test_a_stage_after_the_one_that_stalled_names_what_stopped_it(self):
+        """Otherwise it reads as a clean pass over work it never saw."""
+
+        result = build_unimplemented().run(
+            repository_id="online-boutique", release_id="v0.10.0"
+        )
+        stages = {stage.name: stage for stage in result.stages}
+
+        assert stages["decision_knowledge"].status is StageStatus.PENDING
+        assert stages["classification"].status is StageStatus.SKIPPED
+        assert "decision_knowledge" in stages["classification"].note
+
+    def test_an_incomplete_run_makes_no_model_calls_and_publishes_nothing(self):
+        result = build_unimplemented().run(
+            repository_id="online-boutique", release_id="v0.10.0"
+        )
+
+        assert result.model_calls == 0
+        assert result.published_ref is None
+
+    def test_a_subcomponent_that_breaks_is_not_reported_as_unbuilt(self):
+        """Pending means nobody has written it. A stage that raises anything
+        else has a defect, and hiding that in the same bucket would make the
+        board lie."""
+
+        class BrokenKnowledge:
+            def resolve(self, fact):
+                raise ValueError("index is corrupt")
+
+        service, stubs = build()
+        service._knowledge = BrokenKnowledge()
+
+        with pytest.raises(ValueError, match="index is corrupt"):
+            service.run(repository_id="online-boutique", release_id="v0.10.0")
+
+    def test_a_skipped_stage_blames_the_stub_rather_than_the_evidence(self):
+        """"No fact had a governing decision" would read as the knowledge
+        stage having looked and found none, which is not what happened."""
+
+        result = build_unimplemented().run(
+            repository_id="online-boutique", release_id="v0.10.0"
+        )
+        stages = {stage.name: stage for stage in result.stages}
+
+        for name in ("validation_reasoning", "independent_verification"):
+            assert "decision_knowledge" in stages[name].note
+
+
+class TestARunWithNothingToValidate:
+    """Zero facts is a real outcome, and it must not look like a clean pass."""
+
+    def test_no_facts_means_no_stage_claims_to_have_completed(self):
+        """Found by running the live wiring: recovery's inventory carries no
+        dependencies yet, so normalisation produces nothing - and five stages
+        that were never called were reporting themselves completed. A board of
+        green stages over a run that validated nothing is the same lie as a
+        stub reporting a completed pass."""
+
+        empty = RecoveredArchitecture(
+            repository_id="online-boutique",
+            release_id="v0.10.0",
+            style=ArchitectureStyle.MICROSERVICES,
+            style_source=StyleSource.C1,
+            elements=(),
+            relationships=(),
+            provenance=RecoveryProvenance("snapshot_file_reader", "1.0.0", "test"),
+        )
+        service, _ = build()
+        service._architecture_reader = _Fixed(empty)
+
+        result = service.run(repository_id="online-boutique", release_id="v0.10.0")
+        stages = {stage.name: stage for stage in result.stages}
+
+        assert stages["observation_normalization"].status is StageStatus.COMPLETED
+        for name in (
+            "decision_knowledge",
+            "evidence_retrieval",
+            "validation_reasoning",
+            "independent_verification",
+            "classification",
+        ):
+            assert stages[name].status is StageStatus.SKIPPED, name
+            assert stages[name].note
+
+    def test_normalisation_says_recovery_supplied_no_dependencies(self):
+        """The warning that tells a reader why the run was empty, rather than
+        leaving them to infer it from a row of zeros."""
+
+        architecture = SnapshotFileReader(SNAPSHOTS).read("online-boutique", "v0.10.0")
+        stripped = replace(architecture, relationships=())
+
+        outcome = ObservationNormalizationService().normalise(stripped)
+
+        assert outcome.facts == ()
+        assert any("no element-to-element dependencies" in w for w in outcome.warnings)
+
+
+class _Fixed:
+    """An architecture reader that returns one prepared architecture."""
+
+    def __init__(self, architecture) -> None:
+        self._architecture = architecture
+
+    def read(self, repository_id, release_id):
+        return self._architecture
+
+
+class TestTheM1Gate:
+    """The stage gate for M1, as one executable checklist.
+
+    Every row of `01_TARGETED_ARCHITECTURE.md` §9 that does not depend on
+    recovery's graph, asserted against the **recorded snapshot of recovery's
+    real output** rather than against an invented architecture. Several of
+    these are also covered in detail elsewhere; the point of having them here
+    is that the checklist stops being a list somebody ticks and becomes a list
+    the suite ticks.
+
+    Two rows are deliberately absent and belong to O7: the statement count per
+    read, and the element ceiling. Both need the graph reader, and recovery's
+    graph does not exist yet.
+    """
+
+    RELEASES = ("v0.9.0", "v0.10.0")
+
+    def outcome(self, release):
+        from app.core.config import settings
+        from app.infrastructure.recovery_gateway import SnapshotFileReader
+
+        architecture = SnapshotFileReader(settings.snapshot_root).read(
+            "online-boutique", release
+        )
+        return ObservationNormalizationService().normalise(architecture)
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_recorded_snapshot_normalises_completely(self, release):
+        outcome = self.outcome(release)
+
+        assert len(outcome.facts) == len(outcome.architecture.relationships)
+        assert outcome.relationship_count == len(outcome.architecture.relationships)
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_fact_carries_an_orderable_release_key(self, release):
+        outcome = self.outcome(release)
+
+        assert outcome.release_sort_key
+        assert all(fact.release_sort_key == outcome.release_sort_key for fact in outcome.facts)
+
+    def test_the_two_demonstration_releases_order_correctly(self):
+        assert self.outcome("v0.10.0").release_sort_key > self.outcome("v0.9.0").release_sort_key
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_fact_says_whose_answer_the_style_was(self, release):
+        outcome = self.outcome(release)
+
+        assert outcome.style_source == StyleSource.INFERRED_BY_C2
+        assert all(fact.style_source == outcome.style_source for fact in outcome.facts)
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_no_identity_collision_and_nothing_merged(self, release):
+        outcome = self.outcome(release)
+
+        assert outcome.identity_collisions == ()
+        assert outcome.merged_fact_count == 0
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_no_relationship_label_was_absorbed(self, release):
+        outcome = self.outcome(release)
+
+        assert outcome.absorbed_labels == ()
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_fact_keeps_the_original_label_beside_the_canonical_one(self, release):
+        outcome = self.outcome(release)
+
+        assert all(fact.attributes.get("observed_as") for fact in outcome.facts)
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_no_directory_group_became_an_element(self, release):
+        """A directory can never be governed by an architectural decision, so
+        counting one as an element would count it as ungoverned - inflating the
+        single number that is easiest to misread."""
+
+        outcome = self.outcome(release)
+
+        assert all(
+            element.kind in (ElementKind.SERVICE, ElementKind.MODULE)
+            for element in outcome.architecture.elements
+        )
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_an_inferred_input_stays_marked_inferred(self, release):
+        """*"We do not accuse on inferred structure"* has to be true in code.
+
+        The recording holds elements recovery only inferred, and the quality of
+        the facts touching them has to still say so by the time classification
+        sees them - that is what the confidence ceiling is applied to.
+        """
+
+        outcome = self.outcome(release)
+        inferred = {
+            element.id
+            for element in outcome.architecture.elements
+            if element.quality is EvidenceQuality.INFERRED
+        }
+
+        assert inferred, f"{release} has no inferred elements; this test proves nothing"
+
+        qualities = {str(fact.quality) for fact in outcome.facts}
+        assert qualities <= {"confirmed", "inferred"}
+        assert all(fact.quality for fact in outcome.facts)
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_same_release_normalised_twice_gives_identical_ids(self, release):
+        """Content addressing. Two runs can be compared without matching on
+        position, which a counter could never support - and it is also what
+        makes a re-run after a failure free rather than merely fast."""
+
+        first, again = self.outcome(release), self.outcome(release)
+
+        assert [fact.fact_id for fact in first.facts] == [
+            fact.fact_id for fact in again.facts
+        ]
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_fact_is_traceable_back_to_the_input(self, release):
+        """The row-to-edge link the screen needs. A fact whose ends cannot be
+        found in the snapshot it came from could not be drawn on it."""
+
+        outcome = self.outcome(release)
+        known = {element.id for element in outcome.architecture.elements}
+
+        for fact in outcome.facts:
+            assert fact.subject.id in known
+            assert fact.object.id in known
+            assert fact.subject.canonical and fact.object.canonical
+            assert fact.subject.name and fact.object.name
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_input_is_returned_beside_the_output(self, release):
+        """So the before and the after can be shown together, which is the
+        clearest thing this subcomponent has to put on a screen."""
+
+        outcome = self.outcome(release)
+
+        assert outcome.architecture.release_id == release
+        assert outcome.architecture.elements
+
+    def test_the_stand_in_lives_outside_the_component_and_names_its_expiry(self):
+        """The last row of the checklist, and the only one that is about where
+        a file is rather than what it does."""
+
+        import ast
+        from pathlib import Path
+
+        stand_in = (
+            Path(__file__).resolve().parents[3]
+            / "app"
+            / "infrastructure"
+            / "recovery_gateway"
+            / "c1_dependency_stand_in.py"
+        )
+
+        assert stand_in.is_file()
+        docstring = ast.get_docstring(ast.parse(stand_in.read_text(encoding="utf-8"))) or ""
+        assert "deleted when recovery ships" in docstring

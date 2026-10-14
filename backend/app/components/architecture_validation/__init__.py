@@ -33,6 +33,7 @@ Description:
     other, and nothing outside the component imports a subcomponent.
 """
 
+from .pipeline import PIPELINE, StageDescription
 from .service import ArchitectureValidationService
 
-__all__ = ["ArchitectureValidationService"]
+__all__ = ["PIPELINE", "ArchitectureValidationService", "StageDescription"]

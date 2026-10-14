@@ -13,9 +13,15 @@ Description:
 """
 
 import ast
+import inspect
 from pathlib import Path
 
 import pytest
+
+from app.components.architecture_validation.pipeline import (
+    IMPLEMENTED_STAGES,
+    PIPELINE,
+)
 
 COMPONENT = Path(__file__).resolve().parents[3] / "app" / "components" / "architecture_validation"
 
@@ -33,12 +39,13 @@ SUBCOMPONENTS = (
 
 FORBIDDEN_IMPORTS = ("app.infrastructure", "sqlalchemy", "neo4j", "fastapi", "anthropic", "openai")
 
-IMPLEMENTED = frozenset({"observation_normalization"})
+IMPLEMENTED = IMPLEMENTED_STAGES
 """Subcomponents whose service is written.
 
-Kept here rather than inferred from the source, so adding one is a deliberate
-edit that shows up in a diff. Both halves of the stub/implemented pair below
-read from it.
+Read from the component's own pipeline description rather than restated here,
+so the status the API publishes is the status these tests enforce. It is still
+written by hand there, which is the point: promoting a subcomponent stays a
+deliberate edit that shows up in a diff.
 """
 
 
@@ -205,6 +212,148 @@ class TestOrchestration:
 
         assert "raise NotImplementedError" not in source
         assert callable(getattr(service_class, entry))
+
+
+class TestObservationNormalizationHasNoIO:
+    """M1's one port, asserted structurally rather than hoped for.
+
+    The architecture document gives recovery the job of supplying the elements,
+    their dependencies and the detected style, and it says that validation does
+    not read source code. A manifest reader inside this component contradicts
+    both - so the rule worth enforcing is not "do not read manifests" but the
+    stronger one below: M1 cannot name a reader, so it cannot read anything.
+    """
+
+    M1 = "observation_normalization"
+
+    def m1_modules(self) -> list[Path]:
+        return sorted((COMPONENT / self.M1).rglob("*.py"))
+
+    @pytest.mark.parametrize(
+        "path", sorted((COMPONENT / "observation_normalization").rglob("*.py")),
+        ids=lambda p: p.name,
+    )
+    def test_no_module_names_a_file_reader_or_a_filesystem_call(self, path):
+        source = path.read_text(encoding="utf-8")
+        body = "\n".join(
+            line for line in source.splitlines() if not line.strip().startswith("#")
+        )
+
+        for forbidden in ("SourceArtifactReader", "open(", "Path(", "yaml."):
+            assert forbidden not in body, (
+                f"{path.name} names '{forbidden}'; M1 has one port and no I/O"
+            )
+
+    def test_the_subcomponent_has_no_derivation_module_left(self):
+        """The derivation moved to infrastructure as a named stand-in for
+        recovery. A file reappearing here is the regression to catch."""
+
+        names = {path.name for path in self.m1_modules()}
+
+        assert "_derivation.py" not in names
+
+    def test_the_service_takes_no_dependency_at_all(self):
+        from app.components.architecture_validation.observation_normalization import (
+            ObservationNormalizationService,
+        )
+
+        # Constructible with nothing: that is what "no I/O" means in practice.
+        assert ObservationNormalizationService().normalise
+
+    def test_the_stand_in_lives_outside_the_component_and_states_its_expiry(self):
+        """A thing that has to disappear should be named and dated so that it
+        cannot be forgotten."""
+
+        stand_in = (
+            COMPONENT.parents[1]
+            / "infrastructure"
+            / "recovery_gateway"
+            / "c1_dependency_stand_in.py"
+        )
+
+        assert stand_in.is_file()
+        docstring = ast.get_docstring(ast.parse(stand_in.read_text(encoding="utf-8"))) or ""
+        assert "deleted when recovery ships" in docstring
+
+
+class TestTheStyleIsInferredInExactlyOnePlace:
+    """One inference, three readers.
+
+    The architectural style decides which adapter runs, and the adapter
+    decides what every fact in a run looks like. There are three readers
+    behind M1's one port - a recorded snapshot, recovery's inventory, and
+    eventually recovery's graph - and an inference in that layer would be
+    written once per reader or imported across them, which is three chances
+    for two releases to be classified by different rules.
+    """
+
+    GATEWAY = Path(__file__).resolve().parents[3] / "app" / "infrastructure" / "recovery_gateway"
+
+    def test_only_the_normaliser_defines_the_inference(self):
+        defining = []
+        for path in (COMPONENT.parents[1]).rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.FunctionDef) and node.name == "infer_style":
+                    defining.append(path)
+
+        assert [path.name for path in defining] == ["_style.py"], (
+            f"infer_style is defined in {[p.name for p in defining]}; "
+            "M1 is the one place that decides a style nobody supplied"
+        )
+
+    def test_the_gateway_reports_the_absence_rather_than_filling_it(self):
+        """The reader's job is to say whether recovery answered, not to answer
+        for it. A gateway that imports the inference has taken on the decision
+        the normaliser owns."""
+
+        for path in self.GATEWAY.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            assert "infer_style" not in path.read_text(encoding="utf-8"), (
+                f"{path.name} names infer_style; the gateway reports the style's "
+                "absence and the normaliser decides what to do about it"
+            )
+
+
+class TestPipelineDescription:
+    """What the component publishes about itself has to be true."""
+
+    def test_the_description_lists_every_stage_in_run_order(self):
+        from app.components.architecture_validation.service import STAGE_ORDER
+
+        assert tuple(stage.name for stage in PIPELINE) == STAGE_ORDER
+        assert [stage.order for stage in PIPELINE] == list(range(1, len(STAGE_ORDER) + 1))
+
+    @pytest.mark.parametrize("stage", PIPELINE, ids=lambda s: s.name)
+    def test_every_described_role_is_the_subcomponent_own_summary(self, stage):
+        """The description is published; the docstring is read in the code.
+
+        Two wordings of the same sentence drift apart, and the published one
+        drifts silently. So the description quotes the subcomponent rather than
+        paraphrasing it, and this test is what keeps that true.
+        """
+
+        summary = inspect.getdoc(_service_class(stage.name)).splitlines()[0]
+
+        assert stage.role == summary
+
+    def test_the_implemented_set_is_derived_from_the_description(self):
+        assert IMPLEMENTED_STAGES == frozenset(
+            stage.name for stage in PIPELINE if stage.implemented
+        )
+
+    @pytest.mark.parametrize("stage", PIPELINE, ids=lambda s: s.name)
+    def test_a_described_stage_serialises_every_field_the_api_publishes(self, stage):
+        assert set(stage.to_dict()) == {
+            "name",
+            "order",
+            "role",
+            "research_module",
+            "uses_model",
+            "implemented",
+        }
 
 
 def _service_class(name: str):

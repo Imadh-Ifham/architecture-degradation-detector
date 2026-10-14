@@ -1,4 +1,4 @@
-"""Input layer tests: translation, style adapters and relationship derivation.
+"""Input layer tests: translation, style adapters and fact identity.
 
 Author: Aman Mohamed M.A
 Date: 2026-10-14
@@ -6,7 +6,15 @@ Description:
     Covers the boundary that absorbs recovery's output and the subject system's
     architectural style.
 
-    Two tests here carry more weight than the rest. The event-driven collapse
+    The dependency stand-in's tests moved to `tests/infrastructure/` along with
+    the code. What they exercise is infrastructure standing in for an upstream
+    component, and this component can no longer reach a file at all - which
+    `test_architecture_rules.py` now asserts.
+
+    Three tests here carry more weight than the rest. `TestReleaseOrdering`
+    covers the one place where the component can be confidently wrong with no
+    exception anywhere: compared as text, the newer of the two releases the
+    demonstration uses sorts first. The event-driven collapse
     is what makes "style-agnostic" a property rather than a claim: a design
     that cannot turn a publish/subscribe pair through a channel into one
     relationship would need an event-driven special case in every rule
@@ -21,7 +29,13 @@ from app.components.architecture_validation.observation_normalization import (
 )
 from app.components.architecture_validation.observation_normalization._identity import (
     canonical_name,
+    collisions,
     fact_id,
+)
+from app.components.architecture_validation.observation_normalization._release import (
+    RELEASE_SEGMENTS,
+    UnorderableRelease,
+    release_sort_key,
 )
 from app.components.architecture_validation.observation_normalization.styles import (
     adapter_for,
@@ -35,16 +49,31 @@ from app.domain.recovered_architecture import (
     DerivationMethod,
     ElementKind,
     EvidenceQuality,
+    IncoherentArchitecture,
     RecoveredArchitecture,
     RecoveryProvenance,
+    StyleSource,
 )
-from app.infrastructure.recovered_architecture.inventory_schema import (
+from app.components.architecture_validation.observation_normalization.styles import (
+    KNOWN_LABELS,
+)
+from app.infrastructure.recovery_gateway.inventory_schema import (
     InventoryFieldError,
     InventoryVersionError,
 )
-from app.infrastructure.recovered_architecture.translation import (
+from app.infrastructure.recovery_gateway.snapshot_schema import (
+    SNAPSHOT_SCHEMA_VERSION,
+    SnapshotFieldError,
+    SnapshotVersionError,
+    parse_snapshot,
+)
+from app.components.architecture_validation.observation_normalization._style import (
     infer_style,
+)
+from app.infrastructure.recovery_gateway.translation import (
+    STYLE_FIELD,
     manifest_paths,
+    read_style,
     translate,
 )
 
@@ -66,11 +95,25 @@ def relationship(source, target, label, quality=EvidenceQuality.CONFIRMED, **att
     )
 
 
-def architecture(style, elements, relationships, release=RELEASE):
+def architecture(
+    style,
+    elements,
+    relationships,
+    release=RELEASE,
+    style_source=StyleSource.C1,
+):
+    """One architecture for a test.
+
+    `style_source` defaults to `c1` so that a test naming a style gets that
+    style. A test that wants the inference asks for it by passing
+    `inferred_by_c2`, which is how a real reader asks for it too.
+    """
+
     return RecoveredArchitecture(
         repository_id="online-boutique",
         release_id=release,
         style=style,
+        style_source=style_source,
         elements=tuple(elements),
         relationships=tuple(relationships),
         provenance=RecoveryProvenance("fixture_reader", "1.0.0", "test"),
@@ -223,55 +266,167 @@ class TestInventoryTranslation:
         assert manifest_paths(inventory()) == ("kustomize/base/frontend.yaml",)
 
 
+class TestStyleProvenance:
+    """Whose answer the architectural style is.
+
+    The style selects the adapter and the adapter decides what every fact in
+    the run looks like, so an unlabelled style quietly changes every verdict
+    downstream. These keep the authority question answered in code rather than
+    in prose.
+    """
+
+    def test_recovery_supplies_no_style_today_and_the_gateway_says_so(self):
+        style, source = read_style(inventory())
+
+        assert style is ArchitectureStyle.UNKNOWN
+        assert source is StyleSource.INFERRED_BY_C2
+
+    def test_a_style_recovery_wrote_is_recoverys_answer(self):
+        style, source = read_style(inventory(**{STYLE_FIELD: "layered"}))
+
+        assert style is ArchitectureStyle.LAYERED
+        assert source is StyleSource.C1
+
+    def test_unknown_from_recovery_is_an_answer_not_a_gap(self):
+        """Recovery looked and could not tell. That is a different thing from
+        recovery not having looked, and only `style_source` separates them."""
+
+        style, source = read_style(inventory(**{STYLE_FIELD: "unknown"}))
+
+        assert style is ArchitectureStyle.UNKNOWN
+        assert source is StyleSource.C1
+
+    def test_a_style_this_version_does_not_know_is_still_recoverys_answer(self):
+        """Ordinary drift between two components built in parallel. The run
+        normalises generically and caps its confidence; it does not stop."""
+
+        style, source = read_style(inventory(**{STYLE_FIELD: "hexagonal"}))
+
+        assert style is ArchitectureStyle.UNKNOWN
+        assert source is StyleSource.C1
+
+    def test_recoverys_style_is_not_second_guessed(self):
+        """The shape says microservices. Recovery said layered. Recovery wins."""
+
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.LAYERED,
+                [element("a", "frontend"), element("b", "paymentservice")],
+                [relationship("a", "b", "grpc")],
+                style_source=StyleSource.C1,
+            )
+        )
+
+        assert outcome.style_resolved == ArchitectureStyle.LAYERED
+        assert outcome.style_source == StyleSource.C1
+        assert all(fact.style_source == "c1" for fact in outcome.facts)
+
+    def test_an_absent_style_is_inferred_and_says_so(self):
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.UNKNOWN,
+                [element("a", "frontend"), element("b", "paymentservice")],
+                [relationship("a", "b", "grpc")],
+                style_source=StyleSource.INFERRED_BY_C2,
+            )
+        )
+
+        assert outcome.style_resolved == ArchitectureStyle.MICROSERVICES
+        assert outcome.style_source == StyleSource.INFERRED_BY_C2
+        assert all(fact.style_source == "inferred_by_c2" for fact in outcome.facts)
+        assert any("inferred" in warning for warning in outcome.warnings)
+
+    def test_an_undeterminable_style_normalises_generically_rather_than_guessing(self):
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.UNKNOWN,
+                [],
+                [],
+                style_source=StyleSource.INFERRED_BY_C2,
+            )
+        )
+
+        assert outcome.style_resolved == "generic"
+        assert outcome.warnings
+
+    def test_every_fact_says_where_its_style_came_from(self):
+        """No third value and no empty one. A fact read on its own has to
+        carry the answer, because the strength of a verdict about it depends
+        on whose answer it was."""
+
+        for source in (StyleSource.C1, StyleSource.INFERRED_BY_C2):
+            outcome = ObservationNormalizationService().normalise(
+                architecture(
+                    ArchitectureStyle.MICROSERVICES,
+                    [element("a", "frontend"), element("b", "paymentservice")],
+                    [relationship("a", "b", "grpc")],
+                    style_source=source,
+                )
+            )
+
+            assert outcome.facts
+            assert {fact.style_source for fact in outcome.facts} == {source}
+
+
 class TestStyleInference:
-    """What the inventory can and cannot establish."""
+    """What the architecture alone can and cannot establish.
 
-    def test_two_deployed_services_with_manifests_is_microservices(self):
-        result = do_translate()
+    Narrow on purpose. Each rule is something the input states outright; none
+    of them is a heuristic dressed up as a classification.
+    """
 
-        assert result.style is ArchitectureStyle.MICROSERVICES
+    def test_two_deployed_services_is_microservices(self):
+        assert (
+            infer_style((element("a", "frontend"), element("b", "paymentservice")))
+            is ArchitectureStyle.MICROSERVICES
+        )
 
     def test_layer_named_components_are_layered(self):
-        document = inventory(
-            components=[
-                {"id": "m:p", "name": "PresentationLayer", "kind": "build_unit", "confidence": "confirmed"},
-                {"id": "m:d", "name": "DomainLayer", "kind": "build_unit", "confidence": "confirmed"},
-            ],
-            files=[],
+        elements = (
+            element("m:p", "PresentationLayer", kind=ElementKind.MODULE),
+            element("m:d", "DomainLayer", kind=ElementKind.MODULE),
         )
 
-        assert do_translate(document).style is ArchitectureStyle.LAYERED
+        assert infer_style(elements) is ArchitectureStyle.LAYERED
+
+    def test_one_layer_name_is_not_a_layered_architecture(self):
+        """A component called `domain` is a component called domain."""
+
+        elements = (
+            element("m:d", "DomainLayer", kind=ElementKind.MODULE),
+            element("m:x", "helpers", kind=ElementKind.MODULE),
+        )
+
+        assert infer_style(elements) is ArchitectureStyle.UNKNOWN
 
     def test_a_single_element_is_a_monolith(self):
-        document = inventory(
-            components=[
-                {"id": "m:app", "name": "app", "kind": "build_unit", "confidence": "confirmed"}
-            ],
-            files=[],
+        assert (
+            infer_style((element("m:app", "app", kind=ElementKind.MODULE),))
+            is ArchitectureStyle.MONOLITH
         )
 
-        assert do_translate(document).style is ArchitectureStyle.MONOLITH
+    def test_one_deployed_service_is_not_microservices(self):
+        """One deployed service is a deployed monolith."""
+
+        assert (
+            infer_style((element("a", "frontend"),))
+            is not ArchitectureStyle.MICROSERVICES
+        )
 
     def test_event_driven_is_never_inferred(self):
-        """The inventory supplies no broker and no publish/subscribe evidence,
-        so claiming the style would be a guess."""
+        """Recognising it needs evidence of a broker and of publish and
+        subscribe pairs. Nothing upstream supplies either, so claiming the
+        style would be a guess."""
 
-        document = inventory(
-            components=[
-                {"id": "s:a", "name": "a", "kind": "build_unit", "confidence": "confirmed"},
-                {"id": "s:b", "name": "b", "kind": "build_unit", "confidence": "confirmed"},
-            ],
-            files=[],
+        elements = (
+            element("s:a", "a", kind=ElementKind.MODULE),
+            element("s:b", "b", kind=ElementKind.MODULE),
         )
 
-        assert infer_style(document, do_translate(document).elements) is not (
-            ArchitectureStyle.EVENT_DRIVEN
-        )
+        assert infer_style(elements) is not ArchitectureStyle.EVENT_DRIVEN
 
-    def test_a_caller_who_knows_the_style_can_override_the_inference(self):
-        result = do_translate(style_override=ArchitectureStyle.EVENT_DRIVEN)
-
-        assert result.style is ArchitectureStyle.EVENT_DRIVEN
+    def test_nothing_at_all_is_undetermined_rather_than_a_monolith(self):
+        assert infer_style(()) is ArchitectureStyle.UNKNOWN
 
 
 class TestStyleAdapters:
@@ -307,8 +462,8 @@ class TestStyleAdapters:
         facts = adapter_for(style).normalise(given)
 
         assert len(facts) == 1
-        assert facts[0].subject == "alpha"
-        assert facts[0].object == "beta"
+        assert facts[0].subject.name == "alpha"
+        assert facts[0].object.name == "beta"
         assert facts[0].relationship in set(RelationshipKind)
         assert facts[0].attributes["observed_as"] == "http"
 
@@ -326,17 +481,22 @@ class TestStyleAdapters:
         assert outcome.facts[0].attributes["style_not_resolved"] is True
         assert any("not resolved" in warning for warning in outcome.warnings)
 
-    def test_a_relationship_naming_an_unknown_element_is_dropped_with_a_warning(self):
-        given = architecture(
-            ArchitectureStyle.MICROSERVICES,
-            [element("a", "alpha")],
-            [relationship("a", "ghost", "http")],
-        )
+    def test_a_relationship_naming_an_unknown_element_cannot_be_built_at_all(self):
+        """Revised from "dropped with a warning" by OBS-D5.
 
-        outcome = ObservationNormalizationService().normalise(given)
+        An unrecognised relationship *label* is a word we do not know and is
+        absorbed. An edge pointing at a missing node is a document that does
+        not hold together, and absorbing it would put a relationship in the
+        validated graph with nothing on one end. The architecture refuses to
+        exist, so there is no code path on which it reaches an adapter.
+        """
 
-        assert outcome.facts == ()
-        assert any("unknown element" in warning for warning in outcome.warnings)
+        with pytest.raises(IncoherentArchitecture, match="ghost"):
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("a", "alpha")],
+                [relationship("a", "ghost", "http")],
+            )
 
     def test_the_layered_adapter_records_the_rank_direction(self):
         given = architecture(
@@ -390,8 +550,8 @@ class TestEventDrivenCollapse:
         facts = adapter_for(ArchitectureStyle.EVENT_DRIVEN).normalise(self.two_hop())
 
         assert len(facts) == 1
-        assert facts[0].subject == "OrderComponent"
-        assert facts[0].object == "PaymentComponent"
+        assert facts[0].subject.name == "OrderComponent"
+        assert facts[0].object.name == "PaymentComponent"
         assert facts[0].relationship is RelationshipKind.COMMUNICATES_WITH
 
     def test_the_channel_survives_as_an_attribute_not_as_an_element(self):
@@ -400,7 +560,7 @@ class TestEventDrivenCollapse:
         assert facts[0].attributes["via"] == "order-events"
         assert facts[0].attributes["interaction"] == "async"
         assert facts[0].attributes["collapsed_hops"] == 2
-        assert "order-events" not in {facts[0].subject, facts[0].object}
+        assert "order-events" not in {facts[0].subject.name, facts[0].object.name}
 
     def test_the_weaker_half_decides_the_quality_of_the_collapsed_fact(self):
         """A chain is only as good as its weakest hop."""
@@ -448,7 +608,7 @@ class TestEventDrivenCollapse:
         facts = adapter_for(ArchitectureStyle.EVENT_DRIVEN).normalise(given)
 
         assert len(facts) == 2
-        synchronous = next(f for f in facts if f.object == "AuditComponent")
+        synchronous = next(f for f in facts if f.object.name == "AuditComponent")
         assert synchronous.attributes["interaction"] == "grpc"
         assert "via" not in synchronous.attributes
 
@@ -481,190 +641,539 @@ class TestFactIdentity:
         assert canonical_name("service") == "service"
 
 
-class TestRelationshipDerivation:
-    """Filling in what recovery does not yet report."""
 
-    class StubReader:
-        """A source artifact reader over in-memory manifests."""
+def snapshot_document(**overrides):
+    """A minimal valid snapshot document, for the boundary tests below."""
 
-        def __init__(self, files: dict[str, str]) -> None:
-            self.files = files
-            self.reads: list[str] = []
+    document = {
+        "schema_version": SNAPSHOT_SCHEMA_VERSION,
+        "repository_id": "online-boutique",
+        "style": "microservices",
+        "style_source": "c1",
+        "elements": [
+            {"id": "svc:a", "name": "frontend", "kind": "service", "quality": "confirmed"},
+            {"id": "svc:b", "name": "paymentservice", "kind": "service", "quality": "confirmed"},
+        ],
+        "relationships": [
+            {
+                "source_id": "svc:a",
+                "target_id": "svc:b",
+                "label": "grpc",
+                "quality": "confirmed",
+                "derived_by": "recovered",
+            }
+        ],
+        "manifest_paths": ["kustomize/base/frontend.yaml"],
+    }
+    document.update(overrides)
+    return document
 
-        def read_text(self, repository_id, release_id, path):
-            self.reads.append(path)
-            return self.files[path]
 
-        def list_paths(self, repository_id, release_id, pattern):
-            return sorted(self.files)
+class TestSnapshotBoundary:
+    """Three problems, three deliberately different reactions.
 
-    MANIFEST = """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: checkoutservice
-spec:
-  template:
-    spec:
-      containers:
-        - name: server
-          env:
-            - name: PAYMENT_SERVICE_ADDR
-              value: "paymentservice:50051"
-            - name: CART_SERVICE_ADDR
-              value: "cartservice:7070"
-            - name: DISABLE_PROFILER
-              value: "1"
-            - name: SECRET_THING
-              valueFrom:
-                secretKeyRef:
-                  name: whatever
-                  key: whatever
-"""
+    The architecture document asks for a versioned schema validated before the
+    receiving component accepts the package. The question that matters is not
+    whether to validate but what to do on each kind of failure, and the answers
+    are not the same: a word we do not know, a field we need, and a document
+    that does not hold together are three different situations.
+    """
 
-    def given_no_relationships(self):
-        return architecture(
-            ArchitectureStyle.MICROSERVICES,
-            [
-                element("svc:checkoutservice", "checkoutservice"),
-                element("svc:paymentservice", "paymentservice"),
-                element("svc:cartservice", "cartservice"),
-            ],
-            [],
+    def test_a_valid_document_is_read(self):
+        document = parse_snapshot(snapshot_document(), "test")
+
+        assert document.schema_version == SNAPSHOT_SCHEMA_VERSION
+        assert len(document.elements) == 2
+
+    def test_an_unknown_field_is_ignored(self):
+        """Gaining a key is what happens while a shape is still settling.
+        Refusing one would make every additive change a breaking change."""
+
+        document = parse_snapshot(
+            snapshot_document(something_new={"added": "later"}), "test"
         )
 
-    def test_declared_addresses_become_relationships(self):
-        reader = self.StubReader({"kustomize/base/checkout.yaml": self.MANIFEST})
+        assert len(document.elements) == 2
 
-        outcome = ObservationNormalizationService(reader).normalise(
-            self.given_no_relationships(), manifest_paths=("kustomize/base/checkout.yaml",)
+    def test_a_missing_required_field_names_the_field_and_its_path(self):
+        document = snapshot_document()
+        del document["relationships"]
+
+        with pytest.raises(SnapshotFieldError, match="relationships"):
+            parse_snapshot(document, "test")
+
+    def test_a_missing_field_inside_an_element_names_its_position(self):
+        """`elements.0.name` rather than "a field is missing". A document
+        written by hand is wrong in a particular place, and the path is what
+        turns the message into an instruction."""
+
+        document = snapshot_document()
+        del document["elements"][0]["name"]
+
+        with pytest.raises(SnapshotFieldError, match=r"elements\.0\.name"):
+            parse_snapshot(document, "test")
+
+    def test_every_problem_is_reported_not_only_the_first(self):
+        """A hand-edited document is usually wrong in more than one place, and
+        finding out one field at a time is the slow way to fix it."""
+
+        document = snapshot_document()
+        del document["elements"][0]["name"]
+        del document["elements"][1]["kind"]
+
+        with pytest.raises(SnapshotFieldError) as caught:
+            parse_snapshot(document, "test")
+
+        assert len(caught.value.problems) == 2
+
+    def test_a_schema_version_move_names_both_versions(self):
+        with pytest.raises(SnapshotVersionError) as caught:
+            parse_snapshot(snapshot_document(schema_version="2.0.0"), "test")
+
+        assert caught.value.found == "2.0.0"
+        assert caught.value.targets == SNAPSHOT_SCHEMA_VERSION
+        assert "2.0.0" in str(caught.value) and SNAPSHOT_SCHEMA_VERSION in str(caught.value)
+
+    def test_the_version_is_checked_before_the_shape(self):
+        """A schema move makes several fields look wrong at once. "This is
+        schema 2 and I read schema 1" is a far better answer than "six fields
+        are missing" when both are available."""
+
+        document = snapshot_document(schema_version="2.0.0")
+        del document["relationships"]
+
+        with pytest.raises(SnapshotVersionError):
+            parse_snapshot(document, "test")
+
+    def test_a_missing_schema_version_is_a_field_error_not_a_version_error(self):
+        document = snapshot_document()
+        del document["schema_version"]
+
+        with pytest.raises(SnapshotFieldError, match="schema_version"):
+            parse_snapshot(document, "test")
+
+    def test_the_source_is_named_so_a_reader_knows_which_file(self):
+        with pytest.raises(SnapshotFieldError, match="somewhere/snapshot.json"):
+            parse_snapshot({"schema_version": "1.0.0"}, "somewhere/snapshot.json")
+
+
+class TestSnapshotVocabulary:
+    """What happens to a word the domain vocabulary does not hold.
+
+    Strict here, and tolerant one module over in `inventory_schema.py`. The
+    reason is ownership: the inventory is recovery's document and recovery is
+    still being built, so an unlearned word is not a reason to stop. The
+    snapshot is ours - written and read from the same dataclasses - so an
+    unrecognised kind means a hand edit or two halves of this codebase at
+    different versions, and both are worth stopping for.
+    """
+
+    def read(self, tmp_path, **overrides):
+        from app.infrastructure.recovery_gateway import SnapshotFileReader
+
+        import json
+
+        (tmp_path / "snapshot_v1.0.0.json").write_text(
+            json.dumps(snapshot_document(**overrides)), encoding="utf-8"
         )
+        return SnapshotFileReader(tmp_path).read("online-boutique", "v1.0.0")
 
-        assert outcome.derived_relationships == 2
-        assert {(f.subject, f.object) for f in outcome.facts} == {
-            ("checkoutservice", "paymentservice"),
-            ("checkoutservice", "cartservice"),
-        }
+    def test_an_unknown_element_kind_raises_and_lists_what_is_accepted(self, tmp_path):
+        """The only two reasons to see this are a hand-edited file and a
+        version skew, and both are answered by the list."""
 
-    def test_a_derived_relationship_is_confirmed_but_marked_unobserved(self):
-        """Two separate axes, deliberately not collapsed into one field.
+        document = snapshot_document()
+        document["elements"][0]["kind"] = "folder"
 
-        Evidence quality asks whether an artifact names the thing - a declared
-        address does, so this is confirmed in recovery's own sense. Observation
-        mode asks whether the call was seen, and it was not.
+        with pytest.raises(SnapshotFieldError, match="service"):
+            self.read(tmp_path, elements=document["elements"])
 
-        Collapsing them would cap every manifest-derived relationship at review
-        and leave the component unable to report a violation about any
-        repository whose runtime is not instrumented.
+    def test_an_unknown_evidence_quality_raises(self, tmp_path):
+        document = snapshot_document()
+        document["elements"][0]["quality"] = "probably"
+
+        with pytest.raises(SnapshotFieldError, match="probably"):
+            self.read(tmp_path, elements=document["elements"])
+
+    def test_an_unknown_style_is_undetermined_rather_than_refused(self, tmp_path):
+        """The one tolerant mapping, and it has a reason of its own: a style
+        has a representable "could not tell" and an element kind does not."""
+
+        architecture = self.read(tmp_path, style="hexagonal")
+
+        assert architecture.style is ArchitectureStyle.UNKNOWN
+
+    def test_a_relationship_naming_an_absent_element_is_refused(self, tmp_path):
+        """Not an unknown vocabulary - an incoherent document. Absorbing it
+        would put an edge in the validated graph with no node on one end."""
+
+        document = snapshot_document()
+        document["relationships"][0]["target_id"] = "svc:ghost"
+
+        with pytest.raises(IncoherentArchitecture, match="svc:ghost"):
+            self.read(tmp_path, relationships=document["relationships"])
+
+    def test_a_malformed_document_never_surfaces_as_a_type_error(self, tmp_path):
+        """The regression this class exists for.
+
+        Both error paths in this reader used to build their exception with the
+        wrong number of arguments, so a malformed snapshot raised a TypeError
+        from inside the error constructor - which the transport layer does not
+        catch, making a bad input file a 500 rather than a 409.
         """
 
-        reader = self.StubReader({"kustomize/base/checkout.yaml": self.MANIFEST})
+        import json
 
-        outcome = ObservationNormalizationService(reader).normalise(
-            self.given_no_relationships(), manifest_paths=("kustomize/base/checkout.yaml",)
+        for name, document in {
+            "no-relationships": {"schema_version": "1.0.0", "elements": []},
+            "bad-element": {
+                "schema_version": "1.0.0",
+                "elements": [{"id": "a"}],
+                "relationships": [],
+            },
+        }.items():
+            (tmp_path / f"snapshot_{name}.json").write_text(
+                json.dumps(document), encoding="utf-8"
+            )
+
+            from app.infrastructure.recovery_gateway import SnapshotFileReader
+
+            with pytest.raises(SnapshotFieldError):
+                SnapshotFileReader(tmp_path).read("online-boutique", name)
+
+
+class TestAbsorbedLabels:
+    """An unrecognised relationship word is kept, not refused.
+
+    The component diagram says this subcomponent collapses *any* architectural
+    style into one fact shape, so raising on an unfamiliar word is the opposite
+    of what it is for. What is not free is the consequence, which is why the
+    words are counted rather than quietly folded in.
+    """
+
+    def test_an_unknown_label_is_absorbed_and_the_original_preserved(self):
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("a", "alpha"), element("b", "beta")],
+                [relationship("a", "b", "INHERITS_FROM")],
+            )
         )
 
-        fact = next(f for f in outcome.facts if f.object == "paymentservice")
-        assert fact.quality == EvidenceQuality.CONFIRMED
-        assert fact.attributes["observed"] is False
-        assert fact.attributes["declared_via"] == "PAYMENT_SERVICE_ADDR"
+        fact = outcome.facts[0]
+        assert fact.relationship is RelationshipKind.DEPENDS_ON
+        assert fact.attributes["observed_as"] == "INHERITS_FROM"
 
-    def test_the_transport_comes_from_the_port_when_there_is_no_scheme(self):
-        reader = self.StubReader({"m.yaml": self.MANIFEST})
-
-        outcome = ObservationNormalizationService(reader).normalise(
-            self.given_no_relationships(), manifest_paths=("m.yaml",)
+    def test_an_unknown_label_is_counted_and_named(self):
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("a", "alpha"), element("b", "beta")],
+                [relationship("a", "b", "INHERITS_FROM")],
+            )
         )
 
-        fact = next(f for f in outcome.facts if f.object == "paymentservice")
-        assert fact.attributes["observed_as"] == "grpc"
+        assert outcome.absorbed_labels == ("INHERITS_FROM",)
+        assert any("INHERITS_FROM" in warning for warning in outcome.warnings)
 
-    def test_an_unrecognised_port_is_not_given_an_invented_transport(self):
-        reader = self.StubReader({"m.yaml": self.MANIFEST})
-
-        outcome = ObservationNormalizationService(reader).normalise(
-            self.given_no_relationships(), manifest_paths=("m.yaml",)
+    def test_a_known_label_is_not_counted(self):
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("a", "alpha"), element("b", "beta")],
+                [relationship("a", "b", "grpc")],
+            )
         )
 
-        fact = next(f for f in outcome.facts if f.object == "cartservice")
-        assert fact.attributes["observed_as"] == "declared"
+        assert outcome.absorbed_labels == ()
 
-    def test_a_value_sourced_from_a_secret_produces_no_relationship(self):
-        reader = self.StubReader({"m.yaml": self.MANIFEST})
+    def test_the_vocabulary_includes_every_adapters_words(self):
+        """A check written against `base.py` alone would report `publishes` as
+        unrecognised on every event-driven release, because only the
+        event-driven adapter knows it."""
 
-        outcome = ObservationNormalizationService(reader).normalise(
-            self.given_no_relationships(), manifest_paths=("m.yaml",)
+        assert {"publishes", "consumes", "grpc", "uses"} <= KNOWN_LABELS
+
+    def test_a_declared_address_is_a_communication_not_a_bare_dependency(self):
+        """The defect this count found.
+
+        Recovery reports a dependency as `declared` when an artifact names both
+        ends but no port identifies the protocol. Ten of the fifteen
+        relationships in the subject system carry it, and the other five differ
+        only in that their port was recognised - so with `declared` unmapped,
+        identical evidence produced two different canonical kinds. Every
+        network-policy rule the demonstration rests on is `must_not_call` or
+        `may_call`, and those apply to `communicates-with` alone.
+        """
+
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("a", "alpha"), element("b", "beta")],
+                [relationship("a", "b", "declared")],
+            )
         )
 
-        assert all("SECRET" not in f.attributes.get("declared_via", "") for f in outcome.facts)
+        assert outcome.facts[0].relationship is RelationshipKind.COMMUNICATES_WITH
+        assert outcome.absorbed_labels == ()
 
-    def test_an_address_naming_an_unknown_service_is_ignored(self):
-        """Inventing elements here would put things in the graph recovery never
-        found."""
+    def test_the_recorded_snapshot_absorbs_nothing(self):
+        """Measured on the real recording, not assumed. A non-zero count here
+        would mean part of the subject architecture is a kind no rule matches."""
 
-        manifest = self.MANIFEST.replace("paymentservice:50051", "some-external-thing:443")
-        reader = self.StubReader({"m.yaml": manifest})
+        from app.core.config import settings
+        from app.infrastructure.recovery_gateway import SnapshotFileReader
 
-        outcome = ObservationNormalizationService(reader).normalise(
-            self.given_no_relationships(), manifest_paths=("m.yaml",)
+        for release in ("v0.9.0", "v0.10.0"):
+            outcome = ObservationNormalizationService().normalise(
+                SnapshotFileReader(settings.snapshot_root).read("online-boutique", release)
+            )
+
+            assert outcome.absorbed_labels == (), release
+            assert all(
+                fact.relationship is RelationshipKind.COMMUNICATES_WITH
+                for fact in outcome.facts
+            ), release
+
+
+class TestIdentityCollisions:
+    """The guard on the one function the SO2 result rests on.
+
+    Canonicalisation is what makes retrieval by identity possible, and the
+    obvious attack on it is that it could merge two services that are
+    genuinely different. These tests are the answer: it reports every case
+    where it would, with both originals, so the question becomes a count
+    across the corpus rather than a denial.
+    """
+
+    def test_two_names_that_collapse_are_reported_with_both_originals(self):
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("1", "cart"), element("2", "cart-service"), element("3", "frontend")],
+                [relationship("3", "1", "grpc"), relationship("3", "2", "grpc")],
+            )
         )
 
-        assert {f.object for f in outcome.facts} == {"cartservice"}
+        collision = outcome.identity_collisions[0]
+        assert set(collision.names) == {"cart", "cart-service"}
+        assert collision.key == "cart"
+        assert outcome.facts  # reported, not fatal
 
-    def test_derivation_is_skipped_when_recovery_already_supplied_relationships(self):
-        """So it retires itself the day recovery starts reporting them."""
+    def test_the_collision_names_both_originals_in_a_warning(self):
+        """A warning a person reads, not only a structure a program reads.
+        Without both spellings nobody can decide afterwards whether the merge
+        was right."""
 
-        reader = self.StubReader({"m.yaml": self.MANIFEST})
-        given = architecture(
-            ArchitectureStyle.MICROSERVICES,
-            [element("a", "alpha"), element("b", "beta")],
-            [relationship("a", "b", "http")],
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("1", "cart"), element("2", "cart-service"), element("3", "frontend")],
+                [relationship("3", "1", "grpc")],
+            )
         )
 
-        outcome = ObservationNormalizationService(reader).normalise(
-            given, manifest_paths=("m.yaml",)
+        reported = " ".join(outcome.warnings)
+        assert "cart-service" in reported and "'cart'" in reported
+
+    def test_an_element_with_no_relationship_is_still_reported(self):
+        """The question is about the architecture, not about the facts. An
+        element that produced no relationship still had its identity merged."""
+
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("1", "payment-service"), element("2", "paymentservice")],
+                [],
+            )
         )
 
-        assert outcome.derived_relationships == 0
-        assert reader.reads == []
+        assert len(outcome.identity_collisions) == 1
+        assert not outcome.facts
 
-    def test_an_unreadable_manifest_warns_rather_than_under_reporting_silently(self):
-        class FailingReader(self.StubReader):
-            def read_text(self, repository_id, release_id, path):
-                raise RuntimeError("clone was removed")
+    def test_facts_sharing_an_identity_are_merged_and_counted(self):
+        """Two spellings of one element produce two relationships that hash to
+        one `fact_id`, because the hash is over the canonical triple.
 
-        outcome = ObservationNormalizationService(FailingReader({"m.yaml": ""})).normalise(
-            self.given_no_relationships(), manifest_paths=("m.yaml",)
+        Publishing both would hand on two edges carrying one identity, and
+        every consumer keys on that identity - the evidence cache would be
+        filled twice with different content and the reasoner paid twice for
+        one question. So one survives, and the count says so.
+        """
+
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("1", "cart"), element("2", "cart-service"), element("3", "frontend")],
+                [relationship("3", "1", "grpc"), relationship("3", "2", "grpc")],
+            )
         )
 
-        assert outcome.facts == ()
-        assert any("could not read manifest" in warning for warning in outcome.warnings)
+        assert len(outcome.facts) == 1
+        assert outcome.merged_fact_count == 1
+        assert len({fact.fact_id for fact in outcome.facts}) == len(outcome.facts)
 
-    def test_malformed_yaml_warns_rather_than_raising(self):
-        reader = self.StubReader({"m.yaml": "{{ not: valid: yaml"})
+    def test_a_merge_is_not_blamed_on_the_style_adapter(self):
+        """The shortfall warning exists for a relationship naming an element
+        that is not in the architecture. A merged fact did produce a fact, and
+        counting it twice would attach the wrong explanation to it."""
 
-        outcome = ObservationNormalizationService(reader).normalise(
-            self.given_no_relationships(), manifest_paths=("m.yaml",)
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("1", "cart"), element("2", "cart-service"), element("3", "frontend")],
+                [relationship("3", "1", "grpc"), relationship("3", "2", "grpc")],
+            )
         )
 
-        assert any("could not parse manifest" in warning for warning in outcome.warnings)
+        assert not any("produced no fact" in warning for warning in outcome.warnings)
 
-    def test_no_reader_is_reported_rather_than_crashing(self):
-        outcome = ObservationNormalizationService(None).normalise(
-            self.given_no_relationships(), manifest_paths=("m.yaml",)
+    def test_a_healthy_snapshot_reports_nothing(self):
+        """Both counters are zero on a snapshot with distinct names, so a
+        non-zero pair is a finding and not noise."""
+
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("a", "frontend"), element("b", "paymentservice")],
+                [relationship("a", "b", "grpc")],
+            )
         )
 
-        assert outcome.facts == ()
-        assert any("could not be derived" in warning for warning in outcome.warnings)
+        assert outcome.identity_collisions == ()
+        assert outcome.merged_fact_count == 0
 
-    def test_derivation_is_deterministic_across_runs(self):
-        """The fixture diff is how a recovery change gets noticed, so the same
-        input has to produce the same bytes."""
+    def test_one_name_twice_is_not_a_collision(self):
+        """Two elements with the identical name is a duplicate, not two
+        spellings, and there is nothing for a person to decide about it."""
 
-        reader = self.StubReader({"m.yaml": self.MANIFEST})
-        service = ObservationNormalizationService(reader)
+        assert collisions(["cart", "cart"]) == {}
 
-        first = service.normalise(self.given_no_relationships(), manifest_paths=("m.yaml",))
-        second = service.normalise(self.given_no_relationships(), manifest_paths=("m.yaml",))
+    def test_collisions_are_grouped_and_sorted_so_two_runs_agree(self):
+        found = collisions(["PaymentService", "payment-service", "paymentservice", "cart"])
 
-        assert [f.fact_id for f in first.facts] == [f.fact_id for f in second.facts]
+        assert found == {
+            "payment": ("PaymentService", "payment-service", "paymentservice")
+        }
+
+    def test_the_recorded_snapshot_has_no_collisions(self):
+        """The subject system the demonstration runs on, checked rather than
+        assumed - a collision there would change what the demo shows."""
+
+        from app.core.config import settings
+        from app.infrastructure.recovery_gateway import SnapshotFileReader
+
+        for release in ("v0.9.0", "v0.10.0"):
+            outcome = ObservationNormalizationService().normalise(
+                SnapshotFileReader(settings.snapshot_root).read("online-boutique", release)
+            )
+
+            assert outcome.identity_collisions == (), release
+            assert outcome.merged_fact_count == 0, release
+
+
+class TestReleaseOrdering:
+    """The one failure in this component that would be silent.
+
+    Every other mistake here raises, drops a fact or shows up as a wrong
+    count. An ordering that runs backwards produces a complete, plausible
+    result in which a superseded decision governs a release it was replaced
+    before - which is the single claim the component exists to make.
+    """
+
+    def test_a_text_comparison_of_the_demonstration_releases_is_wrong(self):
+        """Stated as a test so the reason for the module is not folklore.
+
+        If this ever starts failing, Python has changed and the rest of this
+        class can go.
+        """
+
+        assert "v0.10.0" < "v0.9.0"
+
+    def test_v0_10_0_sorts_after_v0_9_0(self):
+        assert release_sort_key("v0.10.0") > release_sort_key("v0.9.0")
+
+    def test_the_leading_v_of_a_tag_is_optional(self):
+        assert release_sort_key("v0.9.0") == release_sort_key("0.9.0")
+
+    def test_a_shortened_identifier_equals_its_full_form(self):
+        """`1.0` and `1.0.0` are the same release, so the key must not make
+        one of them the earlier."""
+
+        assert release_sort_key("1.0") == release_sort_key("1.0.0")
+
+    def test_a_release_candidate_sorts_below_the_release(self):
+        assert release_sort_key("v1.0.0rc1") < release_sort_key("v1.0.0")
+        assert release_sort_key("v1.0.0") < release_sort_key("v1.0.0.post1")
+
+    def test_the_key_orders_exactly_as_the_parser_it_is_built_from(self):
+        """The key is a tuple of integers rather than a version object,
+        because it has to serialise and to order inside SQL. This is the test
+        that the hand-built tuple did not lose any of the ordering it was
+        derived from."""
+
+        from packaging.version import Version
+
+        identifiers = [
+            "0.9.0",
+            "0.10.0",
+            "1.0.dev1",
+            "1.0a1",
+            "1.0rc1",
+            "1.0",
+            "1.0.post1",
+            "1.0.1",
+            "1.1",
+            "2.0",
+        ]
+
+        assert sorted(identifiers, key=release_sort_key) == sorted(
+            identifiers, key=Version
+        )
+
+    def test_an_unorderable_release_raises_and_names_itself(self):
+        """A date-stamped or labelled release is refused, not guessed at.
+
+        The message carries the identifier, because the caller's next question
+        is always which one."""
+
+        with pytest.raises(UnorderableRelease, match="release-2024-Q3"):
+            release_sort_key("release-2024-Q3")
+
+    def test_more_segments_than_the_key_carries_is_refused_not_truncated(self):
+        """Ordering by the first four segments of five would make two
+        different releases compare equal, which is the failure this module
+        exists to prevent rather than a smaller version of it."""
+
+        overlong = ".".join(["1"] * (RELEASE_SEGMENTS + 1))
+
+        with pytest.raises(UnorderableRelease, match="segments"):
+            release_sort_key(overlong)
+
+    def test_every_fact_carries_the_sort_key(self):
+        outcome = ObservationNormalizationService().normalise(
+            architecture(
+                ArchitectureStyle.MICROSERVICES,
+                [element("a", "frontend"), element("b", "paymentservice")],
+                [relationship("a", "b", "grpc")],
+                release="v0.10.0",
+            )
+        )
+
+        assert outcome.release_sort_key == release_sort_key("v0.10.0")
+        assert all(fact.release_sort_key == outcome.release_sort_key for fact in outcome.facts)
+
+    def test_an_unorderable_release_stops_the_run_before_any_fact_exists(self):
+        """Checked at the front of `normalise`, not per fact. A run that
+        produced ten facts and then refused the eleventh would leave the
+        caller holding facts that cannot be compared to anything."""
+
+        with pytest.raises(UnorderableRelease):
+            ObservationNormalizationService().normalise(
+                architecture(
+                    ArchitectureStyle.MICROSERVICES,
+                    [element("a", "frontend"), element("b", "paymentservice")],
+                    [relationship("a", "b", "grpc")],
+                    release="2024-Q3-hotfix",
+                )
+            )

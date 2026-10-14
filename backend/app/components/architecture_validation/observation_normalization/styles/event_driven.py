@@ -32,8 +32,7 @@ from app.domain.recovered_architecture import (
 )
 
 from ...models import ObservedFact, RelationshipKind
-from .._identity import fact_id
-from .base import base_attributes
+from .base import classify_label, observed_fact
 
 PUBLISH_LABELS = frozenset({"publishes", "publish", "produces", "emits", "sends"})
 SUBSCRIBE_LABELS = frozenset({"subscribed-by", "subscribes", "consumes", "receives", "listens"})
@@ -107,28 +106,20 @@ class EventDrivenAdapter:
             else "inferred"
         )
 
-        return ObservedFact(
-            fact_id=fact_id(
-                publisher.name,
-                RelationshipKind.COMMUNICATES_WITH,
-                subscriber.name,
-                architecture.release_id,
-            ),
-            release_id=architecture.release_id,
-            subject=publisher.name,
+        return observed_fact(
+            architecture,
+            subject=publisher,
             relationship=RelationshipKind.COMMUNICATES_WITH,
-            object=subscriber.name,
+            object_=subscriber,
             style_resolved=self.style,
             quality=quality,
-            attributes=base_attributes(
-                f"{publication.label}->{subscription.label}",
-                {
-                    "interaction": "async",
-                    "via": channel_name,
-                    "collapsed_hops": 2,
-                    **publication.attributes,
-                },
-            ),
+            label=f"{publication.label}->{subscription.label}",
+            extra={
+                "interaction": "async",
+                "via": channel_name,
+                "collapsed_hops": 2,
+                **publication.attributes,
+            },
         )
 
     def _dangling(self, architecture, relationship, channel_name):
@@ -136,23 +127,15 @@ class EventDrivenAdapter:
         target = architecture.element_by_id(relationship.target_id)
         if source is None or target is None:
             return None
-        return ObservedFact(
-            fact_id=fact_id(
-                source.name,
-                RelationshipKind.COMMUNICATES_WITH,
-                target.name,
-                architecture.release_id,
-            ),
-            release_id=architecture.release_id,
-            subject=source.name,
+        return observed_fact(
+            architecture,
+            subject=source,
             relationship=RelationshipKind.COMMUNICATES_WITH,
-            object=target.name,
+            object_=target,
             style_resolved=self.style,
             quality=relationship.quality,
-            attributes=base_attributes(
-                relationship.label,
-                {"interaction": "async", "via": channel_name, "unpaired": True},
-            ),
+            label=relationship.label,
+            extra={"interaction": "async", "via": channel_name, "unpaired": True},
         )
 
     def _direct(self, architecture, relationship):
@@ -160,19 +143,16 @@ class EventDrivenAdapter:
         target = architecture.element_by_id(relationship.target_id)
         if source is None or target is None:
             return None
-        from .base import classify_label
-
-        kind = classify_label(relationship.label)
-        return ObservedFact(
-            fact_id=fact_id(source.name, kind, target.name, architecture.release_id),
-            release_id=architecture.release_id,
-            subject=source.name,
-            relationship=kind,
-            object=target.name,
+        return observed_fact(
+            architecture,
+            subject=source,
+            relationship=classify_label(relationship.label),
+            object_=target,
             style_resolved=self.style,
             quality=relationship.quality,
-            attributes=base_attributes(
-                relationship.label,
-                {"interaction": relationship.label.lower(), **relationship.attributes},
-            ),
+            label=relationship.label,
+            extra={
+                "interaction": relationship.label.lower(),
+                **relationship.attributes,
+            },
         )

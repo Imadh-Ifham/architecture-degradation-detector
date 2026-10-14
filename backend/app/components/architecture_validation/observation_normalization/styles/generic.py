@@ -22,8 +22,7 @@ Description:
 from app.domain.recovered_architecture import ArchitectureStyle, RecoveredArchitecture
 
 from ...models import ObservedFact
-from .._identity import fact_id
-from .base import base_attributes, classify_label
+from .base import classify_label, observed_fact
 
 
 class GenericAdapter:
@@ -39,20 +38,16 @@ class GenericAdapter:
             if source is None or target is None:
                 continue
 
-            kind = classify_label(relationship.label)
             facts.append(
-                ObservedFact(
-                    fact_id=fact_id(source.name, kind, target.name, architecture.release_id),
-                    release_id=architecture.release_id,
-                    subject=source.name,
-                    relationship=kind,
-                    object=target.name,
+                observed_fact(
+                    architecture,
+                    subject=source,
+                    relationship=classify_label(relationship.label),
+                    object_=target,
                     style_resolved="generic",
                     quality=relationship.quality,
-                    attributes=base_attributes(
-                        relationship.label,
-                        {"style_not_resolved": True, **relationship.attributes},
-                    ),
+                    label=relationship.label,
+                    extra={"style_not_resolved": True, **relationship.attributes},
                 )
             )
         return tuple(facts)

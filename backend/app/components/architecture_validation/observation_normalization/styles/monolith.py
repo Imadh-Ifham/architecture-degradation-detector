@@ -14,8 +14,7 @@ Description:
 from app.domain.recovered_architecture import ArchitectureStyle, RecoveredArchitecture
 
 from ...models import ObservedFact, RelationshipKind
-from .._identity import fact_id
-from .base import base_attributes
+from .base import observed_fact
 
 
 class MonolithAdapter:
@@ -31,23 +30,15 @@ class MonolithAdapter:
             if source is None or target is None:
                 continue
             facts.append(
-                ObservedFact(
-                    fact_id=fact_id(
-                        source.name,
-                        RelationshipKind.DEPENDS_ON,
-                        target.name,
-                        architecture.release_id,
-                    ),
-                    release_id=architecture.release_id,
-                    subject=source.name,
+                observed_fact(
+                    architecture,
+                    subject=source,
                     relationship=RelationshipKind.DEPENDS_ON,
-                    object=target.name,
+                    object_=target,
                     style_resolved=self.style,
                     quality=relationship.quality,
-                    attributes=base_attributes(
-                        relationship.label,
-                        {"interaction": "in-process", **relationship.attributes},
-                    ),
+                    label=relationship.label,
+                    extra={"interaction": "in-process", **relationship.attributes},
                 )
             )
         return tuple(facts)
