@@ -181,9 +181,23 @@ Rules:
 | Component                 | Subcomponents                                                                                                                    |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `architecture_recovery`   | `static_extraction`, `deployment_analysis`, `interface_analysis`, `runtime_extraction`, `evidence_correlation`, `reconstruction` |
-| `architecture_validation` | `adr_extraction`, `intent_extraction`, `constraint_extraction`, `validation`                                                     |
+| `architecture_validation` | `observation_normalization`, `intent_extraction`, `decision_knowledge`, `evidence_retrieval`, `validation_reasoning`, `independent_verification`, `classification`, `architect_review`, `graph_publishing` |
 | `degradation_detection`   | `release_analysis`, `architecture_comparison`, `detection`, `cause_analysis`                                                     |
 | `degradation_scoring`     | `scoring_engine`, `severity`, `rules`                                                                                            |
+
+`architecture_validation` is listed with the nine subcomponents its validation pipeline actually
+needs. The four names previously listed are preserved rather than dropped:
+
+| Previously listed | Where its responsibility now sits |
+| ----------------- | --------------------------------- |
+| `adr_extraction`        | `intent_extraction/sources/decision_records.py` — one intent source among several, because most repositories hold no decision records |
+| `intent_extraction`     | `intent_extraction/` — kept, and widened to cover configuration and service contracts as well as decision records |
+| `constraint_extraction` | `intent_extraction/constraints.py` — normalising every source into one closed constraint vocabulary |
+| `validation`            | split across `validation_reasoning`, `independent_verification`, `classification` and `graph_publishing`, which have different dependencies and different failure modes |
+
+The split follows §4.1: one folder is one subcomponent with one responsibility. `validation` as a
+single folder would have held the model calls, the verification, the scoring rules and the output
+serialisation — four things that change for four unrelated reasons.
 
 ### 4.3 Resulting tree (created incrementally)
 
@@ -197,10 +211,15 @@ components/
 │   ├── evidence_correlation/
 │   └── reconstruction/
 ├── architecture_validation/
-│   ├── adr_extraction/
+│   ├── observation_normalization/
 │   ├── intent_extraction/
-│   ├── constraint_extraction/
-│   └── validation/
+│   ├── decision_knowledge/
+│   ├── evidence_retrieval/
+│   ├── validation_reasoning/
+│   ├── independent_verification/
+│   ├── classification/
+│   ├── architect_review/
+│   └── graph_publishing/
 ├── degradation_detection/
 │   ├── release_analysis/
 │   ├── architecture_comparison/
@@ -233,6 +252,12 @@ app/infrastructure/ai/
     ├── __init__.py
     └── <vendor>.py
 ```
+
+A provider adapter is named for the **API contract it speaks**, not always for a single vendor. Several
+hosted and local runtimes expose the same OpenAI-compatible chat-completions API, so one
+`openai_compatible.py` adapter serves all of them and the provider becomes configuration rather than
+code. A vendor-specific adapter is still named for its vendor where the API is genuinely proprietary.
+
 
 > These folders and files are **not created now**.
 
