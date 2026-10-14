@@ -325,6 +325,6 @@ def manifest_analysis_service_from_settings() -> ManifestAnalysisService:
     """Build a service configured from the application settings."""
 
     return ManifestAnalysisService(
-        max_bytes=settings.manifest_analysis_max_bytes,
-        max_documents=settings.manifest_analysis_max_documents,
+        max_bytes=settings.manifest_max_bytes,
+        max_documents=settings.manifest_max_documents,
     )

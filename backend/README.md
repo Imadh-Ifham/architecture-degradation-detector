@@ -83,8 +83,20 @@ from app.components.architecture_recovery.repository_inventory import (
 path, inventory = RepositoryInventoryService().run_for_ingested(ingested_repository)
 ```
 
-Limits and extra exclusions are configurable through the `INVENTORY_*` settings
-(see `backend/.env.example`).
+Configuration is split by sensitivity:
+
+| File | Committed | Holds |
+| ---- | --------- | ----- |
+| [`backend/config.ini`](./config.ini) | yes | Non-sensitive tuning: scan and analysis limits, clone timeout, application name. |
+| `backend/.env` | no | Secrets and environment-specific values: database hosts, credentials, workspace path. Start from [`.env.example`](./.env.example). |
+
+Precedence, lowest to highest: the defaults in `app/core/config.py`, then
+`config.ini`, then the environment and `.env`. So anything in the committed file
+can be overridden per machine or per deployment, which is what CI and containers
+should do.
+
+Limits and extra exclusions are configured through the `[inventory]` and
+`[manifest_analysis]` sections of `config.ini`.
 
 ### Manifest analysis
 

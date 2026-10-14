@@ -69,7 +69,7 @@ class RepositoryIngestionResponse(IngestedRepositoryResponse):
 def get_git_client() -> GitClient:
     """Provide a process-wide git client built from the configured timeout."""
 
-    return GitClient(timeout_seconds=settings.git_clone_timeout_seconds)
+    return GitClient(timeout_seconds=settings.clone_timeout_seconds)
 
 
 @lru_cache
