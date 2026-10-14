@@ -14,5 +14,12 @@ from app.components.architecture_recovery.repository_ingestion.service import (
 from app.components.architecture_recovery.repository_inventory.service import (
     RepositoryInventoryService,
 )
+from app.components.architecture_recovery.manifest_analysis.service import (
+    ManifestAnalysisService,
+)
 
-__all__ = ["RepositoryIngestionService", "RepositoryInventoryService"]
+__all__ = [
+    "ManifestAnalysisService",
+    "RepositoryIngestionService",
+    "RepositoryInventoryService",
+]
