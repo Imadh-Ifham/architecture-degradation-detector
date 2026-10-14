@@ -31,10 +31,17 @@ from app.components.architecture_recovery.repository_ingestion.validation import
     redact_credentials,
 )
 from app.components.architecture_recovery.repository_inventory import (
+    RepositoryInventory,
     RepositoryInventoryError,
     RepositoryInventoryService,
     RepositoryInventorySummaryResponse,
     inventory_options_from_settings,
+)
+from app.components.architecture_recovery.manifest_analysis import (
+    ManifestAnalysisError,
+    ManifestAnalysisService,
+    ManifestAnalysisSummaryResponse,
+    manifest_analysis_service_from_settings,
 )
 from app.core.config import settings
 from app.domain.repository import IngestedRepository
@@ -45,14 +52,17 @@ router = APIRouter(prefix="/repositories", tags=["Repositories"])
 
 
 class RepositoryIngestionResponse(IngestedRepositoryResponse):
-    """An ingested repository plus the inventory taken from the fresh clone.
+    """An ingested repository plus the analysis taken from the fresh clone.
 
-    `inventory` is null when the inventory could not be produced, in which case
-    `inventory_error` explains why. The clone itself is unaffected either way.
+    `inventory` and `manifest_analysis` are null when that stage could not run,
+    in which case the matching `*_error` explains why. The clone itself is
+    unaffected either way.
     """
 
     inventory: RepositoryInventorySummaryResponse | None = None
     inventory_error: str | None = None
+    manifest_analysis: ManifestAnalysisSummaryResponse | None = None
+    manifest_analysis_error: str | None = None
 
 
 @lru_cache
@@ -87,6 +97,17 @@ def get_repository_inventory_service() -> RepositoryInventoryService:
     return RepositoryInventoryService(options=inventory_options_from_settings())
 
 
+@lru_cache
+def get_manifest_analysis_service() -> ManifestAnalysisService:
+    """Provide the manifest analysis service shared by all requests.
+
+    Cached so the analysis limits are read once, and declared as a FastAPI
+    dependency so tests can override it.
+    """
+
+    return manifest_analysis_service_from_settings()
+
+
 @router.post(
     "",
     response_model=RepositoryIngestionResponse,
@@ -98,8 +119,11 @@ def ingest_repository(
     inventory_service: RepositoryInventoryService = Depends(
         get_repository_inventory_service
     ),
+    analysis_service: ManifestAnalysisService = Depends(
+        get_manifest_analysis_service
+    ),
 ) -> RepositoryIngestionResponse:
-    """Clone `request.url` at `request.branch`, then inventory the clone."""
+    """Clone `request.url` at `request.branch`, then inventory and analyze it."""
 
     try:
         repository = service.ingest(request.url, request.branch)
@@ -117,13 +141,20 @@ def ingest_repository(
         ) from error
 
     # The clone has succeeded, so from here on nothing may report the ingest as
-    # failed: an inventory problem is surfaced in the body instead.
-    inventory, inventory_error = _inventory_after_ingest(repository, inventory_service)
+    # failed: a downstream problem is surfaced in the body instead.
+    inventory, inventory_document, inventory_error = _inventory_after_ingest(
+        repository, inventory_service
+    )
+    analysis, analysis_error = _analysis_after_inventory(
+        inventory_document, repository, analysis_service
+    )
 
     return RepositoryIngestionResponse(
         **IngestedRepositoryResponse.model_validate(repository).model_dump(),
         inventory=inventory,
         inventory_error=inventory_error,
+        manifest_analysis=analysis,
+        manifest_analysis_error=analysis_error,
     )
 
 
@@ -158,21 +189,49 @@ def remove_repository(
 def _inventory_after_ingest(
     repository: IngestedRepository,
     inventory_service: RepositoryInventoryService,
-) -> tuple[RepositoryInventorySummaryResponse | None, str | None]:
+) -> tuple[
+    RepositoryInventorySummaryResponse | None, RepositoryInventory | None, str | None
+]:
     """Inventory a freshly cloned working tree.
 
-    Returns the summary and an error message, exactly one of which is set.
-    Only `RepositoryInventoryError` is caught: that covers the expected
-    failures (an unwritable output directory, a missing working tree). An
-    unexpected exception is a defect and is deliberately allowed to surface.
+    Returns the summary, the document itself and an error message. The document
+    is returned because the next stage consumes it directly rather than reading
+    it back from disk. Only `RepositoryInventoryError` is caught: that covers
+    the expected failures (an unwritable output directory, a missing working
+    tree). An unexpected exception is a defect and is deliberately allowed to
+    surface.
     """
 
     try:
         path, inventory = inventory_service.run_for_ingested(repository)
     except RepositoryInventoryError as error:
+        return None, None, str(error)
+
+    return RepositoryInventorySummaryResponse.from_inventory(path, inventory), inventory, None
+
+
+def _analysis_after_inventory(
+    inventory: RepositoryInventory | None,
+    repository: IngestedRepository,
+    analysis_service: ManifestAnalysisService,
+) -> tuple[ManifestAnalysisSummaryResponse | None, str | None]:
+    """Analyze the manifests the inventory found.
+
+    Analysis depends on the inventory, so when the inventory failed this stage
+    is skipped and says so rather than reporting a misleadingly empty report.
+    """
+
+    if inventory is None:
+        return None, "skipped: no repository inventory to analyze"
+
+    try:
+        path, report = analysis_service.run(
+            inventory, repository.path, repository.path.parent
+        )
+    except ManifestAnalysisError as error:
         return None, str(error)
 
-    return RepositoryInventorySummaryResponse.from_inventory(path, inventory), None
+    return ManifestAnalysisSummaryResponse.from_report(path, report), None
 
 
 def _describe_git_failure(error: GitCommandError) -> str:

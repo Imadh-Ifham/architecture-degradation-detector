@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # Extra directory names to exclude, comma-separated.
     inventory_extra_excluded_directories: str = ""
 
+    # Manifest analysis limits. Only files the inventory classified as
+    # deployment manifests or API specifications are opened.
+    manifest_analysis_max_bytes: int = 1_048_576
+    manifest_analysis_max_documents: int = 64
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
