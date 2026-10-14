@@ -139,4 +139,8 @@ the working tree. Malformed files are recorded as failures or diagnostics rather
 than silently dropped, and templated manifests (Helm) are reported as skipped
 because they cannot be resolved without their template engine.
 
+A per-test guide to this component's suite, explaining what each test attempts to
+prove, is in
+[`tests/components/architecture_recovery/test_manifest_analysis.md`](./tests/components/architecture_recovery/test_manifest_analysis.md).
+
 See the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the intended future architecture.
