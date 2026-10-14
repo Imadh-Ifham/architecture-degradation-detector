@@ -1,0 +1,46 @@
+services:
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: example/web:1.2.3
+    container_name: web-app
+    ports:
+      - "8080:80"
+      - "127.0.0.1:9000:9000/udp"
+    networks:
+      - frontend
+      - backend
+    environment:
+      DATABASE_URL: postgres://db:5432/app
+      DB_PASSWORD: hunter2
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    depends_on:
+      db:
+        condition: service_healthy
+      unknown-service: {}
+    volumes:
+      - web-data:/var/lib/data
+      - ./local:/mnt/local:ro
+    secrets:
+      - api_key
+  db:
+    image: postgres:17
+    expose:
+      - "5432"
+    networks:
+      - backend
+    volumes:
+      - db-data:/var/lib/postgresql/data
+networks:
+  frontend: {}
+  backend:
+    external: true
+volumes:
+  web-data: {}
+  db-data:
+    external: true
+secrets:
+  api_key:
+    external: true

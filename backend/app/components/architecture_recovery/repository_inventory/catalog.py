@@ -113,6 +113,9 @@ FILE_NAME_RULES: tuple[FileNameRule, ...] = (
     FileNameRule("*.dockerfile", FileCategory.DEPLOYMENT_MANIFEST, format="dockerfile"),
     FileNameRule("docker-compose*.y*ml", FileCategory.DEPLOYMENT_MANIFEST, format="yaml"),
     FileNameRule("compose*.y*ml", FileCategory.DEPLOYMENT_MANIFEST, format="yaml"),
+    # Any name mentioning compose, so `local-compose.yaml` is classified the
+    # same way the Compose analyzer selects it.
+    FileNameRule("*compose*.y*ml", FileCategory.DEPLOYMENT_MANIFEST, format="yaml"),
     FileNameRule("helmfile*.y*ml", FileCategory.DEPLOYMENT_MANIFEST, format="yaml"),
     FileNameRule("chart.yaml", FileCategory.DEPLOYMENT_MANIFEST, format="yaml"),
     FileNameRule("kustomization*.y*ml", FileCategory.DEPLOYMENT_MANIFEST, format="yaml"),
