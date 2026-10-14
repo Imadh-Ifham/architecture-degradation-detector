@@ -2,7 +2,7 @@
 
 Backend for the _Detection of Architectural Degradation during the Maintenance Phase_ research system.
 
-> **Status:** in progress. Repository ingestion and repository inventory exist; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
+> **Status:** in progress. Architecture recovery currently performs repository ingestion, repository inventory and manifest analysis; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
 
 ## Structure
 
@@ -14,7 +14,8 @@ backend/
     ├── components/                               # Research components
     │   ├── architecture_recovery/
     │   │   ├── repository_ingestion/             # Clone/remove a repository in a local workspace
-    │   │   └── repository_inventory/             # Inventory a working tree into repository_inventory.json
+    │   │   ├── repository_inventory/             # Inventory a working tree into repository_inventory.json
+    │   │   └── manifest_analysis/                # Parse manifests into manifest_analysis.json
     │   ├── architecture_validation/
     │   ├── architecture_degradation_detection/
     │   └── degradation_scoring/
@@ -32,7 +33,7 @@ The remaining research components are intentionally empty. Their internal subcom
 | `GET` | `/` | API root: returns the service message and environment. |
 | `GET` | `/health/postgres` | Checks PostgreSQL connectivity. |
 | `GET` | `/health/neo4j` | Checks Neo4j connectivity. |
-| `POST` | `/repositories` | Clones `{url, branch}` into the ingestion workspace and inventories the clone. |
+| `POST` | `/repositories` | Clones `{url, branch}`, then inventories and analyzes the clone. |
 | `GET` | `/repositories` | Lists ingested repositories. |
 | `DELETE` | `/repositories/{id}` | Removes an ingested repository from the machine. |
 
@@ -82,7 +83,60 @@ from app.components.architecture_recovery.repository_inventory import (
 path, inventory = RepositoryInventoryService().run_for_ingested(ingested_repository)
 ```
 
-Limits and extra exclusions are configurable through the `INVENTORY_*` settings
-(see `backend/.env.example`).
+Configuration is split by sensitivity:
+
+| File | Committed | Holds |
+| ---- | --------- | ----- |
+| [`backend/config.ini`](./config.ini) | yes | Non-sensitive tuning: scan and analysis limits, clone timeout, application name. |
+| `backend/.env` | no | Secrets and environment-specific values: database hosts, credentials, workspace path. Start from [`.env.example`](./.env.example). |
+
+Precedence, lowest to highest: the defaults in `app/core/config.py`, then
+`config.ini`, then the environment and `.env`. So anything in the committed file
+can be overridden per machine or per deployment, which is what CI and containers
+should do.
+
+Limits and extra exclusions are configured through the `[inventory]` and
+`[manifest_analysis]` sections of `config.ini`.
+
+### Manifest analysis
+
+The `manifest_analysis` subcomponent parses the manifests the inventory found and
+writes `manifest_analysis.json` beside `repository_inventory.json`. It runs
+automatically after a successful inventory and its summary is included in the
+`POST /repositories` response.
+
+| Format | Analyzer | Extracted |
+| ------ | -------- | --------- |
+| Docker Compose | `compose` | services, images, build context, published/exposed ports, networks, volumes, environment, `depends_on`, secrets (names only) |
+| Kubernetes | `kubernetes` | workloads, containers, images, ports, Service selectors, ConfigMap/Secret references (names only), volume claims |
+| Dockerfile | `dockerfile` | build stages, base images, exposed ports, runtime configuration, build inputs |
+| OpenAPI / Swagger / AsyncAPI | `openapi` | API title and version, servers, paths, methods, operation ids |
+| Protobuf | `protobuf` | package, services, RPCs, message types, imports |
+
+It consumes an existing inventory and never traverses the repository itself, so
+only files the inventory classified as a deployment manifest or an API
+specification are opened. Analyzer selection is a registry, so a new format is a
+new analyzer plus a registration, with no change to existing stages.
+
+**Declarations are not runtime facts.** Every relationship carries an `origin`
+that keeps them apart:
+
+| Origin | Meaning |
+| ------ | ------- |
+| `declared_dependency` | the manifest says so (`depends_on`, a ConfigMap/Secret reference) |
+| `declared_build_input` | a build input (image, build context, `COPY --from`) |
+| `configured_endpoint` | a configured location (published port, server url, environment url) |
+| `configured_filesystem` | a volume or claim mount |
+| `api_definition` | an API surface (OpenAPI operation, protobuf RPC) |
+| `verified_communication` | **reserved** — no analyzer may emit it; only a stage that observes real traffic can |
+
+**Safety.** Secret and sensitive values are never recorded: only key names are,
+with `values_extracted: false` on the resource. Environment values whose key
+looks sensitive are redacted, and urls are stored without credentials. Manifests
+are parsed with a safe loader that refuses arbitrary object tags, so a repository
+cannot execute code through a manifest; nothing is executed or written back to
+the working tree. Malformed files are recorded as failures or diagnostics rather
+than silently dropped, and templated manifests (Helm) are reported as skipped
+because they cannot be resolved without their template engine.
 
 See the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the intended future architecture.

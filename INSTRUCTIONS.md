@@ -93,7 +93,7 @@ Closes: #24
 docs: document develop-first branching workflow
 ```
 
-One logical change per commit. Do not mix refactoring with feature work in the same commit. Never commit secrets — use `.env` (see `backend/.env.example`) and keep `.env` out of git.
+One logical change per commit. Do not mix refactoring with feature work in the same commit. Never commit secrets — secrets and environment-specific values go in `.env` (see `backend/.env.example`), which is git-ignored. Non-sensitive tuning values go in the committed `backend/config.ini` instead.
 
 ---
 
@@ -188,7 +188,7 @@ The system uses **two databases**, each for what it is best at:
 | **Neo4j** (graph)           | Stores recovered/validated **architecture models as graphs** — components, interfaces, dependencies, and their evolution across releases. | Architectural structure is inherently a graph; traversals (paths, cycles, layering violations) are first-class. |
 | **PostgreSQL** (relational) | Stores **research metadata** — projects, releases, analysis runs, degradation findings, and scores.                                       | Structured, relational, transactional records with strong querying and reporting.                               |
 
-Adapters live under [`backend/app/infrastructure/`](./backend/app/infrastructure) (`neo4j/` and `postgres/`). Both services are defined in [`backend/docker-compose.yml`](./backend/docker-compose.yml). Never hardcode credentials or connection strings — configure them through the environment (`backend/.env.example`).
+Adapters live under [`backend/app/infrastructure/`](./backend/app/infrastructure) (`neo4j/` and `postgres/`). Both services are defined in [`backend/docker-compose.yml`](./backend/docker-compose.yml). Never hardcode credentials or connection strings — secrets and environment-specific values belong in `.env` (`backend/.env.example`); non-sensitive tuning belongs in the committed `backend/config.ini`.
 
 ---
 

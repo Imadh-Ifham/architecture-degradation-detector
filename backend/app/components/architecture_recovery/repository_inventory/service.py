@@ -224,16 +224,16 @@ def inventory_options_from_settings() -> InventoryOptions:
 
     extra_directories = tuple(
         item.strip()
-        for item in settings.inventory_extra_excluded_directories.split(",")
+        for item in settings.extra_excluded_directories.split(",")
         if item.strip()
     )
 
     return InventoryOptions(
-        max_files=settings.inventory_max_files,
-        max_file_size_bytes=settings.inventory_max_file_size_bytes,
-        max_depth=settings.inventory_max_depth,
-        max_manifest_bytes=settings.inventory_max_manifest_bytes,
-        grouping_depth=settings.inventory_grouping_depth,
+        max_files=settings.max_files,
+        max_file_size_bytes=settings.max_file_size_bytes,
+        max_depth=settings.max_depth,
+        max_manifest_bytes=settings.max_manifest_bytes,
+        grouping_depth=settings.grouping_depth,
         extra_excluded_directories=extra_directories,
     )
 
