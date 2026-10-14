@@ -14,11 +14,18 @@ Description:
     the reduction depends on the architectural style and belongs with the style
     adapters in validation. This file only guarantees the *shape*.
 
+    Relationships must resolve. Every `source_id` and `target_id` has to name
+    an element in the same architecture, and `RecoveredArchitecture` refuses
+    to be constructed otherwise - see `IncoherentArchitecture` for why that is
+    the one hard failure at this boundary.
+
     `relationships` may legitimately be empty. Recovery currently reports links
     between files and components rather than between one element and another,
-    so a release can arrive with elements and no edges at all. Validation
-    detects that and derives the edges from the deployment manifests recovery
-    has already located; see `derived_by` on each relationship.
+    so a release can arrive with elements and no edges at all. Until recovery
+    reports them, they are produced by a named stand-in in the recovery
+    gateway and marked as such on each relationship; see `derived_by`.
+    Validation itself does not read source code, so nothing inside the
+    validation component derives them.
 """
 
 from dataclasses import dataclass, field
@@ -43,6 +50,53 @@ class ArchitectureStyle(StrEnum):
     EVENT_DRIVEN = "event_driven"
     MONOLITH = "monolith"
     UNKNOWN = "unknown"
+
+
+class IncoherentArchitecture(ValueError):
+    """A relationship names an element the architecture does not contain.
+
+    Raised from `RecoveredArchitecture`'s own constructor, so an architecture
+    in this state cannot exist anywhere - not out of a reader, not out of a
+    recorder, not hand-built in a test.
+
+    This is deliberately the one hard failure on the input boundary, and the
+    distinction it rests on is between *a word we do not know* and *a document
+    that does not hold together*. An unrecognised relationship label is the
+    first kind: it is absorbed, the original is kept, and the count is
+    reported. An edge pointing at a missing node is the second kind. Absorbing
+    it would put a relationship in the validated graph with nothing on one end,
+    and every consumer after that would be working on a graph that cannot be
+    drawn.
+    """
+
+    def __init__(self, missing: tuple[str, ...], release_id: str) -> None:
+        named = ", ".join(missing)
+        super().__init__(
+            f"Architecture for release '{release_id}' has relationships naming "
+            f"element(s) it does not contain: {named}."
+        )
+        self.missing = missing
+        self.release_id = release_id
+
+
+class StyleSource(StrEnum):
+    """Who decided the architectural style.
+
+    The style selects the adapter, and the adapter decides what every fact in
+    the run looks like - so getting it from the wrong party quietly changes
+    every verdict downstream. The architecture document gives recovery the job
+    of detecting it, so recovery's answer is authoritative whenever there is
+    one, and validation's own inference is a labelled fallback rather than a
+    silent equal.
+
+    Two values, because there are two parties. If an evaluation corpus ever
+    needs a style forced by hand, that is a **third** labelled value, never an
+    unlabelled override: a style nobody can trace is the thing this field
+    exists to prevent.
+    """
+
+    C1 = "c1"
+    INFERRED_BY_C2 = "inferred_by_c2"
 
 
 class EvidenceQuality(StrEnum):
@@ -170,26 +224,61 @@ class RecoveredArchitecture:
 
     `manifest_paths` are the deployment and infrastructure files recovery
     classified. They travel with the architecture rather than being looked up
-    separately, so the derivation never has to guess repository layout and
-    nothing between the reader and the derivation has to know what a manifest
-    is.
+    separately, so the gateway's stand-in never has to guess repository layout
+    and nothing between the reader and the stand-in has to know what a
+    manifest is.
+
+    `style` and `style_source` are read together and neither is useful alone.
+    `style_source` of `c1` means recovery answered and the answer stands, even
+    when the answer is `unknown`. `inferred_by_c2` means recovery said nothing
+    and `style` is a placeholder the normaliser replaces with its own
+    inference. The field has no default: an architecture that cannot say where
+    its style came from is then impossible to construct rather than possible
+    to construct and easy to forget about.
     """
 
     repository_id: str
     release_id: str
     style: ArchitectureStyle
+    style_source: StyleSource
     elements: tuple[ArchitectureElement, ...]
     relationships: tuple[ArchitectureRelationship, ...]
     provenance: RecoveryProvenance
     manifest_paths: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        """Refuse an architecture whose relationships do not resolve.
+
+        Checked here rather than in each reader because there are three
+        readers and a recorder, and the one that forgets is the one that
+        produces the broken graph. Frozen dataclasses run this once, at
+        construction, and it is a single pass over the relationships against a
+        set of ids.
+        """
+
+        known = {element.id for element in self.elements}
+        missing = tuple(
+            sorted(
+                {
+                    end
+                    for relationship in self.relationships
+                    for end in (relationship.source_id, relationship.target_id)
+                    if end not in known
+                }
+            )
+        )
+        if missing:
+            raise IncoherentArchitecture(missing, self.release_id)
+
     @property
     def has_element_relationships(self) -> bool:
-        """Whether recovery supplied any element-to-element relationship.
+        """Whether this architecture carries any element-to-element relationship.
 
-        Validation derives the relationships itself when this is false, and
-        stops doing so on its own once recovery reports them - so the
-        derivation retires without a flag to remember or code to remove.
+        False means there is nothing for validation to validate, and that is
+        reported rather than filled in. The gateway's stand-in fills the gap
+        while recovery's own extraction is unfinished, and becomes a no-op the
+        moment recovery reports them - so it retires without a flag to
+        remember or code to remove.
         """
 
         return len(self.relationships) > 0
@@ -203,6 +292,7 @@ class RecoveredArchitecture:
             "repository_id": self.repository_id,
             "release_id": self.release_id,
             "style": self.style,
+            "style_source": self.style_source,
             "elements": [item.to_dict() for item in self.elements],
             "relationships": [item.to_dict() for item in self.relationships],
             "manifest_paths": list(self.manifest_paths),

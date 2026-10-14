@@ -279,6 +279,16 @@ INGRESS = {
 }
 
 
+COMMENT_TOKEN = {"python": "#"}
+"""Comment token per language, defaulting to `//`.
+
+The file bodies are placeholders - the inventory counts and classifies
+files without reading them - but a generated `.py` holding a `//` comment
+is not valid Python, and anything that walks the tree with a parser trips
+over it.
+"""
+
+
 def write(path, text):
     full = os.path.join(BASE, path)
     os.makedirs(os.path.dirname(full), exist_ok=True)
@@ -294,7 +304,8 @@ def build(release, include_shopping_assistant, include_service_accounts):
             deployment(name, dependencies, PORTS[name]),
         )
         language, source, manifest = LANGUAGES[name]
-        write(f"{prefix}/src/{name}/{source}", f"// {name} ({language})\n")
+        token = COMMENT_TOKEN.get(language, "//")
+        write(f"{prefix}/src/{name}/{source}", f"{token} {name} ({language})\n")
         write(
             f"{prefix}/src/{name}/{manifest}",
             BUILD_MANIFEST[manifest].format(name=name),

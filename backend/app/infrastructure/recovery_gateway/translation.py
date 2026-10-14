@@ -19,10 +19,11 @@ Description:
     them. This translation returns them empty and lets validation derive them,
     which keeps the derivation switchable off by the presence of real ones.
 
-    It carries no architectural style. The style is inferred from what the
-    inventory does say, with a deliberately small rule set, and falls back to
-    unknown rather than to a guess. A caller who knows the style can override
-    the inference.
+    It carries no architectural style yet. The architecture document gives
+    recovery the job of detecting it, so this reads an `architecture_style`
+    field when one is present and reports its absence otherwise - it does not
+    infer. The inference belongs to the normaliser, which has it in one place
+    for all three readers; see `observation_normalization/_style.py`.
 """
 
 from app.domain.recovered_architecture import (
@@ -32,6 +33,7 @@ from app.domain.recovered_architecture import (
     EvidenceQuality,
     RecoveredArchitecture,
     RecoveryProvenance,
+    StyleSource,
 )
 
 from .inventory_schema import (
@@ -57,14 +59,13 @@ _KIND_MAP = {
 # manifest. Reading the manifest filenames recovers what the kind alone loses.
 _DEPLOYED_PROMOTION = ElementKind.SERVICE
 
-_LAYER_TOKENS = ("presentation", "domain", "application", "persistence", "infrastructure")
+STYLE_FIELD = "architecture_style"
+"""The field recovery supplies the detected style in.
 
-MICROSERVICE_MINIMUM_SERVICES = 2
-"""How many deployed services make an architecture microservices.
-
-Two. One deployed service is a deployed monolith, and calling that
-microservices because it has a manifest would be the kind of guess this module
-exists to avoid.
+Named here because this is the only module allowed to know the inventory's
+field names. It is absent from every inventory recovery writes today; §4.4 of
+the architecture document lists it as part of the hand-off, and it is one of
+the two fields outstanding on that contract.
 """
 
 
@@ -74,7 +75,6 @@ def translate(
     release_id: str,
     source_reference: str,
     reader: str,
-    style_override: ArchitectureStyle | None = None,
 ) -> RecoveredArchitecture:
     """Translate one inventory document for one release.
 
@@ -87,12 +87,13 @@ def translate(
     assert_shape(document)
 
     elements = _elements(document)
-    style = style_override or infer_style(document, elements)
+    style, style_source = read_style(document)
 
     return RecoveredArchitecture(
         repository_id=repository_id,
         release_id=release_id,
         style=style,
+        style_source=style_source,
         elements=elements,
         # Empty by design - see the module docstring. Validation derives these
         # and stops as soon as the inventory reports real ones.
@@ -207,30 +208,26 @@ def canonical(name: str) -> str:
     return name.strip().lower().replace("-", "").replace("_", "").replace(".", "")
 
 
-def infer_style(document: dict, elements: tuple[ArchitectureElement, ...]) -> ArchitectureStyle:
-    """Infer the architectural style, or report that it could not be.
+def read_style(document: dict) -> tuple[ArchitectureStyle, StyleSource]:
+    """Return recovery's detected style and the fact that it was recovery's.
 
-    Deliberately narrow. Microservices and monolith are distinguishable from
-    what the inventory records; layered is recognised only when the component
-    names say so outright.
+    Three cases, and none of them raises. Absent is the normal case today and
+    hands the question to the normaliser, labelled. A value recovery wrote is
+    authoritative even when it is `unknown`: recovery looked and could not
+    tell, which is an answer and not a gap.
 
-    Event-driven is **not** inferred. Recognising it needs evidence of a broker
-    and of publish/subscribe relationships, and the inventory supplies neither.
-    Returning unknown routes the release to the generic adapter with its
-    confidence capped, which is the honest outcome - an adapter exists for the
-    style, but nothing here can establish that it applies.
+    A value this version does not recognise is also recovery's answer, and is
+    reported as `unknown` from recovery rather than refused. Recovery adding a
+    style before validation learns the word is ordinary drift between two
+    components being built in parallel, and the right response is the generic
+    adapter with its confidence capped - not a run that stops. Failing loud on
+    contract drift is M8's job in the component diagram, not this layer's.
     """
 
-    services = [element for element in elements if element.kind is ElementKind.SERVICE]
+    if STYLE_FIELD not in document or document[STYLE_FIELD] in (None, ""):
+        return ArchitectureStyle.UNKNOWN, StyleSource.INFERRED_BY_C2
 
-    if len(services) >= MICROSERVICE_MINIMUM_SERVICES:
-        return ArchitectureStyle.MICROSERVICES
-
-    names = " ".join(element.name.lower() for element in elements)
-    if sum(token in names for token in _LAYER_TOKENS) >= 2:
-        return ArchitectureStyle.LAYERED
-
-    if len(elements) == 1:
-        return ArchitectureStyle.MONOLITH
-
-    return ArchitectureStyle.UNKNOWN
+    try:
+        return ArchitectureStyle(document[STYLE_FIELD]), StyleSource.C1
+    except ValueError:
+        return ArchitectureStyle.UNKNOWN, StyleSource.C1

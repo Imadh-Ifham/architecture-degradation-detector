@@ -19,7 +19,7 @@ Description:
 import json
 from pathlib import Path
 
-from app.domain.recovered_architecture import ArchitectureStyle, RecoveredArchitecture
+from app.domain.recovered_architecture import RecoveredArchitecture
 
 from .inventory_schema import InventoryContractError
 from .translation import manifest_paths, translate
@@ -28,13 +28,8 @@ from .translation import manifest_paths, translate
 class FixtureArchitectureReader:
     """Reads a recovered architecture from a committed inventory fixture."""
 
-    def __init__(
-        self,
-        fixture_root: Path,
-        style_override: ArchitectureStyle | None = None,
-    ) -> None:
+    def __init__(self, fixture_root: Path) -> None:
         self._root = Path(fixture_root)
-        self._style_override = style_override
 
     def read(self, repository_id: str, release_id: str) -> RecoveredArchitecture:
         path = self._path_for(release_id)
@@ -45,7 +40,6 @@ class FixtureArchitectureReader:
             release_id=release_id,
             source_reference=str(path),
             reader="fixture_reader",
-            style_override=self._style_override,
         )
 
     def manifest_paths(self, release_id: str) -> tuple[str, ...]:

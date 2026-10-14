@@ -14,7 +14,7 @@ Description:
 import json
 from pathlib import Path
 
-from app.domain.recovered_architecture import ArchitectureStyle, RecoveredArchitecture
+from app.domain.recovered_architecture import RecoveredArchitecture
 
 from .inventory_schema import InventoryContractError
 from .translation import manifest_paths, translate
@@ -25,21 +25,10 @@ INVENTORY_FILE_NAME = "repository_inventory.json"
 class InventoryFileArchitectureReader:
     """Reads a recovered architecture from an inventory document on disk."""
 
-    def __init__(
-        self,
-        inventory_root: Path,
-        style_override: ArchitectureStyle | None = None,
-    ) -> None:
-        """Bind the reader to the directory holding inventory documents.
-
-        `style_override` exists for the case where the caller knows the style
-        and the inventory cannot show it. It is not a default: left unset, the
-        style is inferred, and an architecture whose style cannot be determined
-        is reported as unknown rather than assumed.
-        """
+    def __init__(self, inventory_root: Path) -> None:
+        """Bind the reader to the directory holding inventory documents."""
 
         self._root = Path(inventory_root)
-        self._style_override = style_override
 
     def read(self, repository_id: str, release_id: str) -> RecoveredArchitecture:
         """Return the recovered architecture for one release."""
@@ -52,7 +41,6 @@ class InventoryFileArchitectureReader:
             release_id=release_id,
             source_reference=str(path),
             reader="inventory_file_reader",
-            style_override=self._style_override,
         )
 
     def manifest_paths(self, repository_id: str) -> tuple[str, ...]:

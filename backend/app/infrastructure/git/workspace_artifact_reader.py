@@ -27,8 +27,18 @@ class ArtifactUnavailableError(RuntimeError):
 class WorkspaceArtifactReader:
     """Reads repository files from the ingestion workspace."""
 
-    def __init__(self, workspace_root: Path) -> None:
+    def __init__(self, workspace_root: Path, checkout_subdirectory: str = "") -> None:
+        """Bind the reader to the workspace, and to where a checkout sits in it.
+
+        `checkout_subdirectory` is the path from a repository's own directory
+        down to its working tree. Ingestion keeps the tree one level down,
+        beside the files it writes about the tree, and that layout is the
+        caller's knowledge rather than this reader's - which is why it is a
+        parameter and not a constant here.
+        """
+
         self._root = Path(workspace_root)
+        self._checkout_subdirectory = checkout_subdirectory
 
     def read_text(self, repository_id: str, release_id: str, path: str) -> str:
         """Return the file's contents.
@@ -64,7 +74,7 @@ class WorkspaceArtifactReader:
         )
 
     def _repository_root(self, repository_id: str) -> Path:
-        root = self._root / repository_id
+        root = self._root / repository_id / self._checkout_subdirectory
         if not root.is_dir():
             raise ArtifactUnavailableError(
                 f"No workspace checkout for '{repository_id}'. Ingest it first."
