@@ -20,3 +20,9 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "live: calls a real model provider. Deselected by default; needs a key in .env.",
+]
+addopts = "-m 'not live'"
