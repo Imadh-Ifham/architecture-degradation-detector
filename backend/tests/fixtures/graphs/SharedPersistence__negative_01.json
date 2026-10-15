@@ -1,0 +1,7 @@
+{
+  "description": "Database per service: chain a->b->c, each element with its own datastore and a with two. Nothing is shared, so no SharedPersistence; the chain is the same as in the positive fixture, so no other detector fires either.",
+  "elements": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+  "dependencies": [["a", "b"], ["b", "c"]],
+  "datastore_access": [["a", "a_db"], ["a", "a_cache"], ["b", "b_db"], ["c", "c_db"]],
+  "expected": []
+}

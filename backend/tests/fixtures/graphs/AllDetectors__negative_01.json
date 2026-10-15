@@ -1,0 +1,13 @@
+{
+  "description": "Balanced layered graph: three sources each depend on all three sinks (no cycle), sizes 95..105. No element passes both fences (sources have fan_in 0, sinks fan_out 0), instability goes 1 -> 0 on every edge, median 100.5 and MAD 2.5 give max |size_rz| = 5.5 / (1.4826*2.5) = 1.48, largest_scc_share = 0.",
+  "elements": [
+    {"id": "s1", "size": 95}, {"id": "s2", "size": 98}, {"id": "s3", "size": 100},
+    {"id": "t1", "size": 101}, {"id": "t2", "size": 103}, {"id": "t3", "size": 105}
+  ],
+  "dependencies": [
+    ["s1", "t1"], ["s1", "t2"], ["s1", "t3"],
+    ["s2", "t1"], ["s2", "t2"], ["s2", "t3"],
+    ["s3", "t1"], ["s3", "t2"], ["s3", "t3"]
+  ],
+  "expected": []
+}

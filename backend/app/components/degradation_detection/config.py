@@ -4,6 +4,10 @@ Every threshold and statistical parameter in C3 comes from here; detectors and t
 numeric constants. The models forbid unknown keys, so a typo in the YAML fails at start-up
 instead of silently running with a default.
 
+The detector catalog (which detectors run for which architecture style) is kept in its own
+file, ``configs/catalog.yaml``, and loaded into the ``catalog`` section. It changes which
+anti-patterns are reported, so it is part of ``config_hash`` like every other section.
+
 ``config_hash`` is stored on every analysis run. It is computed from the validated config, not
 from the file, so two files that describe the same run (different key order, comments, defaults
 left out) have the same hash. Freeze the config before running evaluation systems.
@@ -17,7 +21,7 @@ Bracketed ids ([D-07]) refer to the decision register in the plan, Section 10.
 import math
 import re
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 import yaml
 from pydantic import Field, ValidationError, field_validator, model_validator
@@ -25,9 +29,12 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 from app.components.degradation_detection.models import InternalModel
 from app.domain.audit_entry import Verdict
 from app.domain.degradation_event import TimeAxis, Worsening
+from app.domain.release_package import ArchitectureStyle
 from app.shared.canonical_json import content_hash
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "default.yaml"
+CONFIG_DIR = Path(__file__).resolve().parents[3] / "configs"
+DEFAULT_CONFIG_PATH = CONFIG_DIR / "default.yaml"
+DEFAULT_CATALOG_PATH = CONFIG_DIR / "catalog.yaml"
 
 Fraction = Annotated[float, Field(ge=0, le=1)]
 Positive = Annotated[float, Field(gt=0)]
@@ -115,6 +122,41 @@ class DetectionConfig(InternalModel):
     oversized: OversizedConfig = OversizedConfig()
     big_ball_of_mud: BigBallOfMudConfig = BigBallOfMudConfig()
     modularity: ModularityConfig = ModularityConfig()
+
+
+ALL_STYLES = "*"
+
+
+class CatalogConfig(InternalModel):
+    """Detector ids enabled per architecture style (``configs/catalog.yaml``).
+
+    A release runs the detectors listed under ``"*"`` plus those under its own style. Only the
+    shape is checked here; the detector registry checks the ids against the detectors it has.
+    """
+
+    enabled: dict[str, tuple[str, ...]] = {
+        ALL_STYLES: (
+            "CyclicDependency",
+            "HubLikeElement",
+            "UnstableDependency",
+            "OversizedElement",
+            "BigBallOfMud",
+        ),
+        "microservices": ("SharedPersistence",),
+    }
+
+    @field_validator("enabled")
+    @classmethod
+    def _check_styles_and_ids(cls, value: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
+        known = {ALL_STYLES, *(style.value for style in ArchitectureStyle)}
+        for style, ids in value.items():
+            if style not in known:
+                raise ValueError(
+                    f"unknown architecture style {style!r}; expected one of {sorted(known)}"
+                )
+            if len(set(ids)) != len(ids):
+                raise ValueError(f"a detector is listed twice under {style!r}")
+        return value
 
 
 # --- M3 --------------------------------------------------------------------------------------
@@ -216,6 +258,7 @@ class C3Config(InternalModel):
     gate: GateConfig = GateConfig()
     metrics: MetricsConfig = MetricsConfig()
     detection: DetectionConfig = DetectionConfig()
+    catalog: CatalogConfig = CatalogConfig()  # from catalog.yaml, never from the main file
     align: AlignConfig = AlignConfig()
     tracking: TrackingConfig = TrackingConfig()
     trend: TrendConfig = TrendConfig()
@@ -232,8 +275,24 @@ class C3Config(InternalModel):
         return content_hash(self.model_dump(mode="json"))
 
 
-def load_config(path: Path = DEFAULT_CONFIG_PATH) -> C3Config:
-    """Read and validate a YAML config file. Keys the file leaves out take their defaults."""
+def load_config(
+    path: Path = DEFAULT_CONFIG_PATH, catalog_path: Path = DEFAULT_CATALOG_PATH
+) -> C3Config:
+    """Read and validate a YAML config file and the detector catalog beside it.
+
+    Keys the files leave out take their defaults.
+    """
+    raw = _read_mapping(path)
+    if "catalog" in raw:
+        raise ConfigError(f"config {path}: the detector catalog belongs in {catalog_path.name}")
+    raw["catalog"] = _read_mapping(catalog_path)
+    try:
+        return C3Config.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigError(f"config {path} or {catalog_path} is invalid: {exc}") from exc
+
+
+def _read_mapping(path: Path) -> dict[str, Any]:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -242,10 +301,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> C3Config:
         raise ConfigError(f"config {path} is not valid YAML: {exc}") from exc
 
     if raw is None:
-        raw = {}
+        return {}
     if not isinstance(raw, dict):
         raise ConfigError(f"config {path} must be a mapping of sections, not {type(raw).__name__}")
-    try:
-        return C3Config.model_validate(raw)
-    except ValidationError as exc:
-        raise ConfigError(f"config {path} is invalid: {exc}") from exc
+    return raw

@@ -1,0 +1,11 @@
+{
+  "description": "Mild spread: sizes 100..170 and 200. Median 140, MAD 20, size_rz(200) = 60 / 29.652 = 2.02 <= 3.5.",
+  "elements": [
+    {"id": "big", "size": 200},
+    {"id": "e1", "size": 100}, {"id": "e2", "size": 110}, {"id": "e3", "size": 120},
+    {"id": "e4", "size": 130}, {"id": "e5", "size": 140}, {"id": "e6", "size": 150},
+    {"id": "e7", "size": 160}, {"id": "e8", "size": 170}
+  ],
+  "dependencies": [["e1", "big"], ["e2", "big"], ["e3", "e4"]],
+  "expected": []
+}
