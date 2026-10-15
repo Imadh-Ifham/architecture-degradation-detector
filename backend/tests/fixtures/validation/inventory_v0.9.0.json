@@ -1,0 +1,2158 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-10-14T00:00:00+00:00",
+  "generator": {
+    "name": "repository_inventory",
+    "version": "0.1.0"
+  },
+  "repository": {
+    "id": "online-boutique",
+    "url": "https://github.com/GoogleCloudPlatform/microservices-demo",
+    "branch": "v0.9.0",
+    "commit": "d138db567079e2ef982d46b2993f8349cb18e2b2"
+  },
+  "scan_options": {
+    "excluded_directories": [
+      ".bundle",
+      ".bzr",
+      ".cache",
+      ".git",
+      ".gradle",
+      ".hg",
+      ".idea",
+      ".mypy_cache",
+      ".next",
+      ".nuxt",
+      ".nyc_output",
+      ".output",
+      ".parcel-cache",
+      ".pytest_cache",
+      ".ruff_cache",
+      ".staging",
+      ".svelte-kit",
+      ".svn",
+      ".terraform",
+      ".tox",
+      ".turbo",
+      ".venv",
+      ".vs",
+      "Carthage",
+      "DerivedData",
+      "Pods",
+      "__pycache__",
+      "bin",
+      "bower_components",
+      "build",
+      "conda-meta",
+      "coverage",
+      "dist",
+      "htmlcov",
+      "jspm_packages",
+      "node_modules",
+      "obj",
+      "out",
+      "site-packages",
+      "target",
+      "vendor",
+      "venv",
+      "virtualenv"
+    ],
+    "excluded_file_names": [
+      ".ds_store",
+      "bun.lockb",
+      "cargo.lock",
+      "composer.lock",
+      "desktop.ini",
+      "flake.lock",
+      "gemfile.lock",
+      "go.sum",
+      "gradle.lockfile",
+      "mix.lock",
+      "npm-shrinkwrap.json",
+      "package-lock.json",
+      "packages.lock.json",
+      "pipfile.lock",
+      "pnpm-lock.yaml",
+      "poetry.lock",
+      "project.assets.json",
+      "pubspec.lock",
+      "thumbs.db",
+      "uv.lock",
+      "yarn.lock"
+    ],
+    "excluded_file_suffixes": [
+      ".a",
+      ".bak",
+      ".class",
+      ".dll",
+      ".dylib",
+      ".ear",
+      ".exe",
+      ".jar",
+      ".lib",
+      ".log",
+      ".map",
+      ".min.css",
+      ".min.js",
+      ".o",
+      ".obj",
+      ".orig",
+      ".pyc",
+      ".pyd",
+      ".pyo",
+      ".rej",
+      ".so",
+      ".swo",
+      ".swp",
+      ".temp",
+      ".tmp",
+      ".war"
+    ],
+    "max_files": 20000,
+    "max_file_size_bytes": 5000000,
+    "max_depth": 32,
+    "max_manifest_bytes": 262144,
+    "grouping_depth": 2
+  },
+  "summary": {
+    "file_count": 62,
+    "total_size_bytes": 18382,
+    "excluded_file_count": 0,
+    "excluded_directory_count": 0,
+    "unreadable_count": 0,
+    "truncated": false,
+    "component_count": 11,
+    "relationship_count": 33,
+    "by_category": {
+      "api_specification": 1,
+      "build_manifest": 11,
+      "deployment_manifest": 3,
+      "documentation": 1,
+      "infrastructure_config": 35,
+      "source_code": 11
+    },
+    "by_language": {
+      "csharp": 2,
+      "go": 8,
+      "groovy": 1,
+      "java": 1,
+      "javascript": 2,
+      "protobuf": 1,
+      "python": 6
+    }
+  },
+  "files": [
+    {
+      "id": "file:8ec9a00bfd09",
+      "path": "README.md",
+      "name": "README.md",
+      "extension": ".md",
+      "language": null,
+      "format": "markdown",
+      "category": "documentation",
+      "size_bytes": 82,
+      "depth": 1,
+      "component_id": null
+    },
+    {
+      "id": "file:5e698be5478a",
+      "path": "kustomize/base/adservice.yaml",
+      "name": "adservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 693,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:747f51946a78",
+      "path": "kustomize/base/cartservice.yaml",
+      "name": "cartservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 777,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:37e83bab62a7",
+      "path": "kustomize/base/checkoutservice.yaml",
+      "name": "checkoutservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 1250,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:5b2b659dfbf4",
+      "path": "kustomize/base/currencyservice.yaml",
+      "name": "currencyservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 735,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:e50f896f6758",
+      "path": "kustomize/base/emailservice.yaml",
+      "name": "emailservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 714,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:3d843d769b87",
+      "path": "kustomize/base/frontend.yaml",
+      "name": "frontend.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 1294,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:0d2b93a8fefa",
+      "path": "kustomize/base/kustomization.yaml",
+      "name": "kustomization.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "deployment_manifest",
+      "size_bytes": 339,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:01b5f201e82d",
+      "path": "kustomize/base/loadgenerator.yaml",
+      "name": "loadgenerator.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 790,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:961aea71cb91",
+      "path": "kustomize/base/paymentservice.yaml",
+      "name": "paymentservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 732,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:3f4585ceea4d",
+      "path": "kustomize/base/productcatalogservice.yaml",
+      "name": "productcatalogservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 777,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:3ed4fbadf312",
+      "path": "kustomize/base/recommendationservice.yaml",
+      "name": "recommendationservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 876,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:8c26647cf05a",
+      "path": "kustomize/base/shippingservice.yaml",
+      "name": "shippingservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 739,
+      "depth": 3,
+      "component_id": null
+    },
+    {
+      "id": "file:6c65b40d5f3a",
+      "path": "kustomize/components/network-policies/kustomization.yaml",
+      "name": "kustomization.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "deployment_manifest",
+      "size_bytes": 564,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:f9b8fa7bb799",
+      "path": "kustomize/components/network-policies/network-policy-adservice.yaml",
+      "name": "network-policy-adservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 281,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:295e9e0b2496",
+      "path": "kustomize/components/network-policies/network-policy-cartservice.yaml",
+      "name": "network-policy-cartservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 368,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:5f4573b2c7c7",
+      "path": "kustomize/components/network-policies/network-policy-checkoutservice.yaml",
+      "name": "network-policy-checkoutservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 293,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:c97da395c84b",
+      "path": "kustomize/components/network-policies/network-policy-currencyservice.yaml",
+      "name": "network-policy-currencyservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 376,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:00ca9aa1a9a6",
+      "path": "kustomize/components/network-policies/network-policy-deny-all.yaml",
+      "name": "network-policy-deny-all.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 146,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:a3050b7ead5e",
+      "path": "kustomize/components/network-policies/network-policy-emailservice.yaml",
+      "name": "network-policy-emailservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 294,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:f39daa667b52",
+      "path": "kustomize/components/network-policies/network-policy-frontend.yaml",
+      "name": "network-policy-frontend.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 284,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:49062b4efb69",
+      "path": "kustomize/components/network-policies/network-policy-loadgenerator.yaml",
+      "name": "network-policy-loadgenerator.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 224,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:e3f4ab58300b",
+      "path": "kustomize/components/network-policies/network-policy-paymentservice.yaml",
+      "name": "network-policy-paymentservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 298,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:cbee35b9840b",
+      "path": "kustomize/components/network-policies/network-policy-productcatalogservice.yaml",
+      "name": "network-policy-productcatalogservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 477,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:e993b242a866",
+      "path": "kustomize/components/network-policies/network-policy-recommendationservice.yaml",
+      "name": "network-policy-recommendationservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 305,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:6794714c4aaf",
+      "path": "kustomize/components/network-policies/network-policy-redis.yaml",
+      "name": "network-policy-redis.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 276,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:febbc0918ee9",
+      "path": "kustomize/components/network-policies/network-policy-shippingservice.yaml",
+      "name": "network-policy-shippingservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 376,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:d908d3a05e29",
+      "path": "kustomize/components/service-accounts/kustomization.yaml",
+      "name": "kustomization.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "deployment_manifest",
+      "size_bytes": 512,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:b95a1bb7b866",
+      "path": "kustomize/components/service-accounts/service-account-adservice.yaml",
+      "name": "service-account-adservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 160,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:fd97bc7b07ea",
+      "path": "kustomize/components/service-accounts/service-account-cartservice.yaml",
+      "name": "service-account-cartservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 164,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:be12226af68d",
+      "path": "kustomize/components/service-accounts/service-account-checkoutservice.yaml",
+      "name": "service-account-checkoutservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 172,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:ef961fecebce",
+      "path": "kustomize/components/service-accounts/service-account-currencyservice.yaml",
+      "name": "service-account-currencyservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 172,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:138d0b193c30",
+      "path": "kustomize/components/service-accounts/service-account-emailservice.yaml",
+      "name": "service-account-emailservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 166,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:0612715dc5a3",
+      "path": "kustomize/components/service-accounts/service-account-frontend.yaml",
+      "name": "service-account-frontend.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 158,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:94c63442f5a1",
+      "path": "kustomize/components/service-accounts/service-account-loadgenerator.yaml",
+      "name": "service-account-loadgenerator.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 168,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:6067aba024b8",
+      "path": "kustomize/components/service-accounts/service-account-paymentservice.yaml",
+      "name": "service-account-paymentservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 170,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:0f986cd04e8b",
+      "path": "kustomize/components/service-accounts/service-account-productcatalogservice.yaml",
+      "name": "service-account-productcatalogservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 184,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:5045effd8396",
+      "path": "kustomize/components/service-accounts/service-account-recommendationservice.yaml",
+      "name": "service-account-recommendationservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 184,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:972bc1727779",
+      "path": "kustomize/components/service-accounts/service-account-shippingservice.yaml",
+      "name": "service-account-shippingservice.yaml",
+      "extension": ".yaml",
+      "language": null,
+      "format": "yaml",
+      "category": "infrastructure_config",
+      "size_bytes": 172,
+      "depth": 4,
+      "component_id": null
+    },
+    {
+      "id": "file:adeadaa0e965",
+      "path": "protos/demo.proto",
+      "name": "demo.proto",
+      "extension": ".proto",
+      "language": "protobuf",
+      "format": null,
+      "category": "api_specification",
+      "size_bytes": 570,
+      "depth": 2,
+      "component_id": null
+    },
+    {
+      "id": "file:16d13636ebf7",
+      "path": "src/adservice/build.gradle",
+      "name": "build.gradle",
+      "extension": ".gradle",
+      "language": "groovy",
+      "format": null,
+      "category": "build_manifest",
+      "size_bytes": 54,
+      "depth": 3,
+      "component_id": "component:6f1205f7b9a2"
+    },
+    {
+      "id": "file:6d33d920fb2a",
+      "path": "src/adservice/src/main/java/Ads.java",
+      "name": "Ads.java",
+      "extension": ".java",
+      "language": "java",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 20,
+      "depth": 6,
+      "component_id": "component:6f1205f7b9a2"
+    },
+    {
+      "id": "file:48fc87defbe6",
+      "path": "src/cartservice/Program.cs",
+      "name": "Program.cs",
+      "extension": ".cs",
+      "language": "csharp",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 24,
+      "depth": 3,
+      "component_id": "component:234420ec6b3f"
+    },
+    {
+      "id": "file:37d07a230fe7",
+      "path": "src/cartservice/cartservice.csproj",
+      "name": "cartservice.csproj",
+      "extension": ".csproj",
+      "language": "csharp",
+      "format": "xml",
+      "category": "build_manifest",
+      "size_bytes": 124,
+      "depth": 3,
+      "component_id": "component:234420ec6b3f"
+    },
+    {
+      "id": "file:9881b96c0d6e",
+      "path": "src/checkoutservice/go.mod",
+      "name": "go.mod",
+      "extension": ".mod",
+      "language": "go",
+      "format": null,
+      "category": "build_manifest",
+      "size_bytes": 86,
+      "depth": 3,
+      "component_id": "component:5b7ad1617cf9"
+    },
+    {
+      "id": "file:513030f2897b",
+      "path": "src/checkoutservice/main.go",
+      "name": "main.go",
+      "extension": ".go",
+      "language": "go",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 24,
+      "depth": 3,
+      "component_id": "component:5b7ad1617cf9"
+    },
+    {
+      "id": "file:3e9c4b896d54",
+      "path": "src/currencyservice/package.json",
+      "name": "package.json",
+      "extension": ".json",
+      "language": null,
+      "format": "json",
+      "category": "build_manifest",
+      "size_bytes": 76,
+      "depth": 3,
+      "component_id": "component:bc06d727f1e1"
+    },
+    {
+      "id": "file:ad92f8eecb7b",
+      "path": "src/currencyservice/server.js",
+      "name": "server.js",
+      "extension": ".js",
+      "language": "javascript",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 26,
+      "depth": 3,
+      "component_id": "component:bc06d727f1e1"
+    },
+    {
+      "id": "file:c4cef3ca783f",
+      "path": "src/emailservice/email_server.py",
+      "name": "email_server.py",
+      "extension": ".py",
+      "language": "python",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 25,
+      "depth": 3,
+      "component_id": "component:e952b8636d56"
+    },
+    {
+      "id": "file:f1fd852e4f4e",
+      "path": "src/emailservice/requirements.txt",
+      "name": "requirements.txt",
+      "extension": ".txt",
+      "language": "python",
+      "format": "text",
+      "category": "build_manifest",
+      "size_bytes": 41,
+      "depth": 3,
+      "component_id": "component:e952b8636d56"
+    },
+    {
+      "id": "file:b81220730ae7",
+      "path": "src/frontend/go.mod",
+      "name": "go.mod",
+      "extension": ".mod",
+      "language": "go",
+      "format": null,
+      "category": "build_manifest",
+      "size_bytes": 79,
+      "depth": 3,
+      "component_id": "component:4e5ce1b75e74"
+    },
+    {
+      "id": "file:2be412ece4ec",
+      "path": "src/frontend/main.go",
+      "name": "main.go",
+      "extension": ".go",
+      "language": "go",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 17,
+      "depth": 3,
+      "component_id": "component:4e5ce1b75e74"
+    },
+    {
+      "id": "file:cee7cd039161",
+      "path": "src/loadgenerator/locustfile.py",
+      "name": "locustfile.py",
+      "extension": ".py",
+      "language": "python",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 26,
+      "depth": 3,
+      "component_id": "component:6ccab6bbd452"
+    },
+    {
+      "id": "file:30ac7033e95e",
+      "path": "src/loadgenerator/requirements.txt",
+      "name": "requirements.txt",
+      "extension": ".txt",
+      "language": "python",
+      "format": "text",
+      "category": "build_manifest",
+      "size_bytes": 41,
+      "depth": 3,
+      "component_id": "component:6ccab6bbd452"
+    },
+    {
+      "id": "file:b17b3999e19a",
+      "path": "src/paymentservice/index.js",
+      "name": "index.js",
+      "extension": ".js",
+      "language": "javascript",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 25,
+      "depth": 3,
+      "component_id": "component:130c4d648f70"
+    },
+    {
+      "id": "file:8d310168fe98",
+      "path": "src/paymentservice/package.json",
+      "name": "package.json",
+      "extension": ".json",
+      "language": null,
+      "format": "json",
+      "category": "build_manifest",
+      "size_bytes": 75,
+      "depth": 3,
+      "component_id": "component:130c4d648f70"
+    },
+    {
+      "id": "file:9fe83da4b516",
+      "path": "src/productcatalogservice/go.mod",
+      "name": "go.mod",
+      "extension": ".mod",
+      "language": "go",
+      "format": null,
+      "category": "build_manifest",
+      "size_bytes": 92,
+      "depth": 3,
+      "component_id": "component:124f386aac09"
+    },
+    {
+      "id": "file:8c2b6154ff2b",
+      "path": "src/productcatalogservice/main.go",
+      "name": "main.go",
+      "extension": ".go",
+      "language": "go",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 30,
+      "depth": 3,
+      "component_id": "component:124f386aac09"
+    },
+    {
+      "id": "file:fc91028db780",
+      "path": "src/recommendationservice/recommendation_server.py",
+      "name": "recommendation_server.py",
+      "extension": ".py",
+      "language": "python",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 34,
+      "depth": 3,
+      "component_id": "component:35517ad06199"
+    },
+    {
+      "id": "file:4ab55aaa031d",
+      "path": "src/recommendationservice/requirements.txt",
+      "name": "requirements.txt",
+      "extension": ".txt",
+      "language": "python",
+      "format": "text",
+      "category": "build_manifest",
+      "size_bytes": 41,
+      "depth": 3,
+      "component_id": "component:35517ad06199"
+    },
+    {
+      "id": "file:17298ee912c1",
+      "path": "src/shippingservice/go.mod",
+      "name": "go.mod",
+      "extension": ".mod",
+      "language": "go",
+      "format": null,
+      "category": "build_manifest",
+      "size_bytes": 86,
+      "depth": 3,
+      "component_id": "component:be62d33d9c91"
+    },
+    {
+      "id": "file:a88736bd3f3f",
+      "path": "src/shippingservice/main.go",
+      "name": "main.go",
+      "extension": ".go",
+      "language": "go",
+      "format": null,
+      "category": "source_code",
+      "size_bytes": 24,
+      "depth": 3,
+      "component_id": "component:be62d33d9c91"
+    }
+  ],
+  "classifications": [
+    {
+      "file_id": "file:8ec9a00bfd09",
+      "category": "documentation",
+      "confidence": "confirmed",
+      "rule": "filename:readme*"
+    },
+    {
+      "file_id": "file:5e698be5478a",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:747f51946a78",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:37e83bab62a7",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:5b2b659dfbf4",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:e50f896f6758",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:3d843d769b87",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:0d2b93a8fefa",
+      "category": "deployment_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:kustomization*.y*ml"
+    },
+    {
+      "file_id": "file:01b5f201e82d",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:961aea71cb91",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:3f4585ceea4d",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:3ed4fbadf312",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:8c26647cf05a",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:6c65b40d5f3a",
+      "category": "deployment_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:kustomization*.y*ml"
+    },
+    {
+      "file_id": "file:f9b8fa7bb799",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:295e9e0b2496",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:5f4573b2c7c7",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:c97da395c84b",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:00ca9aa1a9a6",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:a3050b7ead5e",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:f39daa667b52",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:49062b4efb69",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:e3f4ab58300b",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:cbee35b9840b",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:e993b242a866",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:6794714c4aaf",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:febbc0918ee9",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:d908d3a05e29",
+      "category": "deployment_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:kustomization*.y*ml"
+    },
+    {
+      "file_id": "file:b95a1bb7b866",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:fd97bc7b07ea",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:be12226af68d",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:ef961fecebce",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:138d0b193c30",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:0612715dc5a3",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:94c63442f5a1",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:6067aba024b8",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:0f986cd04e8b",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:5045effd8396",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:972bc1727779",
+      "category": "infrastructure_config",
+      "confidence": "inferred",
+      "rule": "format:yaml"
+    },
+    {
+      "file_id": "file:adeadaa0e965",
+      "category": "api_specification",
+      "confidence": "confirmed",
+      "rule": "filename:*.proto"
+    },
+    {
+      "file_id": "file:16d13636ebf7",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:build.gradle*"
+    },
+    {
+      "file_id": "file:6d33d920fb2a",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.java"
+    },
+    {
+      "file_id": "file:48fc87defbe6",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.cs"
+    },
+    {
+      "file_id": "file:37d07a230fe7",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:*.csproj"
+    },
+    {
+      "file_id": "file:9881b96c0d6e",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:go.mod"
+    },
+    {
+      "file_id": "file:513030f2897b",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.go"
+    },
+    {
+      "file_id": "file:3e9c4b896d54",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:package.json"
+    },
+    {
+      "file_id": "file:ad92f8eecb7b",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.js"
+    },
+    {
+      "file_id": "file:c4cef3ca783f",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.py"
+    },
+    {
+      "file_id": "file:f1fd852e4f4e",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:requirements*"
+    },
+    {
+      "file_id": "file:b81220730ae7",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:go.mod"
+    },
+    {
+      "file_id": "file:2be412ece4ec",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.go"
+    },
+    {
+      "file_id": "file:cee7cd039161",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.py"
+    },
+    {
+      "file_id": "file:30ac7033e95e",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:requirements*"
+    },
+    {
+      "file_id": "file:b17b3999e19a",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.js"
+    },
+    {
+      "file_id": "file:8d310168fe98",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:package.json"
+    },
+    {
+      "file_id": "file:9fe83da4b516",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:go.mod"
+    },
+    {
+      "file_id": "file:8c2b6154ff2b",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.go"
+    },
+    {
+      "file_id": "file:fc91028db780",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.py"
+    },
+    {
+      "file_id": "file:4ab55aaa031d",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:requirements*"
+    },
+    {
+      "file_id": "file:17298ee912c1",
+      "category": "build_manifest",
+      "confidence": "confirmed",
+      "rule": "filename:go.mod"
+    },
+    {
+      "file_id": "file:a88736bd3f3f",
+      "category": "source_code",
+      "confidence": "confirmed",
+      "rule": "extension:.go"
+    }
+  ],
+  "components": [
+    {
+      "id": "component:6f1205f7b9a2",
+      "name": "adservice",
+      "kind": "build_unit",
+      "confidence": "inferred",
+      "root_path": "src/adservice",
+      "languages": [
+        "groovy",
+        "java"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/adservice/build.gradle"
+        }
+      ]
+    },
+    {
+      "id": "component:234420ec6b3f",
+      "name": "cartservice",
+      "kind": "build_unit",
+      "confidence": "inferred",
+      "root_path": "src/cartservice",
+      "languages": [
+        "csharp"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/cartservice/cartservice.csproj"
+        }
+      ]
+    },
+    {
+      "id": "component:5b7ad1617cf9",
+      "name": "checkoutservice",
+      "kind": "build_unit",
+      "confidence": "confirmed",
+      "root_path": "src/checkoutservice",
+      "languages": [
+        "go"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/checkoutservice/go.mod"
+        },
+        {
+          "type": "manifest_content",
+          "detail": "manifest declares the name 'github.com/GoogleCloudPlatform/microservices-demo/src/checkoutservice'",
+          "path": "src/checkoutservice/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "component:bc06d727f1e1",
+      "name": "currencyservice",
+      "kind": "build_unit",
+      "confidence": "confirmed",
+      "root_path": "src/currencyservice",
+      "languages": [
+        "javascript"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/currencyservice/package.json"
+        },
+        {
+          "type": "manifest_content",
+          "detail": "manifest declares the name 'currencyservice'",
+          "path": "src/currencyservice/package.json"
+        }
+      ]
+    },
+    {
+      "id": "component:e952b8636d56",
+      "name": "emailservice",
+      "kind": "build_unit",
+      "confidence": "inferred",
+      "root_path": "src/emailservice",
+      "languages": [
+        "python"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/emailservice/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "component:4e5ce1b75e74",
+      "name": "frontend",
+      "kind": "build_unit",
+      "confidence": "confirmed",
+      "root_path": "src/frontend",
+      "languages": [
+        "go"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/frontend/go.mod"
+        },
+        {
+          "type": "manifest_content",
+          "detail": "manifest declares the name 'github.com/GoogleCloudPlatform/microservices-demo/src/frontend'",
+          "path": "src/frontend/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "component:6ccab6bbd452",
+      "name": "loadgenerator",
+      "kind": "build_unit",
+      "confidence": "inferred",
+      "root_path": "src/loadgenerator",
+      "languages": [
+        "python"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/loadgenerator/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "component:130c4d648f70",
+      "name": "paymentservice",
+      "kind": "build_unit",
+      "confidence": "confirmed",
+      "root_path": "src/paymentservice",
+      "languages": [
+        "javascript"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/paymentservice/package.json"
+        },
+        {
+          "type": "manifest_content",
+          "detail": "manifest declares the name 'paymentservice'",
+          "path": "src/paymentservice/package.json"
+        }
+      ]
+    },
+    {
+      "id": "component:124f386aac09",
+      "name": "productcatalogservice",
+      "kind": "build_unit",
+      "confidence": "confirmed",
+      "root_path": "src/productcatalogservice",
+      "languages": [
+        "go"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/productcatalogservice/go.mod"
+        },
+        {
+          "type": "manifest_content",
+          "detail": "manifest declares the name 'github.com/GoogleCloudPlatform/microservices-demo/src/productcatalogservice'",
+          "path": "src/productcatalogservice/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "component:35517ad06199",
+      "name": "recommendationservice",
+      "kind": "build_unit",
+      "confidence": "inferred",
+      "root_path": "src/recommendationservice",
+      "languages": [
+        "python"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/recommendationservice/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "component:be62d33d9c91",
+      "name": "shippingservice",
+      "kind": "build_unit",
+      "confidence": "confirmed",
+      "root_path": "src/shippingservice",
+      "languages": [
+        "go"
+      ],
+      "file_count": 2,
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest marks this directory as a unit root",
+          "path": "src/shippingservice/go.mod"
+        },
+        {
+          "type": "manifest_content",
+          "detail": "manifest declares the name 'github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice'",
+          "path": "src/shippingservice/go.mod"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "id": "relationship:c9088a033c66",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:16d13636ebf7"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:6f1205f7b9a2"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/adservice' component root",
+          "path": "src/adservice/build.gradle"
+        }
+      ]
+    },
+    {
+      "id": "relationship:224d4bde1cb0",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:17298ee912c1"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:be62d33d9c91"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/shippingservice' component root",
+          "path": "src/shippingservice/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "relationship:b95a4eeafb37",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:2be412ece4ec"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:4e5ce1b75e74"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/frontend' component root",
+          "path": "src/frontend/main.go"
+        }
+      ]
+    },
+    {
+      "id": "relationship:a80252c17976",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:30ac7033e95e"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:6ccab6bbd452"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/loadgenerator' component root",
+          "path": "src/loadgenerator/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "relationship:ed01d7910b0f",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:37d07a230fe7"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:234420ec6b3f"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/cartservice' component root",
+          "path": "src/cartservice/cartservice.csproj"
+        }
+      ]
+    },
+    {
+      "id": "relationship:9f702d5229f1",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:3e9c4b896d54"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:bc06d727f1e1"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/currencyservice' component root",
+          "path": "src/currencyservice/package.json"
+        }
+      ]
+    },
+    {
+      "id": "relationship:825aa654ee3b",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:48fc87defbe6"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:234420ec6b3f"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/cartservice' component root",
+          "path": "src/cartservice/Program.cs"
+        }
+      ]
+    },
+    {
+      "id": "relationship:9149764b13c0",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:4ab55aaa031d"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:35517ad06199"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/recommendationservice' component root",
+          "path": "src/recommendationservice/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "relationship:0d5db2f65bb4",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:513030f2897b"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:5b7ad1617cf9"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/checkoutservice' component root",
+          "path": "src/checkoutservice/main.go"
+        }
+      ]
+    },
+    {
+      "id": "relationship:846ea91856f3",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:6d33d920fb2a"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:6f1205f7b9a2"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/adservice' component root",
+          "path": "src/adservice/src/main/java/Ads.java"
+        }
+      ]
+    },
+    {
+      "id": "relationship:ea9d04f47bb7",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:8c2b6154ff2b"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:124f386aac09"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/productcatalogservice' component root",
+          "path": "src/productcatalogservice/main.go"
+        }
+      ]
+    },
+    {
+      "id": "relationship:1607c878d658",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:8d310168fe98"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:130c4d648f70"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/paymentservice' component root",
+          "path": "src/paymentservice/package.json"
+        }
+      ]
+    },
+    {
+      "id": "relationship:83631d3ae39e",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:9881b96c0d6e"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:5b7ad1617cf9"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/checkoutservice' component root",
+          "path": "src/checkoutservice/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "relationship:c549d38f1f0f",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:9fe83da4b516"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:124f386aac09"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/productcatalogservice' component root",
+          "path": "src/productcatalogservice/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "relationship:6b3db16d82ea",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:a88736bd3f3f"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:be62d33d9c91"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/shippingservice' component root",
+          "path": "src/shippingservice/main.go"
+        }
+      ]
+    },
+    {
+      "id": "relationship:24f8761f550e",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:ad92f8eecb7b"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:bc06d727f1e1"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/currencyservice' component root",
+          "path": "src/currencyservice/server.js"
+        }
+      ]
+    },
+    {
+      "id": "relationship:cb844bdbf145",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:b17b3999e19a"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:130c4d648f70"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/paymentservice' component root",
+          "path": "src/paymentservice/index.js"
+        }
+      ]
+    },
+    {
+      "id": "relationship:c0684de7bc53",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:b81220730ae7"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:4e5ce1b75e74"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/frontend' component root",
+          "path": "src/frontend/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "relationship:b88184d971cd",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:c4cef3ca783f"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:e952b8636d56"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/emailservice' component root",
+          "path": "src/emailservice/email_server.py"
+        }
+      ]
+    },
+    {
+      "id": "relationship:3ec2069ece43",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:cee7cd039161"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:6ccab6bbd452"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/loadgenerator' component root",
+          "path": "src/loadgenerator/locustfile.py"
+        }
+      ]
+    },
+    {
+      "id": "relationship:aaa28cec4035",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:f1fd852e4f4e"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:e952b8636d56"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/emailservice' component root",
+          "path": "src/emailservice/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "relationship:170a08c3b8fd",
+      "type": "file_in_component",
+      "source": {
+        "kind": "file",
+        "id": "file:fc91028db780"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:35517ad06199"
+      },
+      "confidence": "inferred",
+      "evidence": [
+        {
+          "type": "path_prefix",
+          "detail": "file lies under the 'src/recommendationservice' component root",
+          "path": "src/recommendationservice/recommendation_server.py"
+        }
+      ]
+    },
+    {
+      "id": "relationship:ff096b8bcaa2",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:16d13636ebf7"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:6f1205f7b9a2"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/adservice/build.gradle"
+        }
+      ]
+    },
+    {
+      "id": "relationship:d51dcad6a45e",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:17298ee912c1"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:be62d33d9c91"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/shippingservice/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "relationship:5efea0ead296",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:30ac7033e95e"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:6ccab6bbd452"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/loadgenerator/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "relationship:da88b87bfa50",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:37d07a230fe7"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:234420ec6b3f"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/cartservice/cartservice.csproj"
+        }
+      ]
+    },
+    {
+      "id": "relationship:c47b90015c92",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:3e9c4b896d54"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:bc06d727f1e1"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/currencyservice/package.json"
+        }
+      ]
+    },
+    {
+      "id": "relationship:f81338f7e8b7",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:4ab55aaa031d"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:35517ad06199"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/recommendationservice/requirements.txt"
+        }
+      ]
+    },
+    {
+      "id": "relationship:cda1bbfc27cc",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:8d310168fe98"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:130c4d648f70"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/paymentservice/package.json"
+        }
+      ]
+    },
+    {
+      "id": "relationship:6467b386c226",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:9881b96c0d6e"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:5b7ad1617cf9"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/checkoutservice/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "relationship:f2ac8a8fbe5c",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:9fe83da4b516"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:124f386aac09"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/productcatalogservice/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "relationship:88c484aeda65",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:b81220730ae7"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:4e5ce1b75e74"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/frontend/go.mod"
+        }
+      ]
+    },
+    {
+      "id": "relationship:46917ff0a1db",
+      "type": "manifest_defines_component",
+      "source": {
+        "kind": "file",
+        "id": "file:f1fd852e4f4e"
+      },
+      "target": {
+        "kind": "component",
+        "id": "component:e952b8636d56"
+      },
+      "confidence": "confirmed",
+      "evidence": [
+        {
+          "type": "build_manifest",
+          "detail": "build manifest defines this unit",
+          "path": "src/emailservice/requirements.txt"
+        }
+      ]
+    }
+  ],
+  "warnings": []
+}

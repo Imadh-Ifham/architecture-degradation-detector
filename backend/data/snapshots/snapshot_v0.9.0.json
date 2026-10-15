@@ -1,0 +1,358 @@
+{
+  "schema_version": "1.0.0",
+  "repository_id": "online-boutique",
+  "release_id": "v0.9.0",
+  "style": "unknown",
+  "style_source": "inferred_by_c2",
+  "elements": [
+    {
+      "id": "component:124f386aac09",
+      "name": "productcatalogservice",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": []
+    },
+    {
+      "id": "component:130c4d648f70",
+      "name": "paymentservice",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": []
+    },
+    {
+      "id": "component:234420ec6b3f",
+      "name": "cartservice",
+      "kind": "service",
+      "quality": "inferred",
+      "source_paths": []
+    },
+    {
+      "id": "component:35517ad06199",
+      "name": "recommendationservice",
+      "kind": "service",
+      "quality": "inferred",
+      "source_paths": []
+    },
+    {
+      "id": "component:4e5ce1b75e74",
+      "name": "frontend",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": []
+    },
+    {
+      "id": "component:5b7ad1617cf9",
+      "name": "checkoutservice",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": []
+    },
+    {
+      "id": "component:6ccab6bbd452",
+      "name": "loadgenerator",
+      "kind": "service",
+      "quality": "inferred",
+      "source_paths": []
+    },
+    {
+      "id": "component:6f1205f7b9a2",
+      "name": "adservice",
+      "kind": "service",
+      "quality": "inferred",
+      "source_paths": []
+    },
+    {
+      "id": "component:bc06d727f1e1",
+      "name": "currencyservice",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": []
+    },
+    {
+      "id": "component:be62d33d9c91",
+      "name": "shippingservice",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": []
+    },
+    {
+      "id": "component:e952b8636d56",
+      "name": "emailservice",
+      "kind": "service",
+      "quality": "inferred",
+      "source_paths": []
+    }
+  ],
+  "relationships": [
+    {
+      "source_id": "component:35517ad06199",
+      "target_id": "component:124f386aac09",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/recommendationservice.yaml"
+      ],
+      "attributes": {
+        "declared_via": "PRODUCT_CATALOG_SERVICE_ADDR",
+        "declared_value": "productcatalogservice:3550",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:4e5ce1b75e74",
+      "target_id": "component:124f386aac09",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/frontend.yaml"
+      ],
+      "attributes": {
+        "declared_via": "PRODUCT_CATALOG_SERVICE_ADDR",
+        "declared_value": "productcatalogservice:3550",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:4e5ce1b75e74",
+      "target_id": "component:234420ec6b3f",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/frontend.yaml"
+      ],
+      "attributes": {
+        "declared_via": "CART_SERVICE_ADDR",
+        "declared_value": "cartservice:7070",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:4e5ce1b75e74",
+      "target_id": "component:35517ad06199",
+      "label": "http",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/frontend.yaml"
+      ],
+      "attributes": {
+        "declared_via": "RECOMMENDATION_SERVICE_ADDR",
+        "declared_value": "recommendationservice:8080",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:4e5ce1b75e74",
+      "target_id": "component:5b7ad1617cf9",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/frontend.yaml"
+      ],
+      "attributes": {
+        "declared_via": "CHECKOUT_SERVICE_ADDR",
+        "declared_value": "checkoutservice:5050",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:4e5ce1b75e74",
+      "target_id": "component:6f1205f7b9a2",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/frontend.yaml"
+      ],
+      "attributes": {
+        "declared_via": "AD_SERVICE_ADDR",
+        "declared_value": "adservice:9555",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:4e5ce1b75e74",
+      "target_id": "component:bc06d727f1e1",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/frontend.yaml"
+      ],
+      "attributes": {
+        "declared_via": "CURRENCY_SERVICE_ADDR",
+        "declared_value": "currencyservice:7000",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:4e5ce1b75e74",
+      "target_id": "component:be62d33d9c91",
+      "label": "grpc",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/frontend.yaml"
+      ],
+      "attributes": {
+        "declared_via": "SHIPPING_SERVICE_ADDR",
+        "declared_value": "shippingservice:50051",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:5b7ad1617cf9",
+      "target_id": "component:124f386aac09",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/checkoutservice.yaml"
+      ],
+      "attributes": {
+        "declared_via": "PRODUCT_CATALOG_SERVICE_ADDR",
+        "declared_value": "productcatalogservice:3550",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:5b7ad1617cf9",
+      "target_id": "component:130c4d648f70",
+      "label": "grpc",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/checkoutservice.yaml"
+      ],
+      "attributes": {
+        "declared_via": "PAYMENT_SERVICE_ADDR",
+        "declared_value": "paymentservice:50051",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:5b7ad1617cf9",
+      "target_id": "component:234420ec6b3f",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/checkoutservice.yaml"
+      ],
+      "attributes": {
+        "declared_via": "CART_SERVICE_ADDR",
+        "declared_value": "cartservice:7070",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:5b7ad1617cf9",
+      "target_id": "component:bc06d727f1e1",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/checkoutservice.yaml"
+      ],
+      "attributes": {
+        "declared_via": "CURRENCY_SERVICE_ADDR",
+        "declared_value": "currencyservice:7000",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:5b7ad1617cf9",
+      "target_id": "component:be62d33d9c91",
+      "label": "grpc",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/checkoutservice.yaml"
+      ],
+      "attributes": {
+        "declared_via": "SHIPPING_SERVICE_ADDR",
+        "declared_value": "shippingservice:50051",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:5b7ad1617cf9",
+      "target_id": "component:e952b8636d56",
+      "label": "declared",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/checkoutservice.yaml"
+      ],
+      "attributes": {
+        "declared_via": "EMAIL_SERVICE_ADDR",
+        "declared_value": "emailservice:5000",
+        "observed": false
+      }
+    },
+    {
+      "source_id": "component:6ccab6bbd452",
+      "target_id": "component:4e5ce1b75e74",
+      "label": "http",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/loadgenerator.yaml"
+      ],
+      "attributes": {
+        "declared_via": "FRONTEND_ADDR",
+        "declared_value": "frontend:80",
+        "observed": false
+      }
+    }
+  ],
+  "manifest_paths": [
+    "kustomize/base/adservice.yaml",
+    "kustomize/base/cartservice.yaml",
+    "kustomize/base/checkoutservice.yaml",
+    "kustomize/base/currencyservice.yaml",
+    "kustomize/base/emailservice.yaml",
+    "kustomize/base/frontend.yaml",
+    "kustomize/base/kustomization.yaml",
+    "kustomize/base/loadgenerator.yaml",
+    "kustomize/base/paymentservice.yaml",
+    "kustomize/base/productcatalogservice.yaml",
+    "kustomize/base/recommendationservice.yaml",
+    "kustomize/base/shippingservice.yaml",
+    "kustomize/components/network-policies/kustomization.yaml",
+    "kustomize/components/network-policies/network-policy-adservice.yaml",
+    "kustomize/components/network-policies/network-policy-cartservice.yaml",
+    "kustomize/components/network-policies/network-policy-checkoutservice.yaml",
+    "kustomize/components/network-policies/network-policy-currencyservice.yaml",
+    "kustomize/components/network-policies/network-policy-deny-all.yaml",
+    "kustomize/components/network-policies/network-policy-emailservice.yaml",
+    "kustomize/components/network-policies/network-policy-frontend.yaml",
+    "kustomize/components/network-policies/network-policy-loadgenerator.yaml",
+    "kustomize/components/network-policies/network-policy-paymentservice.yaml",
+    "kustomize/components/network-policies/network-policy-productcatalogservice.yaml",
+    "kustomize/components/network-policies/network-policy-recommendationservice.yaml",
+    "kustomize/components/network-policies/network-policy-redis.yaml",
+    "kustomize/components/network-policies/network-policy-shippingservice.yaml",
+    "kustomize/components/service-accounts/kustomization.yaml",
+    "kustomize/components/service-accounts/service-account-adservice.yaml",
+    "kustomize/components/service-accounts/service-account-cartservice.yaml",
+    "kustomize/components/service-accounts/service-account-checkoutservice.yaml",
+    "kustomize/components/service-accounts/service-account-currencyservice.yaml",
+    "kustomize/components/service-accounts/service-account-emailservice.yaml",
+    "kustomize/components/service-accounts/service-account-frontend.yaml",
+    "kustomize/components/service-accounts/service-account-loadgenerator.yaml",
+    "kustomize/components/service-accounts/service-account-paymentservice.yaml",
+    "kustomize/components/service-accounts/service-account-productcatalogservice.yaml",
+    "kustomize/components/service-accounts/service-account-recommendationservice.yaml",
+    "kustomize/components/service-accounts/service-account-shippingservice.yaml"
+  ],
+  "provenance": {
+    "reader": "snapshot_file_reader",
+    "source_schema_version": "1.0.0",
+    "source_reference": "recorded from inventory_v0.9.0.json"
+  }
+}
