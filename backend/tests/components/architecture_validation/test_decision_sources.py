@@ -465,3 +465,103 @@ class TestWhatEachModeWouldFind:
         order = [source.name for source in sources_for("combined", WorkspaceReader())]
 
         assert order == ["external_adr", "config_scan"]
+
+class TestWhereARuleWasRead:
+    """A citation has to be showable, which means lines rather than a file.
+
+    Only whatever parsed the document knows which line a rule came from, so
+    the scan records it. Evidence retrieval quotes exactly those lines; it
+    does not go looking for them again, because a second reader of one file is
+    two chances to disagree about what a rule is.
+    """
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_a_permission_points_at_the_entry_that_created_it(self, release):
+        """A policy names its own workload in the selector and the peers it
+        admits after it. The rule comes from the peer entry, not the selector."""
+
+        record = next(
+            r for r in scan(release).records
+            if r.decision_id == "rule-frontend-cartservice"
+        )
+        quoted = (SUBJECT / release / record.source_span.path).read_text(
+            encoding="utf-8"
+        ).splitlines()[record.source_span.start_line - 1]
+
+        assert "app: frontend" in quoted
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_default_refusal_points_at_its_whole_document(self, release):
+        """It is a rule about every pair, so no single line states it."""
+
+        record = next(
+            r for r in scan(release).records if r.decision_id == "np-deny-all"
+        )
+
+        assert record.source_span.start_line == 1
+        assert record.source_span.end_line > 1
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_a_declared_operation_points_at_the_line_that_declares_it(self, release):
+        record = next(
+            r for r in scan(release).records
+            if r.decision_id == "rpc-cartservice-additem"
+        )
+        quoted = (SUBJECT / release / record.source_span.path).read_text(
+            encoding="utf-8"
+        ).splitlines()[record.source_span.start_line - 1]
+
+        assert "rpc AddItem" in quoted
+
+    def test_an_inline_identity_points_at_the_document_inside_the_file(self):
+        """The manifest holds a Deployment, a Service and a ServiceAccount.
+        The rule is about the third, so the span is the third document's
+        range rather than the file's."""
+
+        record = next(
+            r for r in scan("v0.10.0").records
+            if r.decision_id == "sa-inline-with-workload"
+        )
+        lines = (SUBJECT / "v0.10.0" / record.source_span.path).read_text(
+            encoding="utf-8"
+        ).splitlines()
+        quoted = lines[record.source_span.start_line - 1 : record.source_span.end_line]
+
+        assert any("kind: ServiceAccount" in line for line in quoted)
+        assert not any("kind: Deployment" in line for line in quoted)
+
+    def test_a_rule_about_a_directory_has_no_span(self):
+        """A directory has no lines. `None` is the honest answer, and it is
+        legal - a decision ratified by a person has no document either."""
+
+        record = next(
+            r for r in scan("v0.9.0").records
+            if r.decision_id == "sa-shared-component"
+        )
+
+        assert record.source_span is None
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_span_lands_inside_the_file_it_names(self, release):
+        for record in scan(release).records:
+            if record.source_span is None:
+                continue
+            lines = (SUBJECT / release / record.source_span.path).read_text(
+                encoding="utf-8"
+            ).splitlines()
+
+            assert 1 <= record.source_span.start_line <= len(lines)
+            assert record.source_span.start_line <= record.source_span.end_line <= len(lines)
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_span_survives_the_log(self, release):
+        """It has to reach evidence retrieval, which reads the log rather than
+        the scan."""
+
+        record = next(
+            r for r in scan(release).records
+            if r.decision_id == "rule-frontend-cartservice"
+        )
+        event = record.to_event()
+
+        assert event["source_span"]["start_line"] == record.source_span.start_line

@@ -276,25 +276,37 @@ class TestObservationNormalizationHasNoIO:
         assert "deleted when recovery ships" in docstring
 
 
-class TestDecisionKnowledgeDoesNoIO:
+READS_THROUGH_A_PORT = ("decision_knowledge", "evidence_retrieval")
+"""The subcomponents that need a repository and reach it through a port.
+
+Both of them read files - decision records, policy documents, the lines a
+rule was read from - and neither may open one.
+"""
+
+
+class TestTheSubcomponentsThatReadThroughAPortDoNoIO:
     """The same boundary as M1's, asserted before there is anything to undo.
 
-    M2 has three decision sources and every one of them wants to open a file.
-    M1 learned this the expensive way: a manifest reader went inside the
-    component during the foundation phase and a whole stage of work went on
-    taking it out again. Two ports already exist for it - one for reading a
-    repository's files, one for the decision log - so the sources parse text
-    handed to them and the reading and writing happen under app/infrastructure.
+    M2 has three decision sources and M3 quotes the lines they recorded, so
+    every one of them wants to open a file. M1 learned this the expensive way:
+    a manifest reader went inside the component during the foundation phase
+    and a whole stage of work went on taking it out again. Two ports already
+    exist for it - one for reading a repository's files, one for the decision
+    log - so these subcomponents parse and quote text handed to them, and the
+    reading and writing happen under app/infrastructure.
 
     Naming the ports is allowed and expected; they are declared in this
     package. Parsing a string is allowed too. Touching the filesystem is not.
     """
 
-    M2 = "decision_knowledge"
-
     @pytest.mark.parametrize(
-        "path", sorted((COMPONENT / "decision_knowledge").rglob("*.py")),
-        ids=lambda p: p.name,
+        "path",
+        sorted(
+            module
+            for folder in READS_THROUGH_A_PORT
+            for module in (COMPONENT / folder).rglob("*.py")
+        ),
+        ids=lambda p: f"{p.parent.name}/{p.name}",
     )
     def test_no_module_touches_the_filesystem(self, path):
         source = path.read_text(encoding="utf-8")
@@ -302,10 +314,14 @@ class TestDecisionKnowledgeDoesNoIO:
             line for line in source.splitlines() if not line.strip().startswith("#")
         )
 
-        for forbidden in ("open(", "Path(", "pathlib", "os.path", "json.dump"):
+        # `json.dump(` writes to a file; `json.dumps(` returns a string, which
+        # is how a package is canonicalised before it is hashed. The open
+        # paren is what tells them apart.
+        for forbidden in ("open(", "Path(", "pathlib", "os.path", "json.dump("):
             assert forbidden not in body, (
-                f"{path.name} names '{forbidden}'; M2 reads and writes through "
-                "a port, and the implementation lives in app/infrastructure"
+                f"{path.name} names '{forbidden}'; this subcomponent reads "
+                "through a port, and the implementation lives in "
+                "app/infrastructure"
             )
 
 

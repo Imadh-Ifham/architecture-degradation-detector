@@ -36,6 +36,7 @@ from ...models import (
     EvidenceStrength,
     ExtractionMethod,
     SourceTier,
+    Span,
 )
 
 FRONT_MATTER_FENCE = "---"
@@ -135,6 +136,7 @@ def decision_record(
     source: str,
     source_repository: str,
     source_ref: str,
+    source_span: Span | None = None,
     source_tier: SourceTier,
     source_strength: EvidenceStrength,
     extraction_method: ExtractionMethod,
@@ -170,6 +172,7 @@ def decision_record(
         source_tier=source_tier,
         source_strength=source_strength,
         source_ref=source_ref,
+        source_span=source_span,
         extraction_method=extraction_method,
         extracted_at=request.extracted_at,
         rationale=rationale,

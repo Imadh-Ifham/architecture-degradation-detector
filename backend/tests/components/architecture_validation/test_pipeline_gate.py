@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from app.components.architecture_validation.models import (
+    EvidenceRole,
     ClassifiedFact,
     EvidencePackage,
     PrimaryVerdict,
@@ -80,6 +81,9 @@ from app.domain.recovered_architecture import (
 )
 from app.infrastructure.recovery_gateway.fixture_reader import (
     FixtureArchitectureReader,
+)
+from app.components.architecture_validation.evidence_retrieval._neighbourhood import (
+    MAX_NEIGHBOURS,
 )
 from app.infrastructure.decision_log import JsonlDecisionStore
 from app.infrastructure.recovery_gateway.snapshot_file_reader import (
@@ -137,7 +141,7 @@ class StubEvidence:
     def __init__(self) -> None:
         self.calls = 0
 
-    def assemble(self, fact, resolution) -> EvidencePackage:
+    def assemble(self, fact, resolution, architecture) -> EvidencePackage:
         self.calls += 1
         return EvidencePackage(fact_id=fact.fact_id, evidence_hash="hash-1", items=())
 
@@ -456,13 +460,27 @@ def build_unimplemented(release="v0.10.0"):
         knowledge=DecisionKnowledgeService(
             WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
         ),
-        evidence=EvidenceRetrievalService(),
+        evidence=EvidenceRetrievalService(WorkspaceReader()),
         reasoning=ValidationReasoningService(),
         verification=IndependentVerificationService(),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
         publishing=GraphPublishingService(),
     )
+
+
+PER_FACT_STAGES = (
+    "decision_knowledge",
+    "evidence_retrieval",
+    "validation_reasoning",
+    "independent_verification",
+    "classification",
+)
+"""The stages the orchestrator runs once per fact, in order.
+
+Named here because the stall only propagates inside this group: the stages
+either side of it are skipped for reasons of their own.
+"""
 
 
 class TestStagesNotBuiltYet:
@@ -560,7 +578,16 @@ class TestStagesNotBuiltYet:
             if stage.status is StageStatus.PENDING
         )
 
-        for name in ("validation_reasoning", "independent_verification"):
+        # Only the per-fact group: architect review is skipped for a reason of
+        # its own - nothing was routed to it - and that is not the stub's doing.
+        group = [
+            stage.name for stage in result.stages
+            if stage.name in PER_FACT_STAGES
+        ]
+        after = group[group.index(stalled) + 1 :]
+
+        assert after, "the stall was at the last per-fact stage, so nothing followed"
+        for name in after:
             assert stalled in stages[name].note
 
 
@@ -1074,3 +1101,233 @@ class TestTheM2Gate:
         )
 
         assert unmatched == ("rule-cartservice-redis",)
+
+class TestTheM3Gate:
+    """The stage gate for M3, as one executable checklist.
+
+    Every row of `04_evidence_retrieval/01_TARGETED_ARCHITECTURE.md` §9,
+    asserted over **both** committed releases and against the recorded
+    decision corpus. Most are covered in detail in
+    `test_evidence_retrieval.py`; the point of repeating them here is that
+    the checklist stops being a list somebody ticks and becomes one the suite
+    ticks.
+
+    This unit is the fence around the model, so two of these rows matter more
+    than the others: that `refs` is exactly the item set, because it is the
+    universe the citation guard checks against, and that the hash is both
+    stable and sensitive, because it is the cache key and either failure is
+    silent.
+    """
+
+    RELEASES = ("v0.9.0", "v0.10.0")
+    REPOSITORY = "online-boutique"
+
+    def knowledge(self):
+        from app.components.architecture_validation.decision_knowledge import (
+            DecisionKnowledgeService,
+        )
+        from app.infrastructure.decision_log import JsonlDecisionStore
+
+        return DecisionKnowledgeService(
+            WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
+        )
+
+    def evidence(self):
+        from app.components.architecture_validation.evidence_retrieval import (
+            EvidenceRetrievalService,
+        )
+
+        return EvidenceRetrievalService(WorkspaceReader())
+
+    def architecture(self, release):
+        return SnapshotFileReader(SNAPSHOTS).read(self.REPOSITORY, release)
+
+    def packages(self, release):
+        """Every package one release produces, through the real pipeline."""
+
+        architecture = self.architecture(release)
+        facts = ObservationNormalizationService().normalise(architecture).facts
+        store, evidence = self.knowledge(), self.evidence()
+
+        return [
+            evidence.assemble(
+                fact, store.resolve(fact, self.REPOSITORY), architecture
+            )
+            for fact in facts
+        ]
+
+    # ---- the boundary ----
+
+    def test_the_subcomponent_cannot_reach_the_filesystem(self):
+        """It quotes lines out of a repository and may not open one. The
+        reading happens in an adapter, behind the port M2's sources already
+        read through."""
+
+        from pathlib import Path
+
+        component = (
+            Path(__file__).resolve().parents[3]
+            / "app"
+            / "components"
+            / "architecture_validation"
+            / "evidence_retrieval"
+        )
+
+        for module in component.rglob("*.py"):
+            body = module.read_text(encoding="utf-8")
+            for forbidden in ("open(", "Path(", "pathlib", "os.path"):
+                assert forbidden not in body, f"{module.name} names {forbidden}"
+
+    def test_no_module_names_a_model_a_provider_or_a_prompt(self):
+        """The fence cannot be built by the thing it fences. This unit decides
+        what a model may see and must not know which model that is."""
+
+        from pathlib import Path
+
+        component = (
+            Path(__file__).resolve().parents[3]
+            / "app"
+            / "components"
+            / "architecture_validation"
+            / "evidence_retrieval"
+        )
+
+        for module in component.rglob("*.py"):
+            body = module.read_text(encoding="utf-8").lower()
+            for forbidden in ("anthropic", "openai", "gpt", "prompt_version", "AIClient"):
+                assert forbidden.lower() not in body, (
+                    f"{module.name} names {forbidden}"
+                )
+
+    # ---- what a citation can be checked against ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_item_is_citable_and_refs_is_exactly_the_item_set(self, release):
+        """`refs` is the universe of legal citations. If an item had no
+        reference the model could not cite it; if two shared one, a citation
+        would be ambiguous - and the guard's answer would mean nothing."""
+
+        for package in self.packages(release):
+            assert all(item.ref for item in package.items)
+            assert len(package.refs) == len(package.items)
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_package_names_the_fact_it_is_for(self, release):
+        architecture = self.architecture(release)
+        facts = ObservationNormalizationService().normalise(architecture).facts
+
+        for fact, package in zip(facts, self.packages(release)):
+            assert package.fact_id == fact.fact_id
+
+    # ---- what can be shown to a person ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_a_quoted_item_is_exactly_the_lines_its_span_names(self, release):
+        """Not a paraphrase, and not the whole file. The three lines of an
+        item are the rule, its location, and the quote - and the quote has to
+        be what is actually there."""
+
+        for package in self.packages(release):
+            for item in package.items:
+                if item.span is None:
+                    continue
+                document = (
+                    (SUBJECT / release / item.span.path)
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                )
+                quoted = document[item.span.start_line - 1 : item.span.end_line]
+
+                assert item.text.splitlines()[2:] == quoted
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_span_resolves_to_a_line_the_file_actually_has(self, release):
+        for package in self.packages(release):
+            for item in package.items:
+                if item.span is None:
+                    continue
+                located = SUBJECT / release / item.span.path
+
+                assert located.exists()
+                assert item.span.end_line <= len(
+                    located.read_text(encoding="utf-8").splitlines()
+                )
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_rule_is_always_the_first_item_and_always_present(self, release):
+        """A verdict can rest on the rule alone, so it is kept longest and
+        read first."""
+
+        for package in self.packages(release):
+            assert package.items[0].role is EvidenceRole.RULE
+
+    # ---- the size of a question ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_neighbourhood_is_one_hop_and_never_exceeds_eight(self, release):
+        for package in self.packages(release):
+            context = [
+                item
+                for item in package.items
+                if item.role is EvidenceRole.STRUCTURAL_CONTEXT
+            ]
+
+            assert len(context) <= MAX_NEIGHBOURS
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_no_package_is_truncated_at_the_default_budget(self, release):
+        """If the default budget were already biting, every verdict in the
+        demonstration would rest on a weakened question."""
+
+        for package in self.packages(release):
+            assert package.truncated is False
+            assert package.dropped_roles == ()
+
+    def test_a_package_over_its_budget_keeps_the_rule_and_says_what_it_lost(self):
+        fact = ObservationNormalizationService().normalise(
+            self.architecture("v0.10.0")
+        ).facts[0]
+        resolution = self.knowledge().resolve(fact, self.REPOSITORY)
+
+        package = self.evidence().assemble(
+            fact, resolution, self.architecture("v0.10.0"), budget=1
+        )
+
+        assert package.truncated is True
+        assert package.items[0].role is EvidenceRole.RULE
+        assert EvidenceRole.STRUCTURAL_CONTEXT in package.dropped_roles
+
+    # ---- the cache key ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_same_release_assembles_identically_twice(self, release):
+        """Items, order and hashes. An order that varied between runs would
+        miss the verdict cache without saying so."""
+
+        first = self.packages(release)
+        again = self.packages(release)
+
+        assert [[item.ref for item in p.items] for p in first] == [
+            [item.ref for item in p.items] for p in again
+        ]
+        assert [p.evidence_hash for p in first] == [p.evidence_hash for p in again]
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_fifteen_facts_are_fifteen_distinct_questions(self, release):
+        """If two facts hashed alike, one would be answered with the other's
+        cached verdict - and nothing in the output would say so."""
+
+        packages = self.packages(release)
+
+        assert len(packages) == 15
+        assert len({package.evidence_hash for package in packages}) == 15
+
+    def test_the_two_releases_ask_different_questions_about_the_same_pairs(self):
+        """The release is part of the question. Otherwise a verdict about
+        v0.9.0 would be served from v0.10.0's cache, and the whole temporal
+        claim would be answered once and reused."""
+
+        earlier = {package.evidence_hash for package in self.packages("v0.9.0")}
+        later = {package.evidence_hash for package in self.packages("v0.10.0")}
+
+        assert not earlier & later

@@ -86,7 +86,7 @@ def client():
         knowledge=DecisionKnowledgeService(
             WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
         ),
-        evidence=EvidenceRetrievalService(),
+        evidence=EvidenceRetrievalService(WorkspaceReader()),
         reasoning=ValidationReasoningService(),
         verification=IndependentVerificationService(),
         classification=ClassificationService(),

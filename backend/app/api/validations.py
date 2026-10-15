@@ -346,7 +346,7 @@ def get_validation_service() -> ArchitectureValidationService:
         knowledge=DecisionKnowledgeService(
             get_artifact_reader(), get_decision_store()
         ),
-        evidence=EvidenceRetrievalService(),
+        evidence=EvidenceRetrievalService(get_artifact_reader()),
         reasoning=ValidationReasoningService(),
         verification=IndependentVerificationService(),
         classification=ClassificationService(),
