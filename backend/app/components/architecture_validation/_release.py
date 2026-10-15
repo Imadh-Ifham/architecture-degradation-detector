@@ -18,8 +18,11 @@ Description:
     lexicographic fallback: a plausible wrong order is worse than a stop,
     because a stop is visible and a wrong order is not.
 
-    This happens in M1 because M1 is the boundary every fact crosses. Parsing
-    in M2 as well would mean two parsers that can disagree with each other.
+    It sits at the component level because two subcomponents compare releases
+    and they have to agree: normalisation stamps every fact with a key, and
+    the knowledge model places a release inside a validity interval. Two
+    parsers would be two chances for those to disagree, and the disagreement
+    would show up as a decision governing a release it was replaced before.
 """
 
 from functools import lru_cache

@@ -7,9 +7,33 @@ Description:
 
     Research module: M2.
 
-    Re-exports the service class only. No logic lives here.
+    Re-exports the service class and the shapes its callers have to build. No
+    logic lives here.
 """
 
-from .service import DecisionKnowledgeService
+from .models import (
+    AppendOutcome,
+    DecisionStageOutcome,
+    DecisionVersion,
+    ModeAvailability,
+)
+from .service import (
+    DecisionKnowledgeService,
+    DecisionStoreMissing,
+    NoDecisionsAvailable,
+)
+from .sources import DEFAULT_MODE, MODES, DecisionSourceError, SourceRequest
 
-__all__ = ["DecisionKnowledgeService"]
+__all__ = [
+    "DEFAULT_MODE",
+    "MODES",
+    "AppendOutcome",
+    "DecisionKnowledgeService",
+    "DecisionStageOutcome",
+    "DecisionStoreMissing",
+    "DecisionVersion",
+    "NoDecisionsAvailable",
+    "DecisionSourceError",
+    "ModeAvailability",
+    "SourceRequest",
+]

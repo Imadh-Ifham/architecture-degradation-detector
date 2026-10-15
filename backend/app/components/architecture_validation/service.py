@@ -3,7 +3,7 @@
 Author: Aman Mohamed M.A
 Date: 2026-10-14
 Description:
-    Orchestrates the nine subcomponents for one validation run. This is the
+    Orchestrates the eight subcomponents for one validation run. This is the
     only module that knows the pipeline order, and the only way into the
     component from outside it.
 
@@ -18,24 +18,28 @@ Description:
 
     A subcomponent that is not written yet is reported as a pending stage and
     the run carries on. The alternative - the whole run failing on the first
-    stub - would make a nine-stage component undemonstrable until the last
+    stub - would make an eight-stage component undemonstrable until the last
     stage was finished, and would hide the fact that the earlier stages work.
     Only `NotImplementedError` is treated this way, so a stage that genuinely
     broke still fails loudly.
 """
 
 import uuid
+from datetime import UTC, datetime
 from time import perf_counter
 
 from app.domain.recovered_architecture import RecoveredArchitecture
 
 from .architect_review import ArchitectReviewService
 from .classification import ClassificationService
-from .decision_knowledge import DecisionKnowledgeService
+from .decision_knowledge import (
+    DEFAULT_MODE,
+    DecisionKnowledgeService,
+    SourceRequest,
+)
 from .evidence_retrieval import EvidenceRetrievalService
 from .graph_publishing import GraphPublishingService
 from .independent_verification import IndependentVerificationService
-from .intent_extraction import IntentExtractionService
 from .models import (
     ClassifiedFact,
     StageRecord,
@@ -48,7 +52,6 @@ from .validation_reasoning import ValidationReasoningService
 
 STAGE_ORDER = (
     "observation_normalization",
-    "intent_extraction",
     "decision_knowledge",
     "evidence_retrieval",
     "validation_reasoning",
@@ -145,7 +148,6 @@ class ArchitectureValidationService:
         self,
         architecture_reader: RecoveredArchitectureReader,
         normalization: ObservationNormalizationService,
-        intent: IntentExtractionService,
         knowledge: DecisionKnowledgeService,
         evidence: EvidenceRetrievalService,
         reasoning: ValidationReasoningService,
@@ -156,7 +158,6 @@ class ArchitectureValidationService:
     ) -> None:
         self._architecture_reader = architecture_reader
         self._normalization = normalization
-        self._intent = intent
         self._knowledge = knowledge
         self._evidence = evidence
         self._reasoning = reasoning
@@ -165,25 +166,47 @@ class ArchitectureValidationService:
         self._review = review
         self._publishing = publishing
 
-    def run(self, repository_id: str, release_id: str) -> ValidationRunResult:
+    def run(
+        self,
+        repository_id: str,
+        release_id: str,
+        decision_mode: str = DEFAULT_MODE,
+        adr_repository_id: str | None = None,
+    ) -> ValidationRunResult:
         """Validate one release of one repository.
 
         `release_id` is supplied by the caller rather than read from the
         recovered architecture: recovery identifies a release by commit, and
         commit hashes carry no order, which the validity intervals in the
         knowledge model require.
+
+        `decision_mode` chooses where the decisions come from, and is recorded
+        on the result. A mode that would supply nothing stops the run here,
+        before any stage, because a validation with nothing to validate
+        against publishes a graph that reads exactly like a clean one.
         """
 
         run_id = uuid.uuid4().hex[:12]
         architecture = self._architecture_reader.read(repository_id, release_id)
 
+        decisions = self._knowledge.establish(
+            SourceRequest(
+                code_repository_id=repository_id,
+                release_id=release_id,
+                extracted_at=datetime.now(UTC),
+                manifest_paths=architecture.manifest_paths,
+                adr_repository_id=adr_repository_id,
+            ),
+            decision_mode,
+        )
+
         stages: list[StageRecord] = []
         facts, stage, style = self._normalise(architecture)
         stages.append(stage)
 
-        stages.append(self._extract_intent(repository_id, release_id))
-
-        classified, reasoning_stages = self._validate_each(facts)
+        classified, reasoning_stages = self._validate_each(
+            facts, repository_id, decisions
+        )
         stages.extend(reasoning_stages)
 
         stages.append(self._queue_for_review(classified))
@@ -204,7 +227,18 @@ class ArchitectureValidationService:
             model_calls=sum(fact.model_calls for fact in classified),
             style_resolved=style[0],
             style_source=style[1],
+            decision_mode=decisions.mode,
         )
+
+    def decision_sources(self, request: SourceRequest) -> dict:
+        """What each decision mode would supply for one release.
+
+        Exposed on the component rather than reached through the knowledge
+        model directly, so the API composition root keeps one way in - the
+        same reason the run is a method here and not nine calls in a route.
+        """
+
+        return self._knowledge.availability(request)
 
     def _normalise(self, architecture: RecoveredArchitecture):
         """Normalise, and return the facts, the stage record and the style.
@@ -252,20 +286,9 @@ class ArchitectureValidationService:
             return "architecture style not resolved; confidence capped"
         return None
 
-    def _extract_intent(self, repository_id: str, release_id: str) -> StageRecord:
-        with _Stage("intent_extraction") as stage:
-            outcome, ran = _attempt(
-                stage, self._intent.extract, repository_id, release_id
-            )
-            if ran:
-                stage.counts = {
-                    "candidates": len(outcome.candidates),
-                    "sources_run": len(outcome.sources_run),
-                    **outcome.counts_by_tier,
-                }
-            return stage.record()
-
-    def _validate_each(self, facts) -> tuple[list[ClassifiedFact], list[StageRecord]]:
+    def _validate_each(
+        self, facts, repository_id: str, decisions
+    ) -> tuple[list[ClassifiedFact], list[StageRecord]]:
         """Resolve, reason about and classify every fact.
 
         The five per-fact stages are reported once for the whole pass rather
@@ -285,7 +308,9 @@ class ArchitectureValidationService:
 
         with knowledge, evidence, reasoning, verification, classification:
             for fact in facts:
-                resolution, ran = _attempt(knowledge, self._knowledge.resolve, fact)
+                resolution, ran = _attempt(
+                    knowledge, self._knowledge.resolve, fact, repository_id
+                )
                 if not ran:
                     break
 
@@ -336,7 +361,26 @@ class ArchitectureValidationService:
                     break
                 classified.append(result)
 
-        knowledge.counts = {k: counts[k] for k in ("resolved", "uncovered", "ambiguous")}
+        unmatched = self._knowledge.rules_without_facts(
+            repository_id, decisions.release_id, facts
+        )
+        knowledge.counts = {
+            **decisions.counts(),
+            **{k: counts[k] for k in ("resolved", "uncovered", "ambiguous")},
+            "rules_without_facts": len(unmatched),
+        }
+        knowledge.note = (
+            f"mode {decisions.mode}; "
+            f"{decisions.in_force} decisions in force at this release"
+        )
+        if unmatched:
+            # An observation about the architecture rather than about this
+            # stage, so it goes in the warnings beside normalisation's.
+            knowledge.warnings = tuple(
+                f"decision '{decision_id}' is in force at this release and no "
+                "observed dependency corresponds to it"
+                for decision_id in unmatched
+            )
         evidence.counts = {"packages": counts["resolved"]}
         reasoning.counts = {"verdicts": counts["reasoned"]}
         verification.counts = {"verifications": counts["reasoned"]}

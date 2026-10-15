@@ -9,7 +9,7 @@ Description:
     This is the cheapest test in the project and the one with the best return.
     A pipeline that runs with its subcomponents stubbed proves the orchestration
     is correct *before* any logic exists that could hide a wiring bug - and
-    once it passes, the nine subcomponents can be built in any order, because
+    once it passes, the eight subcomponents can be built in any order, because
     each one is dropped into a frame already known to work.
 
     It also pins the two behaviours the demo's claims rest on: that an
@@ -46,6 +46,7 @@ from app.components.architecture_validation.architect_review import (
 from app.components.architecture_validation.classification import ClassificationService
 from app.components.architecture_validation.decision_knowledge import (
     DecisionKnowledgeService,
+    DecisionStageOutcome,
 )
 from app.components.architecture_validation.evidence_retrieval import (
     EvidenceRetrievalService,
@@ -55,9 +56,6 @@ from app.components.architecture_validation.graph_publishing import (
 )
 from app.components.architecture_validation.independent_verification import (
     IndependentVerificationService,
-)
-from app.components.architecture_validation.intent_extraction import (
-    IntentExtractionService,
 )
 from app.components.architecture_validation.observation_normalization import (
     ObservationNormalizationService,
@@ -83,6 +81,7 @@ from app.domain.recovered_architecture import (
 from app.infrastructure.recovery_gateway.fixture_reader import (
     FixtureArchitectureReader,
 )
+from app.infrastructure.decision_log import JsonlDecisionStore
 from app.infrastructure.recovery_gateway.snapshot_file_reader import (
     SnapshotFileReader,
 )
@@ -90,24 +89,6 @@ from app.infrastructure.recovery_gateway.snapshot_file_reader import (
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "validation"
 SUBJECT = FIXTURES / "subject"
 SNAPSHOTS = Path(__file__).resolve().parents[3] / "data" / "snapshots"
-
-
-class StubIntent:
-    def __init__(self, candidates: int = 3) -> None:
-        self.candidates = candidates
-        self.calls = 0
-
-    def extract(self, repository_id, release_id):
-        from app.components.architecture_validation.intent_extraction.models import (
-            ExtractionOutcome,
-        )
-
-        self.calls += 1
-        return ExtractionOutcome(
-            candidates=(),
-            sources_run=("decision_records", "configuration", "service_contracts"),
-            counts_by_tier={"tier_1_decision_record": 0, "tier_2_executable_config": self.candidates},
-        )
 
 
 class StubKnowledge:
@@ -121,8 +102,31 @@ class StubKnowledge:
     def __init__(self, resolve_first: bool = True) -> None:
         self.resolve_first = resolve_first
         self.calls = 0
+        self.established = 0
 
-    def resolve(self, fact) -> Resolution:
+    def establish(self, request, mode) -> DecisionStageOutcome:
+        """Stand in for the stage's first half: collect, gate, append.
+
+        A stub has to answer the same question the real one does, so the gate
+        cannot be bypassed by not implementing it.
+        """
+
+        self.established += 1
+        return DecisionStageOutcome(
+            mode=mode,
+            release_id=request.release_id,
+            records=1,
+            in_force=1,
+            recorded=0,
+            closed=0,
+            unchanged=1,
+            reconstructed=1,
+        )
+
+    def rules_without_facts(self, repository_id, release_id, facts):
+        return ()
+
+    def resolve(self, fact, repository_id) -> Resolution:
         self.calls += 1
         if self.resolve_first and self.calls == 1:
             return Resolution(governing=_decision(), candidates=("np-1",))
@@ -223,6 +227,8 @@ def _decision():
         object="paymentservice",
         valid_from="v0.9.0",
         valid_to=None,
+        source="config_scan",
+        source_repository="online-boutique",
         source_tier=SourceTier.EXECUTABLE_CONFIG,
         source_strength=EvidenceStrength.AUTHORITATIVE,
         source_ref="kustomize/components/network-policies/network-policy-checkoutservice.yaml",
@@ -243,10 +249,9 @@ class WorkspaceReader:
 
 
 def build(release="v0.10.0", resolve_first=True):
-    """Assemble the pipeline with one real subcomponent and eight stubs."""
+    """Assemble the pipeline with one real subcomponent and seven stubs."""
 
     stubs = {
-        "intent": StubIntent(),
         "knowledge": StubKnowledge(resolve_first=resolve_first),
         "evidence": StubEvidence(),
         "reasoning": StubReasoning(),
@@ -440,14 +445,17 @@ def build_unimplemented(release="v0.10.0"):
     """Assemble the pipeline from the real subcomponents, stubs and all.
 
     This is what the API wires today, so it is the configuration the run
-    endpoint is actually exercised in.
+    endpoint is actually exercised in. The knowledge model reads the recorded
+    decision corpus, which is the same log a live run accumulates - read
+    through the same port, so nothing here is a special case.
     """
 
     return ArchitectureValidationService(
         architecture_reader=SnapshotFileReader(SNAPSHOTS),
         normalization=ObservationNormalizationService(),
-        intent=IntentExtractionService(),
-        knowledge=DecisionKnowledgeService(),
+        knowledge=DecisionKnowledgeService(
+            WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
+        ),
         evidence=EvidenceRetrievalService(),
         reasoning=ValidationReasoningService(),
         verification=IndependentVerificationService(),
@@ -458,7 +466,7 @@ def build_unimplemented(release="v0.10.0"):
 
 
 class TestStagesNotBuiltYet:
-    """A nine-stage component has to be runnable before stage nine exists."""
+    """An eight-stage component has to be runnable before stage eight exists."""
 
     def test_a_run_completes_with_only_one_subcomponent_implemented(self):
         """Without this the component is undemonstrable until the last stage
@@ -496,16 +504,25 @@ class TestStagesNotBuiltYet:
             assert stage.note
 
     def test_a_stage_after_the_one_that_stalled_names_what_stopped_it(self):
-        """Otherwise it reads as a clean pass over work it never saw."""
+        """Otherwise it reads as a clean pass over work it never saw.
+
+        Which stage stalls moves along as each one is built, so it is read
+        from the pipeline's own description rather than named here - the test
+        would otherwise have to be rewritten on the day it finally passes.
+        """
 
         result = build_unimplemented().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
         stages = {stage.name: stage for stage in result.stages}
+        stalled = next(
+            stage.name for stage in result.stages
+            if stage.status is StageStatus.PENDING
+        )
 
-        assert stages["decision_knowledge"].status is StageStatus.PENDING
+        assert stalled not in IMPLEMENTED_STAGES
         assert stages["classification"].status is StageStatus.SKIPPED
-        assert "decision_knowledge" in stages["classification"].note
+        assert stalled in stages["classification"].note
 
     def test_an_incomplete_run_makes_no_model_calls_and_publishes_nothing(self):
         result = build_unimplemented().run(
@@ -520,8 +537,8 @@ class TestStagesNotBuiltYet:
         else has a defect, and hiding that in the same bucket would make the
         board lie."""
 
-        class BrokenKnowledge:
-            def resolve(self, fact):
+        class BrokenKnowledge(StubKnowledge):
+            def resolve(self, fact, repository_id):
                 raise ValueError("index is corrupt")
 
         service, stubs = build()
@@ -531,16 +548,20 @@ class TestStagesNotBuiltYet:
             service.run(repository_id="online-boutique", release_id="v0.10.0")
 
     def test_a_skipped_stage_blames_the_stub_rather_than_the_evidence(self):
-        """"No fact had a governing decision" would read as the knowledge
-        stage having looked and found none, which is not what happened."""
+        """"No fact had a governing decision" would read as a stage having
+        looked and found none, which is not what happened."""
 
         result = build_unimplemented().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
         stages = {stage.name: stage for stage in result.stages}
+        stalled = next(
+            stage.name for stage in result.stages
+            if stage.status is StageStatus.PENDING
+        )
 
         for name in ("validation_reasoning", "independent_verification"):
-            assert "decision_knowledge" in stages[name].note
+            assert stalled in stages[name].note
 
 
 class TestARunWithNothingToValidate:
@@ -760,3 +781,296 @@ class TestTheM1Gate:
         assert stand_in.is_file()
         docstring = ast.get_docstring(ast.parse(stand_in.read_text(encoding="utf-8"))) or ""
         assert "deleted when recovery ships" in docstring
+
+class TestTheM2Gate:
+    """The stage gate for M2, as one executable checklist.
+
+    Every row of `03_decision_knowledge/01_TARGETED_ARCHITECTURE.md` §9,
+    asserted over **both** committed releases and against the recorded
+    decision corpus rather than an invented one. Most are covered in detail in
+    `test_decision_sources.py`, `test_decision_knowledge.py` and
+    `test_supersession.py`; the point of repeating them here is that the
+    checklist stops being a list somebody ticks and becomes one the suite
+    ticks.
+
+    No row of it is deferred. M2 needs nothing recovery has not already
+    shipped.
+    """
+
+    RELEASES = ("v0.9.0", "v0.10.0")
+    REPOSITORY = "online-boutique"
+
+    def service(self, store=None):
+        from app.infrastructure.decision_log import JsonlDecisionStore
+
+        return DecisionKnowledgeService(
+            WorkspaceReader(), store or JsonlDecisionStore(FIXTURES / "decisions")
+        )
+
+    def request_for(self, release):
+        from datetime import UTC, datetime
+
+        from app.components.architecture_validation.decision_knowledge import (
+            SourceRequest,
+        )
+        from app.infrastructure.recovery_gateway import SnapshotFileReader
+
+        architecture = SnapshotFileReader(SNAPSHOTS).read(self.REPOSITORY, release)
+        return SourceRequest(
+            code_repository_id=self.REPOSITORY,
+            release_id=release,
+            extracted_at=datetime(2026, 10, 15, 9, 0, tzinfo=UTC),
+            manifest_paths=architecture.manifest_paths,
+        )
+
+    def facts(self, release):
+        from app.infrastructure.recovery_gateway import SnapshotFileReader
+
+        architecture = SnapshotFileReader(SNAPSHOTS).read(self.REPOSITORY, release)
+        return ObservationNormalizationService().normalise(architecture).facts
+
+    # ---- the boundary ----
+
+    def test_the_subcomponent_cannot_reach_the_filesystem(self):
+        """Asserted per module in the architecture-rules suite. Repeated here
+        as a row of the checklist, because it is the one that stops this unit
+        doing recovery's job the way M1's did."""
+
+        from pathlib import Path
+
+        component = (
+            Path(__file__).resolve().parents[3]
+            / "app"
+            / "components"
+            / "architecture_validation"
+            / "decision_knowledge"
+        )
+
+        for module in component.rglob("*.py"):
+            body = module.read_text(encoding="utf-8")
+            for forbidden in ("open(", "Path(", "pathlib", "json.dump"):
+                assert forbidden not in body, f"{module.name} names {forbidden}"
+
+    def test_the_pipeline_is_the_eight_stages_the_proposal_describes(self):
+        from app.components.architecture_validation import PIPELINE
+
+        assert len(PIPELINE) == 8
+        assert "decision_knowledge" in IMPLEMENTED_STAGES
+
+    # ---- what the sources find ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_scan_reconstructs_the_whole_policy_set(self, release):
+        from app.components.architecture_validation.decision_knowledge.sources import (
+            ConfigurationScan,
+        )
+        from app.components.architecture_validation.models import ConstraintKind
+
+        records = ConfigurationScan(WorkspaceReader()).collect(
+            self.request_for(release)
+        ).records
+        kinds = {}
+        for record in records:
+            kinds[record.constraint] = kinds.get(record.constraint, 0) + 1
+
+        assert kinds[ConstraintKind.MAY_CALL] == 16
+        assert kinds[ConstraintKind.MUST_NOT_CALL] == 1
+        assert kinds[ConstraintKind.DECLARED_RPC] == 7
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_record_can_be_pointed_at(self, release):
+        from app.components.architecture_validation.decision_knowledge.sources import (
+            ConfigurationScan,
+        )
+
+        for record in ConfigurationScan(WorkspaceReader()).collect(
+            self.request_for(release)
+        ).records:
+            assert (SUBJECT / release / record.source_ref).exists()
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_tier_one_runs_and_reports_nothing_found(self, release):
+        available = self.service().availability(self.request_for(release))
+
+        assert available["repo_adr"].ran is True
+        assert available["repo_adr"].records == 0
+        assert available["repo_adr"].reason
+        assert available["external_adr"].ran is False
+
+    # ---- the log ----
+
+    def test_a_rule_that_vanishes_has_its_interval_closed(self, tmp_path):
+        from app.infrastructure.decision_log import JsonlDecisionStore
+
+        service = self.service(JsonlDecisionStore(tmp_path))
+        for release in self.RELEASES:
+            service.establish(self.request_for(release), "combined")
+
+        overlay = service.history(self.REPOSITORY).versions_of(
+            "*", "must_call_via", "kustomize/components/service-accounts"
+        )
+
+        assert overlay[0].valid_from == "v0.9.0"
+        assert overlay[0].valid_to == "v0.10.0"
+
+    def test_appending_the_same_scan_twice_leaves_the_log_unchanged(self, tmp_path):
+        from app.infrastructure.decision_log import JsonlDecisionStore
+
+        store = JsonlDecisionStore(tmp_path)
+        service = self.service(store)
+        service.establish(self.request_for("v0.10.0"), "combined")
+        before = store.replay(self.REPOSITORY)
+
+        service.establish(self.request_for("v0.10.0"), "combined")
+
+        assert store.replay(self.REPOSITORY) == before
+
+    def test_replaying_the_log_twice_gives_the_same_state(self):
+        service = self.service()
+
+        assert (
+            service.history(self.REPOSITORY).versions
+            == service.history(self.REPOSITORY).versions
+        )
+
+    def test_the_committed_corpus_still_reproduces(self, tmp_path):
+        """A fixture that has drifted from the code is worse than no fixture:
+        every test over it passes and none of them mean anything."""
+
+        import json
+
+        from app.infrastructure.decision_log import JsonlDecisionStore
+
+        store = JsonlDecisionStore(tmp_path)
+        service = self.service(store)
+        for release in self.RELEASES:
+            service.establish(self.request_for(release), "combined")
+
+        recorded = [
+            json.loads(line)
+            for line in (FIXTURES / "decisions" / "online-boutique.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if line.strip()
+        ]
+
+        assert store.replay(self.REPOSITORY) == recorded
+
+    # ---- the resolver ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_observed_dependency_is_governed(self, release):
+        from app.components.architecture_validation.models import ConstraintKind
+
+        service = self.service()
+        resolutions = [
+            service.resolve(fact, self.REPOSITORY) for fact in self.facts(release)
+        ]
+
+        assert len(resolutions) == 15
+        assert all(r.governing is not None for r in resolutions)
+        assert all(
+            r.governing.constraint is ConstraintKind.MAY_CALL for r in resolutions
+        )
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_three_outcomes_are_mutually_exclusive(self, release):
+        service = self.service()
+
+        for fact in self.facts(release):
+            resolution = service.resolve(fact, self.REPOSITORY)
+            answered = [
+                resolution.governing is not None,
+                resolution.uncovered,
+                resolution.ambiguous,
+            ]
+            assert answered.count(True) == 1
+
+    def test_the_identity_rule_in_force_differs_between_the_releases(self):
+        index = self.service().history(self.REPOSITORY)
+        shared = index.versions_of(
+            "*", "must_call_via", "kustomize/components/service-accounts"
+        )
+        inline = index.versions_of(
+            "*", "must_call_via", "inline ServiceAccount beside the workload"
+        )
+
+        assert shared[0].covers("v0.9.0") and not shared[0].covers("v0.10.0")
+        assert inline[0].covers("v0.10.0") and not inline[0].covers("v0.9.0")
+
+    # ---- the gate ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_an_empty_mode_refuses_the_run_and_names_the_yields(self, release):
+        from app.components.architecture_validation.decision_knowledge import (
+            NoDecisionsAvailable,
+        )
+
+        with pytest.raises(NoDecisionsAvailable) as refused:
+            self.service().establish(self.request_for(release), "repo_adr")
+
+        assert refused.value.yields == {
+            "repo_adr": 0,
+            "external_adr": 0,
+            "combined": 25,
+        }
+
+    def test_a_chosen_mode_that_yields_nothing_scans_nothing(self, tmp_path):
+        from app.components.architecture_validation.decision_knowledge import (
+            NoDecisionsAvailable,
+        )
+        from app.infrastructure.decision_log import JsonlDecisionStore
+
+        store = JsonlDecisionStore(tmp_path)
+
+        with pytest.raises(NoDecisionsAvailable):
+            self.service(store).establish(self.request_for("v0.10.0"), "repo_adr")
+
+        assert store.replay(self.REPOSITORY) == []
+
+    # ---- what the run reports ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_stage_reports_what_rests_on_what(self, release, tmp_path):
+        """On this repository nothing was declared and everything was
+        reconstructed, which is the finding the whole design answers.
+
+        Against its own store, because `establish` writes. A test that
+        appends to the committed corpus would leave the next test reading a
+        history this one invented - which is exactly what happened the first
+        time this was written.
+        """
+
+        from app.infrastructure.decision_log import JsonlDecisionStore
+
+        service = self.service(JsonlDecisionStore(tmp_path))
+        outcome = service.establish(self.request_for(release), "combined")
+
+        assert outcome.declared == 0
+        assert outcome.reconstructed == 25
+        assert outcome.in_force == 25
+
+    def test_running_against_the_recorded_corpus_writes_nothing(self):
+        """Both releases are already in it, so the pipeline re-reading them is
+        a no-op. That is what makes the corpus usable as a fixture *and* what
+        proves a re-run of a failed validation changes no history."""
+
+        corpus = FIXTURES / "decisions" / "online-boutique.jsonl"
+        before = corpus.read_bytes()
+
+        service = self.service()
+        for release in self.RELEASES:
+            service.establish(self.request_for(release), "combined")
+
+        assert corpus.read_bytes() == before
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_a_rule_with_no_observed_dependency_is_counted(self, release):
+        """One permission exists for a dependency recovery never reported. A
+        finding about the architecture, so it is named rather than dropped."""
+
+        unmatched = self.service().rules_without_facts(
+            self.REPOSITORY, release, self.facts(release)
+        )
+
+        assert unmatched == ("rule-cartservice-redis",)
