@@ -36,6 +36,7 @@ Description:
 """
 
 import re
+from dataclasses import dataclass
 
 import yaml
 
@@ -45,6 +46,7 @@ from ...models import (
     EvidenceStrength,
     ExtractionMethod,
     SourceTier,
+    Span,
 )
 from ...ports import SourceArtifactReader
 from .base import (
@@ -97,13 +99,14 @@ class ConfigurationScan:
         the path travels with each document rather than being resolved later.
         """
 
-        documents: list[tuple[str, dict]] = []
+        documents: list[_Document] = []
         for path in sorted(request.manifest_paths):
             text = self._reader.read_text(
                 request.code_repository_id, request.release_id, path
             )
             try:
                 loaded = list(yaml.safe_load_all(text))
+                composed = list(yaml.compose_all(text))
             except yaml.YAMLError as error:
                 raise DecisionSourceError(
                     f"'{path}' is not readable YAML, so this release cannot be "
@@ -111,20 +114,21 @@ class ConfigurationScan:
                     "a rule that was withdrawn."
                 ) from error
 
-            documents.extend(
-                (path, document) for document in loaded if isinstance(document, dict)
-            )
+            for data, node in zip(loaded, composed):
+                if isinstance(data, dict):
+                    documents.append(_located(path, data, node))
         return documents
 
     def _communication_rules(
-        self, documents: list[tuple[str, dict]], request: SourceRequest
+        self, documents: list["_Document"], request: SourceRequest
     ) -> list[DecisionRecord]:
         """Permissions and the default refusal, from the network policies."""
 
         records: list[DecisionRecord] = []
         permitted: set[tuple[str, str]] = set()
 
-        for path, document in documents:
+        for located in documents:
+            path, document = located.path, located.data
             if document.get("kind") != "NetworkPolicy":
                 continue
 
@@ -143,6 +147,7 @@ class ConfigurationScan:
                             source=self.name,
                             source_repository=request.code_repository_id,
                             source_ref=path,
+                            source_span=located.span(),
                             source_tier=SourceTier.EXECUTABLE_CONFIG,
                             source_strength=EvidenceStrength.AUTHORITATIVE,
                             extraction_method=ExtractionMethod.RECONSTRUCTED,
@@ -155,6 +160,10 @@ class ConfigurationScan:
                 continue
 
             for caller, callee in _permitted_pairs(specification, selected):
+                # The policy is written from `selected`'s side, so the entry
+                # that created this rule is the other end of the pair - and
+                # that entry's line is what a reader has to be shown.
+                peer = callee if caller == selected else caller
                 if (caller, callee) in permitted:
                     # The same permission can be written twice - as what the
                     # callee admits and as what the caller is allowed to reach.
@@ -172,6 +181,7 @@ class ConfigurationScan:
                         source=self.name,
                         source_repository=request.code_repository_id,
                         source_ref=path,
+                        source_span=located.line_of(peer),
                         source_tier=SourceTier.EXECUTABLE_CONFIG,
                         source_strength=EvidenceStrength.AUTHORITATIVE,
                         extraction_method=ExtractionMethod.RECONSTRUCTED,
@@ -181,7 +191,7 @@ class ConfigurationScan:
         return records
 
     def _identity_rules(
-        self, documents: list[tuple[str, dict]], request: SourceRequest
+        self, documents: list["_Document"], request: SourceRequest
     ) -> list[DecisionRecord]:
         """Where workload identity is declared, which is an architectural choice.
 
@@ -193,24 +203,24 @@ class ConfigurationScan:
         """
 
         accounts = [
-            (path, document)
-            for path, document in documents
-            if document.get("kind") == "ServiceAccount"
+            located for located in documents if located.data.get("kind") == "ServiceAccount"
         ]
         if not accounts:
             return []
 
         with_workload = {
-            path
-            for path, document in documents
-            if document.get("kind") in WORKLOAD_KINDS
+            located.path
+            for located in documents
+            if located.data.get("kind") in WORKLOAD_KINDS
         }
 
         records: list[DecisionRecord] = []
         shared = sorted(
-            {_directory(path) for path, _ in accounts if path not in with_workload}
+            {_directory(a.path) for a in accounts if a.path not in with_workload}
         )
-        inline = sorted({path for path, _ in accounts if path in with_workload})
+        inline = sorted(
+            [a for a in accounts if a.path in with_workload], key=lambda a: a.path
+        )
 
         for directory in shared:
             records.append(
@@ -223,6 +233,7 @@ class ConfigurationScan:
                     source=self.name,
                     source_repository=request.code_repository_id,
                     source_ref=directory,
+                    source_span=None,
                     source_tier=SourceTier.EXECUTABLE_CONFIG,
                     source_strength=EvidenceStrength.AUTHORITATIVE,
                     extraction_method=ExtractionMethod.RECONSTRUCTED,
@@ -243,7 +254,8 @@ class ConfigurationScan:
                     object_="inline ServiceAccount beside the workload",
                     source=self.name,
                     source_repository=request.code_repository_id,
-                    source_ref=inline[0],
+                    source_ref=inline[0].path,
+                    source_span=inline[0].span(),
                     source_tier=SourceTier.EXECUTABLE_CONFIG,
                     source_strength=EvidenceStrength.AUTHORITATIVE,
                     extraction_method=ExtractionMethod.RECONSTRUCTED,
@@ -275,8 +287,10 @@ class ConfigurationScan:
             text = self._reader.read_text(
                 request.code_repository_id, request.release_id, path
             )
-            for service, body in _service_blocks(text):
-                for operation in _RPC.findall(body):
+            for service, body, offset in _service_blocks(text):
+                for match in _RPC.finditer(body):
+                    operation = match.group(1)
+                    line = _line_at(text, offset + match.start(1))
                     records.append(
                         decision_record(
                             request,
@@ -287,12 +301,94 @@ class ConfigurationScan:
                             source=self.name,
                             source_repository=request.code_repository_id,
                             source_ref=path,
+                            source_span=Span(
+                                path=path, start_line=line, end_line=line
+                            ),
                             source_tier=SourceTier.EXECUTABLE_CONFIG,
                             source_strength=EvidenceStrength.AUTHORITATIVE,
                             extraction_method=ExtractionMethod.RECONSTRUCTED,
                         )
                     )
         return records
+
+
+@dataclass(frozen=True)
+class _Document:
+    """One YAML document, with the lines its parser said things were on.
+
+    The data comes from `safe_load_all` and the line numbers from
+    `compose_all` over the same text - one parser, used twice, rather than a
+    second reader that could disagree about what the document says. Evidence
+    retrieval quotes these lines, and only whatever parsed the file knows
+    them.
+    """
+
+    path: str
+    data: dict
+    app_lines: dict[str, int]
+    first_line: int
+    last_line: int
+
+    def span(self) -> Span:
+        """The whole document, for a rule that is about all of it."""
+
+        return Span(
+            path=self.path, start_line=self.first_line, end_line=self.last_line
+        )
+
+    def line_of(self, app: str) -> Span | None:
+        """The entry where one workload is named."""
+
+        line = self.app_lines.get(app)
+        return Span(path=self.path, start_line=line, end_line=line) if line else None
+
+
+def _located(path: str, data: dict, node) -> _Document:
+    return _Document(
+        path=path,
+        data=data,
+        app_lines=_app_lines(node),
+        first_line=node.start_mark.line + 1,
+        last_line=_last_line(node),
+    )
+
+
+def _last_line(node) -> int:
+    """The last line a document actually occupies.
+
+    A document's end mark sits at the start of whatever follows it, so taking
+    it as a line number points one line past the end - and a span that names a
+    line the file does not have cannot be quoted.
+    """
+
+    end = node.end_mark
+    return end.line if end.column == 0 and end.line > node.start_mark.line else end.line + 1
+
+
+def _app_lines(node) -> dict[str, int]:
+    """Where each `app:` value sits, taken from the parser's own marks.
+
+    The last occurrence of a name wins. A policy names its own workload first,
+    in the selector, and the peers it admits after it - and the peer entry is
+    the one a permission is read from.
+    """
+
+    found: dict[str, int] = {}
+
+    def visit(current) -> None:
+        if isinstance(current, yaml.MappingNode):
+            for key, value in current.value:
+                if getattr(key, "value", None) == "app" and isinstance(
+                    value, yaml.ScalarNode
+                ):
+                    found[value.value] = value.start_mark.line + 1
+                visit(value)
+        elif isinstance(current, yaml.SequenceNode):
+            for item in current.value:
+                visit(item)
+
+    visit(node)
+    return found
 
 
 def _selected_app(selector: dict | None) -> str | None:
@@ -326,7 +422,7 @@ def _permitted_pairs(specification: dict, selected: str) -> list[tuple[str, str]
     return pairs
 
 
-def _service_blocks(text: str) -> list[tuple[str, str]]:
+def _service_blocks(text: str) -> list[tuple[str, str, int]]:
     """Each `service X { ... }` block in a contract, as a name and a body.
 
     The closing brace is found by counting depth rather than by searching for
@@ -345,9 +441,22 @@ def _service_blocks(text: str) -> list[tuple[str, str]]:
             elif text[index] == "}":
                 depth -= 1
                 if depth == 0:
-                    blocks.append((match.group(1), text[match.end() : index]))
+                    blocks.append(
+                        (match.group(1), text[match.end() : index], match.end())
+                    )
                     break
     return blocks
+
+
+def _line_at(text: str, offset: int) -> int:
+    """The 1-based line an offset falls on.
+
+    The contract reader works with a regular expression rather than a parser,
+    so it has an offset where the YAML reader has a mark. Same answer, counted
+    rather than reported.
+    """
+
+    return text.count("\n", 0, offset) + 1
 
 
 def _directory(path: str) -> str:

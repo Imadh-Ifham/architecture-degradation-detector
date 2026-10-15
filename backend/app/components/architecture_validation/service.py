@@ -205,7 +205,7 @@ class ArchitectureValidationService:
         stages.append(stage)
 
         classified, reasoning_stages = self._validate_each(
-            facts, repository_id, decisions
+            facts, repository_id, decisions, architecture
         )
         stages.extend(reasoning_stages)
 
@@ -287,7 +287,7 @@ class ArchitectureValidationService:
         return None
 
     def _validate_each(
-        self, facts, repository_id: str, decisions
+        self, facts, repository_id: str, decisions, architecture
     ) -> tuple[list[ClassifiedFact], list[StageRecord]]:
         """Resolve, reason about and classify every fact.
 
@@ -333,7 +333,7 @@ class ArchitectureValidationService:
 
                 counts["resolved"] += 1
                 package, ran = _attempt(
-                    evidence, self._evidence.assemble, fact, resolution
+                    evidence, self._evidence.assemble, fact, resolution, architecture
                 )
                 if not ran:
                     break

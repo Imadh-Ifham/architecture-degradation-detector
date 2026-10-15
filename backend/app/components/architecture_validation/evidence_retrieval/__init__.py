@@ -10,6 +10,6 @@ Description:
     Re-exports the service class only. No logic lives here.
 """
 
-from .service import EvidenceRetrievalService
+from .service import EvidenceRetrievalService, NothingToReasonAbout
 
-__all__ = ["EvidenceRetrievalService"]
+__all__ = ["EvidenceRetrievalService", "NothingToReasonAbout"]

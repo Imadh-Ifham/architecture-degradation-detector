@@ -42,6 +42,7 @@ from ..models import (
     EvidenceStrength,
     ExtractionMethod,
     SourceTier,
+    Span,
 )
 
 DECISION_RECORDED = "DECISION_RECORDED"
@@ -294,6 +295,7 @@ def record_from_event(event: dict) -> DecisionRecord:
         source_tier=SourceTier(event["source_tier"]),
         source_strength=EvidenceStrength(event["source_strength"]),
         source_ref=event["source_ref"],
+        source_span=_span_from(event.get("source_span")),
         extraction_method=ExtractionMethod(event["extraction_method"]),
         extracted_at=datetime.fromisoformat(event["extracted_at"]),
         rationale=event.get("rationale"),
@@ -302,6 +304,23 @@ def record_from_event(event: dict) -> DecisionRecord:
         ratified_at=datetime.fromisoformat(event["ratified_at"])
         if event.get("ratified_at")
         else None,
+    )
+
+
+def _span_from(value: dict | None) -> Span | None:
+    """Rebuild a span from an event, if the record had one.
+
+    Replay has to restore it: evidence retrieval quotes these lines, and a
+    span that survives being written and not being read back would make every
+    citation a filename again - silently, because nothing else needs it.
+    """
+
+    if not value:
+        return None
+    return Span(
+        path=value["path"],
+        start_line=value["start_line"],
+        end_line=value["end_line"],
     )
 
 

@@ -121,11 +121,18 @@ class EvidenceRole(StrEnum):
 
     Also the truncation order when a package exceeds its budget: the rule text
     is kept longest, structural context dropped first.
+
+    `PERMITTED_SET` is the one that evidences an absence. Under a default-deny
+    policy the conclusion "nothing permits this" rests on a rule plus a
+    silence, and a silence has no file and no line to cite. So the package
+    carries what *is* permitted for the subject instead, and the conclusion
+    becomes an observation over a finite list rather than an assumption.
     """
 
     RULE = "rule"
     RATIONALE = "rationale"
     SUPERSEDED = "superseded"
+    PERMITTED_SET = "permitted_set"
     IMPLICATION = "implication"
     STRUCTURAL_CONTEXT = "structural_context"
 
@@ -252,6 +259,18 @@ class DecisionRecord:
     extraction_method: ExtractionMethod
     extracted_at: datetime
 
+    source_span: Span | None = None
+    """Which lines of `source_ref` this rule was read from.
+
+    Carried because evidence retrieval has to *quote* a rule rather than name
+    the file it is in, and only whatever parsed the document knows the line.
+    Reconstructing it later would mean a second parser for one file, which is
+    two chances to disagree about what a rule is.
+
+    `None` is legal and means there is no document: a decision ratified by an
+    architect has a person behind it rather than a file.
+    """
+
     rationale: str | None = None
     supersedes: str | None = None
     ratified_by: str | None = None
@@ -272,6 +291,7 @@ class DecisionRecord:
             "source_tier": self.source_tier,
             "source_strength": self.source_strength,
             "source_ref": self.source_ref,
+            "source_span": self.source_span.to_dict() if self.source_span else None,
             "extraction_method": self.extraction_method,
             "extracted_at": self.extracted_at.isoformat(),
             "rationale": self.rationale,
@@ -313,15 +333,45 @@ class Resolution:
     superseded_ancestor: str | None = None
     conflicting_sources: tuple[str, ...] = ()
 
+    superseded: DecisionRecord | None = None
+    """The record the governing one replaced, not just its id.
+
+    Carried whole because the demonstration has to *show* that the earlier
+    decision was considered and correctly rejected, and showing it means
+    quoting the lines it came from. The resolver has the version in hand when
+    it works the ancestor out; anything downstream would have to replay the
+    log to get it back, and a stage that can re-read the log can answer a
+    different question from the one it was asked.
+    """
+
+    permitted_instead: tuple[DecisionRecord, ...] = ()
+    """What *is* permitted, when the answer rests on what is not.
+
+    Only filled when the governing decision is the general refusal. "Nothing
+    permits this" has no file and no line, so the evidence for it is the
+    finite list that does not contain the pair in question - which a reader
+    can check rather than having to trust.
+    """
+
 
 @dataclass(frozen=True)
 class EvidenceItem:
-    """One piece of evidence, with somewhere to point."""
+    """One piece of evidence, with somewhere to point.
+
+    `ref` is what the model must cite and what the citation guard checks
+    against, so every item has one and no two items share one.
+
+    `span` is where the text physically is, and it is optional because not
+    every piece of evidence is a quotation. A rule read from a policy document
+    has lines; a statement that two sources described one relationship
+    differently is derived from the resolution and has none. An item without a
+    span is still citable and still checkable - it is only unquotable.
+    """
 
     ref: str
     role: EvidenceRole
     text: str
-    span: Span
+    span: Span | None = None
 
 
 @dataclass(frozen=True)

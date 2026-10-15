@@ -70,7 +70,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Assembles exactly what the model is allowed to reason from, for one fact.",
         research_module="M3",
         uses_model=False,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="validation_reasoning",

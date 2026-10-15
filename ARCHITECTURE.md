@@ -94,17 +94,22 @@ The physical skeleton established now:
 
 **Purpose:** Determine whether the recovered architecture matches the architecture that was **intended**.
 
-**Planned areas:**
+**Planned subcomponents:**
 
-- **ADR extraction** — extract architectural decisions from Architecture Decision Records.
-- **Architecture intent extraction** — derive intended structure and qualities from documentation and other intent sources.
-- **Constraint extraction** — derive explicit and implicit architectural constraints.
-- **Comparison/validation** — compare the recovered architecture against the extracted intent and constraints.
-- **Violation detection** — identify and report where reality diverges from intent.
+- **Observation normalization** — turn the recovered architecture into one uniform fact per relationship, whatever architectural style it came from, with every element name reduced to a single identity and every release identifier made orderable.
+- **Decision knowledge** — hold the architectural decisions as an append-only history and answer which one governed a relationship at a given release, with three sources behind one protocol (records in the code repository, records in a repository the user names, rules reconstructed from the repository's own configuration) and half-open validity intervals so a superseded decision never governs.
+- **Evidence retrieval** — assemble the fixed, ordered, hashed set of text a verdict may be reasoned from, each item quoted from the lines it was read from and carrying a reference a citation can be checked against.
+- **Validation reasoning** — judge one fact against the decision that governs it, under an enforced response schema and a versioned prompt, with every citation checked against the evidence it was given.
+- **Independent verification** — re-examine a verdict as a challenge to it, using a different model and a different framing; it may lower a conclusion and never raise one.
+- **Classification** — turn a verdict and its verification into a bucket, a confidence with its arithmetic published, and a route, with the strength of the evidence capping the strength of the conclusion.
+- **Architect review** — hold back what the system will not decide alone, and record what a person decided.
+- **Graph publishing** — publish the validated architecture as a graph with each verdict carried on the relationship it describes.
 
-**Consumes:** the Recovered Architecture Model/Graph, plus external architectural-intent evidence.
+**Consumes:** the Recovered Architecture Model/Graph, plus external architectural-intent evidence. Where recovery's own output for a release is not yet available, a recorded recovery output is read instead, through the same port and stamped on the run's provenance.
 
 **Produces:** the **Validated Architecture** — the recovered architecture annotated with validation results and violations.
+
+**Boundary:** validation reads no source code. It reads recovery's description of the architecture, and the configuration and decision documents recovery has already located, through a port whose implementation lives outside the component.
 
 ---
 
@@ -183,18 +188,19 @@ Rules:
 | Component                 | Subcomponents                                                                                                                    |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `architecture_recovery`   | `static_extraction`, `deployment_analysis`, `interface_analysis`, `runtime_extraction`, `evidence_correlation`, `reconstruction` |
-| `architecture_validation` | `observation_normalization`, `intent_extraction`, `decision_knowledge`, `evidence_retrieval`, `validation_reasoning`, `independent_verification`, `classification`, `architect_review`, `graph_publishing` |
+| `architecture_validation` | `validation_reasoning`, `independent_verification`, `classification`, `architect_review`, `graph_publishing` |
 | `degradation_detection`   | `release_analysis`, `architecture_comparison`, `detection`, `cause_analysis`                                                     |
 | `degradation_scoring`     | `scoring_engine`, `severity`, `rules`                                                                                            |
 
-`architecture_validation` is listed with the nine subcomponents its validation pipeline actually
-needs. The four names previously listed are preserved rather than dropped:
+`architecture_validation`'s pipeline is **eight** subcomponents. The three already built are
+described in §3.2 and are no longer listed as planned. The four names originally listed are
+preserved rather than dropped:
 
-| Previously listed | Where its responsibility now sits |
+| Originally listed | Where its responsibility now sits |
 | ----------------- | --------------------------------- |
-| `adr_extraction`        | `intent_extraction/sources/decision_records.py` — one intent source among several, because most repositories hold no decision records |
-| `intent_extraction`     | `intent_extraction/` — kept, and widened to cover configuration and service contracts as well as decision records |
-| `constraint_extraction` | `intent_extraction/constraints.py` — normalising every source into one closed constraint vocabulary |
+| `adr_extraction`        | `decision_knowledge/sources/repo_adr.py` and `external_adr.py` — one source among three, because most repositories hold no decision records |
+| `intent_extraction`     | `decision_knowledge/sources/config_scan.py` — reading intent out of configuration produces decision records, so it belongs to the subcomponent that holds them |
+| `constraint_extraction` | the closed `ConstraintKind` vocabulary every source normalises into, in the component's own `models.py` |
 | `validation`            | split across `validation_reasoning`, `independent_verification`, `classification` and `graph_publishing`, which have different dependencies and different failure modes |
 
 The split follows §4.1: one folder is one subcomponent with one responsibility. `validation` as a
@@ -213,10 +219,6 @@ components/
 │   ├── evidence_correlation/
 │   └── reconstruction/
 ├── architecture_validation/
-│   ├── observation_normalization/
-│   ├── intent_extraction/
-│   ├── decision_knowledge/
-│   ├── evidence_retrieval/
 │   ├── validation_reasoning/
 │   ├── independent_verification/
 │   ├── classification/

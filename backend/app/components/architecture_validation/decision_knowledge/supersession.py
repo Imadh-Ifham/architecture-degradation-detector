@@ -145,9 +145,32 @@ def resolve_fact(index, fact: ObservedFact) -> Resolution:
 
     general = _covering(index, WILDCARD, constraints, WILDCARD, fact.release_id)
     if general:
-        return _decide(index, general)
+        return _decide(index, general, permitted=_permitted_for(index, fact))
 
     return Resolution(governing=None, uncovered=True)
+
+
+def _permitted_for(index, fact: ObservedFact) -> tuple[DecisionRecord, ...]:
+    """Every permission in force for the element this fact points at.
+
+    What makes the general refusal usable as evidence. "Nothing permits this"
+    cannot be quoted, so the answer carries the list that does not contain the
+    pair in question - bounded by one element's own policy, and checkable by a
+    reader rather than taken on trust.
+    """
+
+    permitted = [
+        version
+        for key, versions in index.versions.items()
+        for version in versions
+        if key[1] == ConstraintKind.MAY_CALL
+        and key[2] == fact.object.canonical
+        and version.covers(fact.release_id)
+    ]
+    return tuple(
+        version.record
+        for version in sorted(permitted, key=lambda v: v.record.decision_id)
+    )
 
 
 def _covering(
@@ -165,7 +188,11 @@ def _covering(
     ]
 
 
-def _decide(index, candidates: list[DecisionVersion]) -> Resolution:
+def _decide(
+    index,
+    candidates: list[DecisionVersion],
+    permitted: tuple[DecisionRecord, ...] = (),
+) -> Resolution:
     """Pick the governing version, or report that nothing can be picked."""
 
     strongest = min(strength_of(version) for version in candidates)
@@ -185,29 +212,45 @@ def _decide(index, candidates: list[DecisionVersion]) -> Resolution:
         if version.record.constraint is not governing.record.constraint
     }
 
+    replaced = _replaced(index, governing)
+
     return Resolution(
         governing=governing.record,
-        superseded_ancestor=_ancestor(index, governing),
+        superseded_ancestor=replaced.record.decision_id if replaced else None,
+        superseded=replaced.record if replaced else None,
         conflicting_sources=tuple(sorted(disagreeing)),
+        permitted_instead=permitted,
     )
 
 
-def _ancestor(index, version: DecisionVersion) -> str | None:
-    """The decision this one replaced, so the chain can be shown.
+def _replaced(index, version: DecisionVersion) -> DecisionVersion | None:
+    """The version this one replaced, so the chain can be shown.
 
-    Named by the replacement itself where the scan worked it out, and found by
-    looking for the version that ended exactly where this one began otherwise.
-    Resolving to the right decision while forgetting the one it replaced is a
-    right answer that cannot be defended.
+    Returned whole rather than by name, because showing a rejected decision
+    means quoting the lines it came from - and this is the only place that
+    still has the version in hand. Resolving to the right decision while
+    forgetting the one it replaced is a right answer that cannot be defended.
+
+    Found by the name the replacement gives where the scan worked it out, and
+    by the interval that ended exactly where this one began otherwise.
     """
 
     record: DecisionRecord = version.record
+    siblings = [
+        other
+        for key, versions in index.versions.items()
+        for other in versions
+        if key[1] == record.constraint and other is not version
+    ]
+
     if record.supersedes:
-        return record.supersedes
+        named = [o for o in siblings if o.record.decision_id == record.supersedes]
+        if named:
+            return named[0]
 
     for other in index.versions_of(record.subject, record.constraint, record.object):
         if other.valid_to == version.valid_from:
-            return other.record.decision_id
+            return other
     return None
 
 
