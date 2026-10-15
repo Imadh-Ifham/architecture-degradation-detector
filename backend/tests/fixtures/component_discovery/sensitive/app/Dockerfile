@@ -1,0 +1,3 @@
+FROM node:20
+ENV API_TOKEN=tokenvalue123
+ENV LOG_LEVEL=info

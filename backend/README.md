@@ -15,7 +15,8 @@ backend/
     │   ├── architecture_recovery/
     │   │   ├── repository_ingestion/             # Clone/remove a repository in a local workspace
     │   │   ├── repository_inventory/             # Inventory a working tree into repository_inventory.json
-    │   │   └── manifest_analysis/                # Parse manifests into manifest_analysis.json
+    │   │   ├── manifest_analysis/                # Parse manifests into manifest_analysis.json
+    │   │   └── component_discovery/              # Identify components into component_discovery.json
     │   ├── architecture_validation/
     │   ├── architecture_degradation_detection/
     │   └── degradation_scoring/
@@ -33,7 +34,7 @@ The remaining research components are intentionally empty. Their internal subcom
 | `GET` | `/` | API root: returns the service message and environment. |
 | `GET` | `/health/postgres` | Checks PostgreSQL connectivity. |
 | `GET` | `/health/neo4j` | Checks Neo4j connectivity. |
-| `POST` | `/repositories` | Clones `{url, branch}`, then inventories and analyzes the clone. |
+| `POST` | `/repositories` | Clones `{url, branch}`, then inventories, analyzes and discovers components in the clone. |
 | `GET` | `/repositories` | Lists ingested repositories. |
 | `DELETE` | `/repositories/{id}` | Removes an ingested repository from the machine. |
 
@@ -138,5 +139,66 @@ cannot execute code through a manifest; nothing is executed or written back to
 the working tree. Malformed files are recorded as failures or diagnostics rather
 than silently dropped, and templated manifests (Helm) are reported as skipped
 because they cannot be resolved without their template engine.
+
+A per-test guide to this component's suite, explaining what each test attempts to
+prove, is in
+[`tests/components/architecture_recovery/test_manifest_analysis.md`](./tests/components/architecture_recovery/test_manifest_analysis.md).
+
+### Component discovery
+
+The `component_discovery` subcomponent identifies the logical architectural
+components in a repository and associates the artifacts that belong to each.
+It writes `component_discovery.json` beside the other artifacts and runs
+automatically after manifest analysis.
+
+An **artifact** is one repository file that describes or implements a component
+(a deployment declaration, a build definition, a Dockerfile, an API contract).
+A **component** is the logical unit those artifacts belong to. This distinction is
+the point of the stage: a Compose service, its Dockerfile, its source project and
+its API contract are four artifacts of *one* component, not four components.
+
+| Evidence | Provides |
+| -------- | -------- |
+| manifest analysis | deployment declarations (Compose services, Kubernetes workloads) and API contracts |
+| inventory | source projects (a directory holding a build manifest) and the files belonging to them |
+| manifest analysis | Dockerfiles and their build stages |
+
+Kubernetes `Service`, `ConfigMap` and `Secret` resources are **never** components.
+A Service is attached to the workload its selector matched; the ConfigMap and
+Secret remain the concern of manifest analysis.
+
+**Identity resolution** is a union-find over identity keys (declared name plus
+directory name), merged only by a named rule:
+
+| Rule | Confidence | Meaning |
+| ---- | ---------- | ------- |
+| `build_context_containment` | direct | an artifact lies inside a declared Compose build context |
+| `project_location_containment` | direct | an artifact lies inside a project root |
+| `shared_image_reference` | direct | two deployments run the same application image |
+| `name_and_location_match` | direct | names match and locations are related |
+| `name_match` | heuristic | identity keys intersect without a location link |
+
+A repository-root location is never treated as containment, and base images are
+never identity evidence, so neither "everything is under the repository root" nor
+"two Dockerfiles share `node:20`" can merge components. Two projects that share a
+name but sit in unrelated directories are **not** merged; the conflict is reported
+as a duplicate identity instead.
+
+Component ids are a hash of the normalised name and canonical root path, so they
+are stable across runs and independent of iteration order.
+
+**Unresolved and ambiguous cases are preserved, never forced:**
+
+- a Dockerfile, API contract or bare directory with no corroborating evidence is
+  an `unresolved` artifact, not an invented component;
+- a Service whose selector matches workloads in more than one component is an
+  `ambiguous` association;
+- components sharing a name but resolving to different identities are reported
+  as duplicate identities.
+
+Artifact associations are kept distinct: `deployed_as`, `defined_by`,
+`built_from`, `implemented_by` and `contract_defined_by`. Every association and
+every component carries the evidence that produced it, and a component's
+confidence is the weakest link that holds it together.
 
 See the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the intended future architecture.

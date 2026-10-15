@@ -237,6 +237,25 @@ class _ComposeAnalysis:
                     else str(value)
                 )
 
+        # The build context and Dockerfile are recorded on the service because
+        # they are what associate this service with the source project and
+        # Dockerfile that implement it. They are also emitted as references below,
+        # for a consumer that resolves paths for itself.
+        image_build = spec.get("build")
+
+        if isinstance(image_build, str) and image_build.strip():
+            attributes["build_context"] = image_build
+        elif isinstance(image_build, dict):
+            context = image_build.get("context")
+
+            if isinstance(context, str) and context.strip():
+                attributes["build_context"] = context
+
+            dockerfile = image_build.get("dockerfile")
+
+            if isinstance(dockerfile, str) and dockerfile.strip():
+                attributes["dockerfile"] = dockerfile
+
         if self._file.component_id:
             # Links the finding back to the candidate component the inventory
             # associated with this file.

@@ -4,9 +4,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.repositories import (
+    get_component_discovery_service,
     get_manifest_analysis_service,
     get_repository_ingestion_service,
     get_repository_inventory_service,
+)
+from app.components.architecture_recovery.component_discovery import (
+    ComponentDiscoveryError,
 )
 from app.components.architecture_recovery.manifest_analysis import (
     ManifestAnalysisError,
@@ -219,6 +223,116 @@ def test_analysis_failure_does_not_fail_the_ingest(client: TestClient) -> None:
     assert body["inventory"] is not None
     assert body["manifest_analysis"] is None
     assert body["manifest_analysis_error"] == "analysis workspace is not writable"
+
+
+def test_ingesting_a_repository_discovers_components(client: TestClient) -> None:
+    """Component discovery runs automatically after its prerequisites."""
+
+    created = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    assert created["component_discovery_error"] is None
+
+    discovery = created["component_discovery"]
+
+    assert discovery is not None
+    assert discovery["component_count"] == 2
+    assert discovery["by_type"] == {"application": 1, "service": 1}
+    assert discovery["artifact_count"] == 3
+    assert discovery["unresolved_count"] == 0
+
+    written = Path(discovery["path"])
+    assert written.name == "component_discovery.json"
+    assert written.parent == Path(created["path"]).parent
+    assert not (Path(created["path"]) / "component_discovery.json").exists()
+
+
+def test_previous_response_fields_are_unchanged(client: TestClient) -> None:
+    """Adding component discovery must not disturb the earlier stages' output."""
+
+    created = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    # The ingestion fields are still present and correct.
+    assert created["url"] == "https://example.com/team/repo.git"
+    assert created["branch"] == "main"
+    assert created["commit"] == "a" * 40
+
+    # And so are both earlier analysis stages.
+    assert created["inventory_error"] is None
+    assert created["manifest_analysis_error"] is None
+    assert created["inventory"]["file_count"] == 4
+    assert created["manifest_analysis"]["resource_count"] == 2
+
+
+def test_discovery_is_skipped_when_analysis_fails(client: TestClient) -> None:
+    """Discovery needs both upstream results, so it says so rather than guessing."""
+
+    class FailingAnalysisService:
+        def run(self, inventory, root, output_directory):
+            raise ManifestAnalysisError("analysis failed")
+
+    app.dependency_overrides[get_manifest_analysis_service] = (
+        lambda: FailingAnalysisService()
+    )
+
+    body = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    assert body["component_discovery"] is None
+    assert "no manifest analysis" in body["component_discovery_error"]
+    # The stages that did run are still reported.
+    assert body["inventory"] is not None
+
+
+def test_discovery_is_skipped_when_the_inventory_fails(client: TestClient) -> None:
+    class FailingInventoryService:
+        def run_for_ingested(self, repository):
+            raise RepositoryInventoryError("inventory failed")
+
+    app.dependency_overrides[get_repository_inventory_service] = (
+        lambda: FailingInventoryService()
+    )
+
+    body = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    assert body["component_discovery"] is None
+    assert "no repository inventory" in body["component_discovery_error"]
+
+
+def test_discovery_failure_does_not_fail_the_ingest(client: TestClient) -> None:
+    """A downstream failure must not undo the clone or the earlier stages."""
+
+    class FailingDiscoveryService:
+        def run(self, inventory, analysis, output_directory):
+            raise ComponentDiscoveryError("discovery workspace is not writable")
+
+    app.dependency_overrides[get_component_discovery_service] = (
+        lambda: FailingDiscoveryService()
+    )
+
+    response = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+
+    assert body["inventory"] is not None
+    assert body["manifest_analysis"] is not None
+    assert body["component_discovery"] is None
+    assert body["component_discovery_error"] == "discovery workspace is not writable"
 
 
 def test_inventory_failure_does_not_fail_the_ingest(client: TestClient) -> None:

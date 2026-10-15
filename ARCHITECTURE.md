@@ -76,6 +76,7 @@ The physical skeleton established now:
 - **Repository ingestion** — clone a target repository at a given branch into a local workspace, and remove it again.
 - **Repository inventory** — inventory the working tree into a versioned JSON document (files, classifications, candidate components, relationships) that later stages consume.
 - **Manifest analysis** — parse the manifests the inventory found (Compose, Kubernetes, Dockerfile, OpenAPI, Protobuf) into declared resources, endpoints and relationships, keeping declared dependencies, configured endpoints and API definitions distinct.
+- **Component discovery** — identify the logical components (services, applications, modules) and associate the artifacts that implement, define, build, deploy and contract each one, keeping artifacts distinct from components and recording evidence, uncertainty and unresolved cases.
 - **Static extraction** — derive structural information from source code and build artifacts.
 - **Deployment analysis** — derive deployment topology and environment structure from deployment descriptors and configuration.
 - **Interface analysis** — identify interfaces, contracts, and communication boundaries between parts of the system.

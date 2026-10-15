@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alpha
+spec:
+  template:
+    metadata:
+      labels: {app: shared}
+    spec:
+      containers:
+        - name: alpha
+          image: example/alpha:1.0.0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beta
+spec:
+  template:
+    metadata:
+      labels: {app: shared}
+    spec:
+      containers:
+        - name: beta
+          image: example/beta:1.0.0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shared-api
+spec:
+  selector: {app: shared}
+  ports: [{port: 80, targetPort: 8080}]
