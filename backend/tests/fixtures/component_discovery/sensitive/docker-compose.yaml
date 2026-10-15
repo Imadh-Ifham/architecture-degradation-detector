@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: ./app
+    environment:
+      DB_PASSWORD: supersecret
+      API_TOKEN: tokenvalue123
+      LOG_LEVEL: debug
+      DATABASE_URL: postgres://user:pw@db:5432/app
+    secrets:
+      - app_secret
+secrets:
+  app_secret:
+    external: true
