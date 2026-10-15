@@ -7,8 +7,10 @@ import pytest
 from pydantic import ValidationError
 
 from app.components.degradation_detection.config import (
+    DEFAULT_CATALOG_PATH,
     DEFAULT_CONFIG_PATH,
     C3Config,
+    CatalogConfig,
     ConfigError,
     load_config,
 )
@@ -175,3 +177,72 @@ def test_hash_changes_when_a_detector_threshold_changes(tmp_path: Path) -> None:
     changed = load_config(write(tmp_path, "detection:\n  oversized: {z_max: 3.0}\n"))
 
     assert changed.config_hash != C3Config().config_hash
+
+
+# --- detector catalog (configs/catalog.yaml) -------------------------------------------------
+
+UNIVERSAL = (
+    "CyclicDependency",
+    "HubLikeElement",
+    "UnstableDependency",
+    "OversizedElement",
+    "BigBallOfMud",
+)
+
+
+def write_catalog(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "catalog.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_default_catalog_runs_universal_everywhere_and_shared_persistence_on_microservices() -> (
+    None
+):
+    catalog = load_config().catalog
+
+    assert catalog.enabled == {"*": UNIVERSAL, "microservices": ("SharedPersistence",)}
+
+
+def test_default_catalog_file_and_built_in_defaults_are_the_same() -> None:
+    assert load_config(catalog_path=DEFAULT_CATALOG_PATH).catalog == CatalogConfig()
+
+
+def test_catalog_is_read_from_the_catalog_file(tmp_path: Path) -> None:
+    path = write_catalog(tmp_path, "enabled:\n  '*': [CyclicDependency]\n")
+
+    cfg = load_config(catalog_path=path)
+
+    assert cfg.catalog.enabled == {"*": ("CyclicDependency",)}
+
+
+def test_catalog_cannot_be_set_in_the_main_config(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"catalog\.yaml"):
+        load_config(write(tmp_path, "catalog:\n  enabled: {}\n"))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "enabled:\n  microservice: [SharedPersistence]\n",
+        "enabled:\n  '*': [CyclicDependency, CyclicDependency]\n",
+        "enabld:\n  '*': [CyclicDependency]\n",
+        "- CyclicDependency\n",
+    ],
+    ids=["unknown-style", "duplicate-detector", "typo", "not-a-mapping"],
+)
+def test_invalid_catalogs_fail(tmp_path: Path, text: str) -> None:
+    with pytest.raises(ConfigError):
+        load_config(catalog_path=write_catalog(tmp_path, text))
+
+
+def test_missing_catalog_file_fails(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="nocat.yaml"):
+        load_config(catalog_path=tmp_path / "nocat.yaml")
+
+
+def test_hash_changes_when_the_catalog_changes(tmp_path: Path) -> None:
+    """Which detectors run changes the results, so the catalog is part of the run's hash."""
+    path = write_catalog(tmp_path, "enabled:\n  '*': [CyclicDependency]\n")
+
+    assert load_config(catalog_path=path).config_hash != C3Config().config_hash

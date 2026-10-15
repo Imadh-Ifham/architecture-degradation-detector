@@ -7,6 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from app.components.degradation_detection.config import C3Config
+from app.components.degradation_detection.stub import StubService
 from scripts import c3
 from scripts.c3 import SCHEMA_DIR, app, render_schemas
 from tests.components.degradation_detection.fakes import InMemoryReleaseRepository
@@ -178,3 +179,46 @@ def test_ingest_missing_path_fails(memory_repo: InMemoryReleaseRepository, tmp_p
 
     assert result.exit_code == 2
     assert memory_repo.releases == {}
+
+
+# --- c3 detect --------------------------------------------------------------------------------
+
+
+def detect_rows(output: str) -> list[list[str]]:
+    """The instance table: release, gate, anti_pattern_type, members (comma-joined)."""
+    return [line.split() for line in output.splitlines() if line.startswith("v")]
+
+
+def test_detect_instance_table_matches_the_manifest(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+
+    result = CliRunner().invoke(app, ["detect", "--system", "shopfront"])
+
+    assert result.exit_code == 0, result.output
+    rows = detect_rows(result.output)
+    truth = StubService().generate().ground_truth
+    assert sorted({row[0] for row in rows}) == [r.release_id for r in truth.releases]
+    for planted in truth.instances:  # S1 CyclicDependency, S9 SharedPersistence
+        found = {
+            row[0]: tuple(row[3].split(",")) for row in rows if row[2] == planted.anti_pattern_type
+        }
+        assert found == planted.members_by_release, planted.scenario
+
+
+def test_detect_shows_the_gate_status(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+
+    result = CliRunner().invoke(app, ["detect", "--system", "shopfront"])
+
+    assert {row[1] for row in detect_rows(result.output) if row[0] == "v1.5.0"} == {"DOWNWEIGHTED"}
+
+
+def test_detect_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> None:
+    result = CliRunner().invoke(app, ["detect", "--system", "nowhere"])
+
+    assert result.exit_code == 1
+    assert "no releases" in result.output

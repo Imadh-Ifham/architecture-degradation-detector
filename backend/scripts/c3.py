@@ -1,12 +1,12 @@
 """C3 command line. Run from ``backend/``:  uv run python -m scripts.c3 --help
 
 Commands are added by the task that first needs them; T-01 adds ``schemas export``, T-02
-``config show``, T-03 ``stub``, T-04 ``ingest``. Logs are JSON lines on stderr; command output
-goes to stdout.
+``config show``, T-03 ``stub``, T-04 ``ingest``, T-07 ``detect``. Logs are JSON lines on
+stderr; command output goes to stdout.
 
-``ingest`` stores into PostgreSQL (``docker compose up -d``, then ``uv run alembic upgrade
-head``). The database modules are imported only when a command needs them, so every other
-command works without a ``.env``.
+``ingest`` stores into and ``detect`` reads from PostgreSQL (``docker compose up -d``, then
+``uv run alembic upgrade head``). The database modules are imported only when a command needs
+them, so every other command works without a ``.env``.
 """
 
 import json
@@ -18,11 +18,13 @@ import typer
 from pydantic import BaseModel
 
 from app.components.degradation_detection.config import (
+    DEFAULT_CATALOG_PATH,
     DEFAULT_CONFIG_PATH,
     C3Config,
     ConfigError,
     load_config,
 )
+from app.components.degradation_detection.detection import DetectionService
 from app.components.degradation_detection.ingestion import IngestService
 from app.components.degradation_detection.ingestion.models import (
     IngestOutcome,
@@ -70,6 +72,8 @@ app.add_typer(config_app, name="config")
 app.add_typer(stub_app, name="stub")
 
 Seed = Annotated[int, typer.Option(help="Same seed, same bytes.")]
+ConfigFile = Annotated[Path, typer.Option(help="YAML config file.")]
+CatalogFile = Annotated[Path, typer.Option(help="YAML detector catalog.")]
 
 
 @app.callback()
@@ -100,17 +104,17 @@ def export_schemas(
 
 @config_app.command("show")
 def show_config(
-    config: Annotated[Path, typer.Option(help="YAML config file.")] = DEFAULT_CONFIG_PATH,
+    config: ConfigFile = DEFAULT_CONFIG_PATH, catalog: CatalogFile = DEFAULT_CATALOG_PATH
 ) -> None:
     """Print the validated configuration and its hash, as stored on every analysis run."""
-    cfg = _load_config_or_exit(config)
+    cfg = _load_config_or_exit(config, catalog)
     shown = {"config_hash": cfg.config_hash, "config": cfg.model_dump(mode="json")}
     typer.echo(json.dumps(shown, indent=2, sort_keys=True))
 
 
-def _load_config_or_exit(path: Path) -> C3Config:
+def _load_config_or_exit(path: Path, catalog: Path = DEFAULT_CATALOG_PATH) -> C3Config:
     try:
-        return load_config(path)
+        return load_config(path, catalog)
     except ConfigError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
@@ -193,7 +197,7 @@ def ingest(
             exists=True, help="A package file, or a directory of <system>__<release>.json files."
         ),
     ],
-    config: Annotated[Path, typer.Option(help="YAML config file.")] = DEFAULT_CONFIG_PATH,
+    config: ConfigFile = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Validate, normalise, gate and store C2 release packages. Re-running is a no-op."""
     cfg = _load_config_or_exit(config)
@@ -202,6 +206,34 @@ def ingest(
     for outcome in report.outcomes:
         typer.echo(_outcome_line(outcome))
     typer.echo(_summary_line(report))
+
+
+@app.command("detect")
+def detect(
+    system: Annotated[str, typer.Option(help="System id, as ingested.")],
+    config: ConfigFile = DEFAULT_CONFIG_PATH,
+    catalog: CatalogFile = DEFAULT_CATALOG_PATH,
+) -> None:
+    """Print the anti-pattern instances M2 finds in every release on the system's timeline."""
+    cfg = _load_config_or_exit(config, catalog)
+    timeline = IngestService(release_repository(), SystemClock(), cfg).timeline(system)
+    if not timeline.entries:
+        typer.echo(f"no releases on the timeline of system {system!r}; run `c3 ingest` first")
+        raise typer.Exit(code=1)
+
+    detection = DetectionService(cfg)
+    typer.echo(f"{'release':<10} {'gate':<12} {'anti_pattern_type':<20} members")
+    total = 0
+    for entry in timeline.entries:
+        r = entry.release
+        instances = detection.detect(r).instances
+        total += len(instances)
+        rows = [(i.anti_pattern_type, ",".join(i.members)) for i in instances] or [("-", "-")]
+        for anti_pattern_type, members in rows:
+            typer.echo(
+                f"{r.release_id:<10} {r.gate_status.value:<12} {anti_pattern_type:<20} {members}"
+            )
+    typer.echo(f"{len(timeline.entries)} releases, {total} instances")
 
 
 if __name__ == "__main__":

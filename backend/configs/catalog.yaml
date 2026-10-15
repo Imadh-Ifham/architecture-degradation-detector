@@ -1,0 +1,21 @@
+# C3 detector catalog: which anti-pattern detectors run for which architecture style
+# (docs/implementation-plan.md Section 4, M2 step 4).
+#
+# A release runs the detectors under "*" plus the ones under its own architecture_style.
+# Validated by CatalogConfig in app/components/degradation_detection/config.py and checked against
+# the detectors by detection/registry.py at start-up: an unknown id, or a detector listed under a
+# style it does not apply to, fails. A test checks that this file equals the built-in defaults.
+#
+# A detector that needs an optional package field (SharedPersistence needs datastore_access) is
+# skipped with reason CATALOG_INPUT_MISSING in releases that lack it; the others still run.
+# Part of config_hash: changing this file changes which anti-patterns a run can report.
+
+enabled:
+  "*":                       # universal tier: every style
+    - CyclicDependency
+    - HubLikeElement
+    - UnstableDependency
+    - OversizedElement
+    - BigBallOfMud
+  microservices:
+    - SharedPersistence      # needs datastore_access
