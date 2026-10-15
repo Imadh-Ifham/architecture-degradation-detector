@@ -7,15 +7,24 @@ $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 # Paths C3 owns. Extend as C3 adds files to app/core, app/domain, app/shared and scripts.
+# Shared folders are listed file by file: other components add their own modules there.
+$c3Shared = @(
+    "app/domain/audit_entry.py", "app/domain/boundary.py", "app/domain/canonical_release.py",
+    "app/domain/degradation_event.py", "app/domain/release_package.py",
+    "app/infrastructure/postgres/models/c3_release.py",
+    "app/infrastructure/postgres/repositories/c3_release_repository.py",
+    "alembic/versions/0001_c3_ingestion.py"
+)
 $c3Source = @(
-    "app/components/degradation_detection", "app/core/logging.py", "app/domain", "app/shared",
-    "scripts/c3.py"
-)
+    "app/components/degradation_detection", "app/core/logging.py", "app/shared", "scripts/c3.py"
+) + $c3Shared
+# Integration tests (PostgreSQL) are linted here but run only with -All.
 $c3Tests = @(
-    "tests/components/degradation_detection", "tests/core", "tests/domain", "tests/scripts",
-    "tests/shared"
+    "tests/components/degradation_detection", "tests/core/test_logging.py", "tests/domain",
+    "tests/scripts", "tests/shared"
 )
-$c3Lint = $c3Source + $c3Tests + @("tests/conftest.py")
+$c3IntegrationTests = @("tests/infrastructure/postgres/test_c3_release_repository.py")
+$c3Lint = $c3Source + $c3Tests + $c3IntegrationTests + @("tests/conftest.py")
 
 function Invoke-Step([string]$Name, [scriptblock]$Step) {
     Write-Host "== $Name" -ForegroundColor Cyan

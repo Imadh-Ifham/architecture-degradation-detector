@@ -3,10 +3,13 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from app.components.degradation_detection.config import C3Config
+from scripts import c3
 from scripts.c3 import SCHEMA_DIR, app, render_schemas
+from tests.components.degradation_detection.fakes import InMemoryReleaseRepository
 
 EXPECTED_FILES = {"c3_input.schema.json", "c3_output.schema.json", "c3_audit.schema.json"}
 
@@ -101,3 +104,77 @@ def test_stub_series_writes_the_series_fixtures(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert (tmp_path / "rising_exact.json").exists()
     assert len(list(tmp_path.iterdir())) == 11
+
+
+# --- c3 ingest --------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def memory_repo(monkeypatch: pytest.MonkeyPatch) -> InMemoryReleaseRepository:
+    """Replace the PostgreSQL repository with the in-memory fake for one test."""
+    repo = InMemoryReleaseRepository()
+    monkeypatch.setattr(c3, "release_repository", lambda: repo)
+    return repo
+
+
+@pytest.fixture
+def stub_dir(tmp_path: Path) -> Path:
+    out = tmp_path / "shopfront"
+    result = CliRunner().invoke(app, ["stub", "generate", "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    return out
+
+
+def test_ingest_directory_prints_a_summary(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path
+) -> None:
+    result = CliRunner().invoke(app, ["ingest", str(stub_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert "REJECTED  shopfront__v1.3.1-hotfix.json  DANGLING_DEPENDENCY" in result.stdout
+    assert "STORED    shopfront__v1.5.0.json  shopfront v1.5.0 DOWNWEIGHTED" in result.stdout
+    assert result.stdout.splitlines()[-1] == (
+        "11 packages: 10 stored, 0 unchanged, 1 rejected "
+        "(gate: 9 accepted, 1 downweighted, 0 excluded)"
+    )
+    assert len(memory_repo.releases) == 10
+
+
+def test_ingest_re_run_is_a_no_op(memory_repo: InMemoryReleaseRepository, stub_dir: Path) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+
+    result = CliRunner().invoke(app, ["ingest", str(stub_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[-1].startswith(
+        "11 packages: 0 stored, 10 unchanged, 1 rejected"
+    )
+
+
+def test_ingest_single_file(memory_repo: InMemoryReleaseRepository, stub_dir: Path) -> None:
+    result = CliRunner().invoke(app, ["ingest", str(stub_dir / "shopfront__v1.0.0.json")])
+
+    assert result.exit_code == 0, result.output
+    assert list(memory_repo.releases) == [("shopfront", "v1.0.0")]
+
+
+def test_ingest_reads_at_most_one_byte_over_the_cap(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path, tmp_path: Path
+) -> None:
+    config = tmp_path / "small.yaml"
+    config.write_text("ingest: {max_package_bytes: 100}\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        app, ["ingest", str(stub_dir / "shopfront__v1.0.0.json"), "--config", str(config)]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "PACKAGE_TOO_LARGE" in result.stdout
+    assert memory_repo.releases == {}
+
+
+def test_ingest_missing_path_fails(memory_repo: InMemoryReleaseRepository, tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["ingest", str(tmp_path / "nowhere")])
+
+    assert result.exit_code == 2
+    assert memory_repo.releases == {}

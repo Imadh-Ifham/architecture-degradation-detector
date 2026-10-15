@@ -1,27 +1,20 @@
 """Internal C3 models and enums shared by two or more subcomponents.
 
-Pure data, no I/O. Internal models use ``extra="forbid"`` and are immutable; the
-tolerant-reader boundary contracts live in ``app/domain/``, and the enums that appear in those
-contracts (``Scope``, ``Worsening``, ``TestMethod``, ``ArchitectureStyle``...) are defined there.
+Pure data, no I/O. Internal models use ``extra="forbid"`` and are immutable. Models that cross a
+port (``CanonicalRelease``...) and the enums that appear in the contracts (``Scope``,
+``Worsening``, ``TestMethod``, ``ArchitectureStyle``...) live in ``app/domain/``.
 
 Lineage, instance-track and graph models are added by the tasks that build them (T-05, T-08,
 T-09).
 """
 
-import datetime as dt
 from enum import StrEnum
-from typing import Any, Self
+from typing import Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.canonical_release import CanonicalRelease, IntentEntry
 from app.domain.degradation_event import Scope, TestMethod, Worsening
-from app.domain.release_package import ArchitectureStyle
-
-
-class GateStatus(StrEnum):
-    ACCEPTED = "ACCEPTED"
-    DOWNWEIGHTED = "DOWNWEIGHTED"
-    EXCLUDED = "EXCLUDED"
 
 
 class MetricLevel(StrEnum):
@@ -38,61 +31,27 @@ class InternalModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-# --- M1 output: one normalised release ---------------------------------------------------
+# --- M1 output: the timeline of one system, computed at the start of every run -------------
 
 
-class ElementSnapshot(InternalModel):
-    element_id: str
-    name: str
-    kind: str
-    size: float | None = None
-    size_unit: str | None = None
-    aliases: tuple[str, ...] = ()
-    layer: str | None = None
-    metrics: dict[str, float | None] = Field(default_factory=dict)
-    extra: dict[str, Any] = Field(default_factory=dict)
+class TimelineEntry(InternalModel):
+    # Position on this run's timeline. Computed per run, never stored as identity.
+    ordinal: int = Field(ge=0)
+    release: CanonicalRelease
 
 
-class DependencyEdge(InternalModel):
-    from_id: str
-    to_id: str
-    types: tuple[str, ...] = ()
-    count: int = Field(ge=1)
+class IntentRecord(InternalModel):
+    """One intent, deduplicated across the releases of the timeline (plan M1, step 8)."""
+
+    intent: IntentEntry  # as stated by the latest release that carries it
+    first_seen_release: str
+    last_seen_release: str
 
 
-class IntentEntry(InternalModel):
-    intent_id: str
-    element_id: str | None = None
-    source_type: str
-    ref: str | None = None
-    decision: str
-    decision_kind: str | None = None
-    date: dt.date | None = None
-
-
-class DatastoreAccess(InternalModel):
-    element_id: str
-    datastore: str
-    mode: str | None = None
-
-
-class CanonicalRelease(InternalModel):
+class Timeline(InternalModel):
     system_id: str
-    release_id: str
-    released_at: AwareDatetime
-    architecture_style: ArchitectureStyle
-    granularity: str
-    validation_confidence: float
-    gate_status: GateStatus
-    package_hash: str
-    elements: tuple[ElementSnapshot, ...]
-    dependencies: tuple[DependencyEdge, ...] = ()
-    intent: tuple[IntentEntry, ...] = ()
-    # None means "not supplied by C2", which is different from an empty tuple.
-    datastore_access: tuple[DatastoreAccess, ...] | None = None
-    delegation: tuple[dict[str, Any], ...] | None = None
-    c1_model_ref: str | None = None
-    c2_validation_ref: str | None = None
+    entries: tuple[TimelineEntry, ...]
+    intents: tuple[IntentRecord, ...] = ()
 
 
 # --- M2 output: metrics and anti-pattern instances per release ----------------------------

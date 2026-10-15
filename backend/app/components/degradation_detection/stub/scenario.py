@@ -23,7 +23,6 @@ from v1.4.0 (S4).
 import random
 from typing import Any
 
-from app.components.degradation_detection.models import GateStatus
 from app.components.degradation_detection.stub.models import (
     Collateral,
     ExpectedEvent,
@@ -38,6 +37,7 @@ from app.components.degradation_detection.stub.models import (
     TrendTruth,
 )
 from app.components.degradation_detection.stub.noise import trendless_order
+from app.domain.canonical_release import GateStatus
 from app.domain.degradation_event import Lifecycle, Scope, Worsening
 from app.domain.release_package import DANGLING_DEPENDENCY, SCHEMA_VERSION
 

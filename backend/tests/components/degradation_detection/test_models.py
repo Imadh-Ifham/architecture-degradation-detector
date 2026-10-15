@@ -1,18 +1,12 @@
 """Internal C3 models: strict (extra="forbid"), immutable, and null-preserving."""
 
-from datetime import UTC, datetime
-
 import pytest
 from pydantic import ValidationError
 
 from app.components.degradation_detection import models
 from app.components.degradation_detection.models import (
     AntiPatternInstance,
-    CanonicalRelease,
-    DependencyEdge,
-    ElementSnapshot,
     EventCandidate,
-    GateStatus,
     MetricDef,
     MetricLevel,
     MetricObservation,
@@ -21,28 +15,8 @@ from app.components.degradation_detection.models import (
     TrendResult,
 )
 from app.domain.degradation_event import Scope, Worsening
-from app.domain.release_package import ArchitectureStyle
 
 HASH = "sha256:" + "a" * 64
-
-
-def element(element_id: str = "a") -> ElementSnapshot:
-    return ElementSnapshot(element_id=element_id, name=element_id, kind="service")
-
-
-def release() -> CanonicalRelease:
-    return CanonicalRelease(
-        system_id="shopfront",
-        release_id="v1.0.0",
-        released_at=datetime(2025, 1, 1, tzinfo=UTC),
-        architecture_style=ArchitectureStyle.MICROSERVICES,
-        granularity="service",
-        validation_confidence=0.83,
-        gate_status=GateStatus.ACCEPTED,
-        package_hash=HASH,
-        elements=(element("a"), element("b")),
-        dependencies=(DependencyEdge(from_id="a", to_id="b", types=("call",), count=2),),
-    )
 
 
 def trend(**overrides: object) -> TrendResult:
@@ -57,27 +31,6 @@ def trend(**overrides: object) -> TrendResult:
         "method": models.TestMethod.EXACT,
     }
     return TrendResult.model_validate(fields | overrides)
-
-
-def test_canonical_release_holds_the_normalised_package() -> None:
-    canonical = release()
-
-    assert canonical.elements[0].size is None
-    assert canonical.datastore_access is None
-    assert canonical.delegation is None
-    assert canonical.intent == ()
-
-
-def test_internal_models_reject_unknown_fields() -> None:
-    with pytest.raises(ValidationError, match="extra_forbidden"):
-        ElementSnapshot.model_validate({"element_id": "a", "name": "a", "kind": "x", "colour": 1})
-
-
-def test_internal_models_are_immutable() -> None:
-    snapshot = element()
-
-    with pytest.raises(ValidationError, match="frozen"):
-        snapshot.name = "renamed"  # type: ignore[misc]
 
 
 def test_every_internal_model_is_strict_and_frozen() -> None:

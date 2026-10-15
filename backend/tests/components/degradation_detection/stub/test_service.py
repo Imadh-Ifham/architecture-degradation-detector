@@ -16,13 +16,13 @@ import yaml
 from pydantic import ValidationError
 
 from app.components.degradation_detection.config import C3Config
-from app.components.degradation_detection.models import GateStatus
 from app.components.degradation_detection.stub import StubService
 from app.components.degradation_detection.stub.models import (
     DEFAULT_SEED,
     GROUND_TRUTH_FILE,
     GroundTruth,
 )
+from app.domain.canonical_release import GateStatus
 from app.domain.degradation_event import Scope
 from app.domain.release_package import DANGLING_DEPENDENCY, ReleasePackageV1
 

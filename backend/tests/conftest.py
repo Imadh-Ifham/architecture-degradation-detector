@@ -19,6 +19,8 @@ def clean_logging() -> Iterator[None]:
         root.removeHandler(handler)
     root.setLevel(level)
     structlog.reset_defaults()
+
+
 """Shared pytest configuration for the backend test suite.
 
 Author: Imadh Ifham

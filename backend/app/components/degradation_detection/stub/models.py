@@ -17,7 +17,8 @@ from typing import Literal
 
 from pydantic import AwareDatetime
 
-from app.components.degradation_detection.models import GateStatus, InternalModel
+from app.components.degradation_detection.models import InternalModel
+from app.domain.canonical_release import GateStatus
 from app.domain.degradation_event import Lifecycle, Scope, Worsening
 
 DEFAULT_SEED = 20261013
