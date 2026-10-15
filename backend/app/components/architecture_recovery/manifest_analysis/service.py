@@ -42,6 +42,7 @@ from app.components.architecture_recovery.manifest_analysis.writer import (
     write_manifest_analysis,
 )
 from app.components.architecture_recovery.repository_inventory.models import (
+    CandidateComponent,
     FileCategory,
     FileRecord,
     InventorySummary,
@@ -264,6 +265,10 @@ def load_inventory(path: Path) -> RepositoryInventory:
 
     try:
         files = [_file_from_dict(item) for item in payload.get("files", [])]
+        components = [
+            CandidateComponent.from_dict(item)
+            for item in payload.get("components", [])
+        ]
     except (AttributeError, TypeError, KeyError) as error:
         raise AnalysisInputError(
             f"Repository inventory at '{path}' has an unexpected structure: {error}"
@@ -282,6 +287,10 @@ def load_inventory(path: Path) -> RepositoryInventory:
         scan_options=payload.get("scan_options") or {},
         summary=_empty_summary(),
         files=files,
+        # The candidate components are rebuilt too, because a later stage needs
+        # the source-project boundaries the inventory already established rather
+        # than re-deriving them from the files.
+        components=components,
     )
 
 
