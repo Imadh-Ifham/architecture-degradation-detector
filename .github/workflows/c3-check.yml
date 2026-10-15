@@ -1,0 +1,29 @@
+name: c3-check
+
+# Degradation detection component (C3) only: ruff, mypy --strict and the C3 unit tests.
+# Needs no database; integration and llm tests are excluded by scripts/check.ps1.
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "backend/app/components/degradation_detection/**"
+      - "backend/app/domain/**"
+      - "backend/app/shared/**"
+      - "backend/tests/components/degradation_detection/**"
+      - "backend/scripts/**"
+      - "backend/pyproject.toml"
+      - "backend/uv.lock"
+      - ".github/workflows/c3-check.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: ./scripts/check.ps1
+        shell: pwsh
