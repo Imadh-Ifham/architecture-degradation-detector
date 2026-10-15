@@ -180,7 +180,7 @@ Rules:
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `architecture_recovery`   | `static_extraction`, `deployment_analysis`, `interface_analysis`, `runtime_extraction`, `evidence_correlation`, `reconstruction` |
 | `architecture_validation` | `adr_extraction`, `intent_extraction`, `constraint_extraction`, `validation`                                                     |
-| `degradation_detection`   | `release_analysis`, `architecture_comparison`, `detection`, `cause_analysis`                                                     |
+| `degradation_detection`   | `ingestion`, `detection`, `tracking`, `trends`, `reasoning`, `events`, `review`                                                  |
 | `degradation_scoring`     | `scoring_engine`, `severity`, `rules`                                                                                            |
 
 ### 4.3 Resulting tree (created incrementally)
@@ -200,10 +200,13 @@ components/
 │   ├── constraint_extraction/
 │   └── validation/
 ├── degradation_detection/
-│   ├── release_analysis/
-│   ├── architecture_comparison/
+│   ├── ingestion/
 │   ├── detection/
-│   └── cause_analysis/
+│   ├── tracking/
+│   ├── trends/
+│   ├── reasoning/
+│   ├── events/
+│   └── review/
 └── degradation_scoring/
     ├── scoring_engine/
     ├── severity/
