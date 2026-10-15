@@ -19,7 +19,7 @@ Description:
     `_release.py`.
 """
 
-from ._release import UnorderableRelease, release_sort_key
+from .._release import UnorderableRelease, release_sort_key
 from .service import ObservationNormalizationService
 
 __all__ = [

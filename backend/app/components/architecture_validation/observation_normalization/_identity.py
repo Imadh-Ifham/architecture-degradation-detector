@@ -18,6 +18,11 @@ Description:
     Without canonicalisation those are three elements, and a rule about one of
     them governs none of the others.
 
+    The reduction itself lives one level up, in the component's `_identity`,
+    because the knowledge model has to reduce the names a decision record
+    writes in exactly the same way. Two implementations of it would mean a
+    rule about "payment-service" quietly governing nothing.
+
     The same reduction can also merge two elements that are genuinely
     different, which is the one weakness of the approach. `collisions()` is
     the guard: it reports every case where that would happen, with both
@@ -26,30 +31,11 @@ Description:
 """
 
 import hashlib
-import re
 from collections.abc import Iterable
 
-_SEPARATORS = re.compile(r"[\s_\-.]+")
-_NOISE_SUFFIXES = ("-service", "service", "-svc", "svc", "-deployment", "-deploy")
+from .._identity import canonical_name
 
 FACT_ID_LENGTH = 16
-
-
-def canonical_name(name: str) -> str:
-    """Reduce a name to the form used for identity.
-
-    Lowercased, separators removed, and one trailing "service" variant
-    stripped. Only one suffix is removed, so "paymentservice" and
-    "payment-service" unify while a service genuinely called "serviceservice"
-    does not collapse to nothing.
-    """
-
-    reduced = _SEPARATORS.sub("", name.strip().lower())
-    for suffix in _NOISE_SUFFIXES:
-        candidate = suffix.replace("-", "")
-        if reduced.endswith(candidate) and len(reduced) > len(candidate):
-            return reduced[: -len(candidate)]
-    return reduced
 
 
 def collisions(names: Iterable[str]) -> dict[str, tuple[str, ...]]:
@@ -96,3 +82,6 @@ def fact_id(subject: str, relationship: str, object_: str, release_id: str) -> s
         )
     )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:FACT_ID_LENGTH]
+
+
+__all__ = ["FACT_ID_LENGTH", "canonical_name", "collisions", "fact_id"]

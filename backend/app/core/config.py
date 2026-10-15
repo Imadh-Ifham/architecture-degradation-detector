@@ -122,6 +122,10 @@ class Settings(BaseSettings):
     # Derived rather than configured, because it is the same relative location
     # on every machine and an absolute path does not belong in a committed file.
     snapshot_root: Path = BACKEND_ROOT / "data" / "snapshots"
+    # The decision history the validation component accumulates per
+    # repository. Output rather than input, so it lives under the ignored
+    # artifacts directory; the demonstration's corpus is a committed fixture.
+    decision_log_root: Path = BACKEND_ROOT / "artifacts" / "validation" / "decisions"
     clone_timeout_seconds: int = 300
 
     # Repository inventory limits.

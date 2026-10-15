@@ -270,6 +270,8 @@ def _decision(**overrides) -> DecisionRecord:
         "object": "paymentservice",
         "valid_from": "v0.9.0",
         "valid_to": None,
+        "source": "config_scan",
+        "source_repository": "online-boutique",
         "source_tier": SourceTier.EXECUTABLE_CONFIG,
         "source_strength": EvidenceStrength.AUTHORITATIVE,
         "source_ref": "kustomize/components/network-policies/network-policy-checkoutservice.yaml",

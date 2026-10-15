@@ -39,9 +39,6 @@ from app.components.architecture_validation.graph_publishing import (
 from app.components.architecture_validation.independent_verification import (
     IndependentVerificationService,
 )
-from app.components.architecture_validation.intent_extraction import (
-    IntentExtractionService,
-)
 from app.components.architecture_validation.observation_normalization import (
     ObservationNormalizationService,
 )
@@ -49,6 +46,7 @@ from app.components.architecture_validation.service import STAGE_ORDER
 from app.components.architecture_validation.validation_reasoning import (
     ValidationReasoningService,
 )
+from app.infrastructure.decision_log import JsonlDecisionStore
 from app.infrastructure.recovery_gateway.snapshot_file_reader import (
     SnapshotFileReader,
 )
@@ -85,8 +83,9 @@ def client():
     service = ArchitectureValidationService(
         architecture_reader=SnapshotFileReader(SNAPSHOTS),
         normalization=ObservationNormalizationService(),
-        intent=IntentExtractionService(),
-        knowledge=DecisionKnowledgeService(),
+        knowledge=DecisionKnowledgeService(
+            WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
+        ),
         evidence=EvidenceRetrievalService(),
         reasoning=ValidationReasoningService(),
         verification=IndependentVerificationService(),
@@ -278,3 +277,146 @@ class TestGeneratedDocumentation:
                 continue
             for method, operation in operations.items():
                 assert operation.get("summary"), f"{method.upper()} {path}"
+
+class TestTheDecisionGate:
+    """Nothing to validate against is a refusal, and the refusal is guidance.
+
+    The one output this component must never produce is a graph in which
+    nothing is contradicted because nothing was ever checked - it is true,
+    worthless, and reads exactly like a clean validation of a healthy system.
+    """
+
+    def test_a_mode_with_no_decisions_is_refused_rather_than_run(self, client):
+        response = client.post(
+            "/validations",
+            json={
+                "repository_id": "online-boutique",
+                "release_id": "v0.10.0",
+                "decision_mode": "repo_adr",
+            },
+        )
+
+        assert response.status_code == 409
+
+    def test_the_refusal_carries_every_mode_yield_and_a_recommendation(self, client):
+        """A block that does not say what to do instead is a block somebody
+        works around."""
+
+        detail = client.post(
+            "/validations",
+            json={
+                "repository_id": "online-boutique",
+                "release_id": "v0.10.0",
+                "decision_mode": "repo_adr",
+            },
+        ).json()["detail"]
+
+        assert "repo_adr" in detail and "combined" in detail
+        assert "choose 'combined'" in detail
+
+    def test_the_default_mode_produces_a_run(self, client):
+        """`combined` is the only mode that yields anything on a repository
+        holding no decision records, which is most of them."""
+
+        body = client.post(
+            "/validations",
+            json={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+        ).json()
+
+        assert body["decision_mode"] == "combined"
+
+    def test_the_run_reports_how_many_decisions_were_in_force(self, client):
+        body = client.post(
+            "/validations",
+            json={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+        ).json()
+        knowledge = next(
+            stage for stage in body["stages"] if stage["name"] == "decision_knowledge"
+        )
+
+        assert knowledge["status"] == "completed"
+        assert knowledge["counts"]["in_force"] == 25
+        assert "mode combined" in knowledge["note"]
+
+    def test_an_unknown_mode_is_refused_against_the_field(self, client):
+        """A mode is a closed set, so a typo is a bad field rather than a
+        conflict with anything."""
+
+        response = client.post(
+            "/validations",
+            json={
+                "repository_id": "online-boutique",
+                "release_id": "v0.10.0",
+                "decision_mode": "whatever-we-can-find",
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["loc"] == ["body", "decision_mode"]
+
+
+class TestTheDecisionSourcesRoute:
+    """What each mode would supply, read before anything is chosen."""
+
+    def test_every_mode_is_reported_with_its_yield(self, client):
+        body = client.get(
+            "/validations/decision-sources",
+            params={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+        ).json()
+        modes = {row["mode"]: row for row in body["modes"]}
+
+        assert set(modes) == {"repo_adr", "external_adr", "combined"}
+        assert modes["combined"]["records"] == 25
+        assert modes["combined"]["by_source"] == {"config_scan": 25}
+
+    def test_the_empty_mode_says_why_it_is_empty(self, client):
+        """The research finding, on the screen: this repository keeps no
+        decision records, and the adapter that establishes that ran."""
+
+        modes = {
+            row["mode"]: row
+            for row in client.get(
+                "/validations/decision-sources",
+                params={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+            ).json()["modes"]
+        }
+
+        assert modes["repo_adr"]["ran"] is True
+        assert modes["repo_adr"]["records"] == 0
+        assert modes["repo_adr"]["reason"]
+
+    def test_a_mode_that_cannot_run_is_not_reported_as_empty(self, client):
+        """Not configured and found nothing are different answers, and
+        presenting them the same way is how someone picks the wrong mode."""
+
+        modes = {
+            row["mode"]: row
+            for row in client.get(
+                "/validations/decision-sources",
+                params={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+            ).json()["modes"]
+        }
+
+        assert modes["external_adr"]["ran"] is False
+
+    def test_the_recommendation_is_the_mode_with_the_most_to_offer(self, client):
+        body = client.get(
+            "/validations/decision-sources",
+            params={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+        ).json()
+
+        assert body["recommended"] == "combined"
+
+    def test_an_unknown_release_is_a_conflict_rather_than_an_empty_report(
+        self, client
+    ):
+        """There is no recorded architecture, so there are no manifests to
+        scan - which is a conflict with the state of the workspace rather
+        than a repository that declares nothing."""
+
+        response = client.get(
+            "/validations/decision-sources",
+            params={"repository_id": "online-boutique", "release_id": "v9.9.9"},
+        )
+
+        assert response.status_code == 409

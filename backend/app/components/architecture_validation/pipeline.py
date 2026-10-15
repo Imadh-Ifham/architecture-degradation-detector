@@ -57,24 +57,16 @@ PIPELINE: tuple[StageDescription, ...] = (
         implemented=True,
     ),
     StageDescription(
-        name="intent_extraction",
-        order=2,
-        role="Reads architectural intent out of whatever the repository actually contains.",
-        research_module=None,
-        uses_model=False,
-        implemented=False,
-    ),
-    StageDescription(
         name="decision_knowledge",
-        order=3,
+        order=2,
         role="Holds the decision history and answers which decision governed at a release.",
         research_module="M2",
         uses_model=False,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="evidence_retrieval",
-        order=4,
+        order=3,
         role="Assembles exactly what the model is allowed to reason from, for one fact.",
         research_module="M3",
         uses_model=False,
@@ -82,7 +74,7 @@ PIPELINE: tuple[StageDescription, ...] = (
     ),
     StageDescription(
         name="validation_reasoning",
-        order=5,
+        order=4,
         role="Judges one fact against the decision that governs it.",
         research_module="M4",
         uses_model=True,
@@ -90,7 +82,7 @@ PIPELINE: tuple[StageDescription, ...] = (
     ),
     StageDescription(
         name="independent_verification",
-        order=6,
+        order=5,
         role="Re-examines a verdict as a challenge to it, using a different model.",
         research_module="M5",
         uses_model=True,
@@ -98,7 +90,7 @@ PIPELINE: tuple[StageDescription, ...] = (
     ),
     StageDescription(
         name="classification",
-        order=7,
+        order=6,
         role="Turns a verdict and its verification into a bucket, a confidence and a route.",
         research_module="M6",
         uses_model=False,
@@ -106,7 +98,7 @@ PIPELINE: tuple[StageDescription, ...] = (
     ),
     StageDescription(
         name="architect_review",
-        order=8,
+        order=7,
         role="Queues what the system will not decide alone, and records what a person decided.",
         research_module="M7",
         uses_model=False,
@@ -114,7 +106,7 @@ PIPELINE: tuple[StageDescription, ...] = (
     ),
     StageDescription(
         name="graph_publishing",
-        order=9,
+        order=8,
         role="Publishes the validated architecture as a graph the next component reads.",
         research_module="M8",
         uses_model=False,
