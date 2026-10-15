@@ -6,7 +6,7 @@ describes **what the test attempts to prove**, not just which function it calls.
 - **Subject under test:** `app.components.architecture_recovery.manifest_analysis`
 - **Scope:** 84 test functions across 9 sections, expanding to **117 collected cases** once
   parametrisation is counted.
-- **Fixtures:** files under [`tests/fixtures/manifest_analysis/`](../fixtures/manifest_analysis)
+- **Fixtures:** files under [`tests/fixtures/manifest_analysis/`](../../fixtures/manifest_analysis)
   (`compose/`, `kubernetes/`, `dockerfile/`, `api/`, `proto/`, `unsupported/`).
 - **Run it:** `make test`, `cd backend && uv run pytest`, or target this file:
   `uv run pytest tests/components/architecture_recovery/test_manifest_analysis.py`
