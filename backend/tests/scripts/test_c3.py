@@ -78,3 +78,26 @@ def test_log_level_option_is_checked() -> None:
     result = CliRunner().invoke(app, ["--log-level", "LOUD", "config", "show"])
 
     assert result.exit_code == 2
+
+
+def test_stub_generate_writes_the_system_and_is_repeatable(tmp_path: Path) -> None:
+    runner = CliRunner()
+
+    first = runner.invoke(app, ["stub", "generate", "--out", str(tmp_path), "--seed", "7"])
+    written = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    second = runner.invoke(app, ["stub", "generate", "--out", str(tmp_path), "--seed", "7"])
+
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    assert len(written) == 12
+    assert "ground_truth.yaml" in written
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == written
+    assert all(b"\r\n" not in content for content in written.values())
+
+
+def test_stub_series_writes_the_series_fixtures(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["stub", "series", "--out", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "rising_exact.json").exists()
+    assert len(list(tmp_path.iterdir())) == 11
