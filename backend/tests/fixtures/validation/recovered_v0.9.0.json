@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0.0",
+  "repository_id": "online-boutique",
+  "release_id": "v0.9.0",
+  "style": "microservices",
+  "elements": [
+    {
+      "id": "svc:frontend",
+      "name": "frontend",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": [
+        "kustomize/base/frontend.yaml"
+      ]
+    },
+    {
+      "id": "svc:checkoutservice",
+      "name": "checkoutservice",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": [
+        "kustomize/base/checkoutservice.yaml"
+      ]
+    },
+    {
+      "id": "svc:paymentservice",
+      "name": "paymentservice",
+      "kind": "service",
+      "quality": "confirmed",
+      "source_paths": [
+        "kustomize/base/paymentservice.yaml"
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "source_id": "svc:checkoutservice",
+      "target_id": "svc:paymentservice",
+      "label": "grpc",
+      "quality": "confirmed",
+      "derived_by": "derived_from_deployment",
+      "source_paths": [
+        "kustomize/base/checkoutservice.yaml"
+      ],
+      "attributes": {
+        "env_var": "PAYMENT_SERVICE_ADDR"
+      }
+    }
+  ],
+  "provenance": {
+    "reader": "fixture_reader",
+    "source_schema_version": "1.0.0",
+    "source_reference": "tests/fixtures/validation/recovered_v0.9.0.json"
+  },
+  "manifest_paths": [
+    "kustomize/base/checkoutservice.yaml",
+    "kustomize/base/frontend.yaml",
+    "kustomize/base/paymentservice.yaml"
+  ]
+}
