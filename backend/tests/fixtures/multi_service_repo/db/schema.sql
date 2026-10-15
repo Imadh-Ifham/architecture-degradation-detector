@@ -1,0 +1,4 @@
+CREATE TABLE carts (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL
+);
