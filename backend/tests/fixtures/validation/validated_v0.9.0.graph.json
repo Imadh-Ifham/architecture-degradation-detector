@@ -1,0 +1,49 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {
+    "schema_version": "1.0.0",
+    "generator": {"name": "architecture_validation", "version": "0.1.0"},
+    "repository_id": "online-boutique",
+    "release_id": "v0.9.0",
+    "architecture_style": "microservices",
+    "validation_confidence": 0.78,
+    "run": {
+      "run_id": "run-0001",
+      "generated_at": "2026-10-14T00:00:00",
+      "mode": "reconstruction",
+      "reasoner_model": null,
+      "verifier_model": null,
+      "prompt_versions": []
+    }
+  },
+  "nodes": [
+    {
+      "id": "svc:checkoutservice",
+      "name": "checkoutservice",
+      "kind": "service",
+      "validation_rollup": {"confirmed": 1, "contradicted": 0, "uncovered": 0, "needs_review": 0}
+    },
+    {
+      "id": "svc:paymentservice",
+      "name": "paymentservice",
+      "kind": "service",
+      "validation_rollup": {"confirmed": 1, "contradicted": 0, "uncovered": 0, "needs_review": 0}
+    }
+  ],
+  "links": [
+    {
+      "fact_id": "f3a1",
+      "source": "svc:checkoutservice",
+      "target": "svc:paymentservice",
+      "relationship": "communicates-with",
+      "bucket": "confirmed",
+      "confidence": 0.78,
+      "governing_decision": "np-checkoutservice",
+      "evidence_refs": ["ev:np-checkoutservice:1"],
+      "source_tier": "tier_2_executable_config",
+      "model_calls": 2,
+      "attributes": {"interaction": "grpc"}
+    }
+  ]
+}

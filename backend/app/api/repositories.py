@@ -37,8 +37,15 @@ from app.components.architecture_recovery.repository_inventory import (
     RepositoryInventorySummaryResponse,
     inventory_options_from_settings,
 )
+from app.components.architecture_recovery.component_discovery import (
+    ComponentDiscoveryError,
+    ComponentDiscoveryService,
+    ComponentDiscoverySummaryResponse,
+    component_discovery_service_from_settings,
+)
 from app.components.architecture_recovery.manifest_analysis import (
     ManifestAnalysisError,
+    ManifestAnalysisReport,
     ManifestAnalysisService,
     ManifestAnalysisSummaryResponse,
     manifest_analysis_service_from_settings,
@@ -54,15 +61,16 @@ router = APIRouter(prefix="/repositories", tags=["Repositories"])
 class RepositoryIngestionResponse(IngestedRepositoryResponse):
     """An ingested repository plus the analysis taken from the fresh clone.
 
-    `inventory` and `manifest_analysis` are null when that stage could not run,
-    in which case the matching `*_error` explains why. The clone itself is
-    unaffected either way.
+    Each optional block is null when its stage could not run, in which case the
+    matching `*_error` explains why. The clone itself is unaffected either way.
     """
 
     inventory: RepositoryInventorySummaryResponse | None = None
     inventory_error: str | None = None
     manifest_analysis: ManifestAnalysisSummaryResponse | None = None
     manifest_analysis_error: str | None = None
+    component_discovery: ComponentDiscoverySummaryResponse | None = None
+    component_discovery_error: str | None = None
 
 
 @lru_cache
@@ -108,6 +116,16 @@ def get_manifest_analysis_service() -> ManifestAnalysisService:
     return manifest_analysis_service_from_settings()
 
 
+@lru_cache
+def get_component_discovery_service() -> ComponentDiscoveryService:
+    """Provide the component discovery service shared by all requests.
+
+    Declared as a FastAPI dependency so tests can override it.
+    """
+
+    return component_discovery_service_from_settings()
+
+
 @router.post(
     "",
     response_model=RepositoryIngestionResponse,
@@ -121,6 +139,9 @@ def ingest_repository(
     ),
     analysis_service: ManifestAnalysisService = Depends(
         get_manifest_analysis_service
+    ),
+    discovery_service: ComponentDiscoveryService = Depends(
+        get_component_discovery_service
     ),
 ) -> RepositoryIngestionResponse:
     """Clone `request.url` at `request.branch`, then inventory and analyze it."""
@@ -145,8 +166,11 @@ def ingest_repository(
     inventory, inventory_document, inventory_error = _inventory_after_ingest(
         repository, inventory_service
     )
-    analysis, analysis_error = _analysis_after_inventory(
+    analysis, analysis_document, analysis_error = _analysis_after_inventory(
         inventory_document, repository, analysis_service
+    )
+    discovery, discovery_error = _discovery_after_analysis(
+        inventory_document, analysis_document, repository, discovery_service
     )
 
     return RepositoryIngestionResponse(
@@ -155,6 +179,8 @@ def ingest_repository(
         inventory_error=inventory_error,
         manifest_analysis=analysis,
         manifest_analysis_error=analysis_error,
+        component_discovery=discovery,
+        component_discovery_error=discovery_error,
     )
 
 
@@ -214,24 +240,58 @@ def _analysis_after_inventory(
     inventory: RepositoryInventory | None,
     repository: IngestedRepository,
     analysis_service: ManifestAnalysisService,
-) -> tuple[ManifestAnalysisSummaryResponse | None, str | None]:
+) -> tuple[
+    ManifestAnalysisSummaryResponse | None,
+    ManifestAnalysisReport | None,
+    str | None,
+]:
     """Analyze the manifests the inventory found.
 
     Analysis depends on the inventory, so when the inventory failed this stage
     is skipped and says so rather than reporting a misleadingly empty report.
+    Returns the summary, the report itself and an error message.
     """
 
     if inventory is None:
-        return None, "skipped: no repository inventory to analyze"
+        return None, None, "skipped: no repository inventory to analyze"
 
     try:
         path, report = analysis_service.run(
             inventory, repository.path, repository.path.parent
         )
     except ManifestAnalysisError as error:
+        return None, None, str(error)
+
+    return ManifestAnalysisSummaryResponse.from_report(path, report), report, None
+
+
+def _discovery_after_analysis(
+    inventory: RepositoryInventory | None,
+    analysis: ManifestAnalysisReport | None,
+    repository: IngestedRepository,
+    discovery_service: ComponentDiscoveryService,
+) -> tuple[ComponentDiscoverySummaryResponse | None, str | None]:
+    """Discover components from the inventory and the manifest analysis.
+
+    Component discovery needs both upstream results, so it is skipped - with a
+    reason - when either is missing, rather than reporting components derived from
+    half the evidence.
+    """
+
+    if inventory is None:
+        return None, "skipped: no repository inventory to derive components from"
+
+    if analysis is None:
+        return None, "skipped: no manifest analysis to derive components from"
+
+    try:
+        path, report = discovery_service.run(
+            inventory, analysis, repository.path.parent
+        )
+    except ComponentDiscoveryError as error:
         return None, str(error)
 
-    return ManifestAnalysisSummaryResponse.from_report(path, report), None
+    return ComponentDiscoverySummaryResponse.from_report(path, report), None
 
 
 def _describe_git_failure(error: GitCommandError) -> str:

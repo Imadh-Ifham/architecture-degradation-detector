@@ -10,3 +10,6 @@ data/
 out/
 .coverage
 htmlcov/
+artifacts/
+
+temp

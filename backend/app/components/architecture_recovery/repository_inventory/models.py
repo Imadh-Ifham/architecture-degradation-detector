@@ -87,6 +87,16 @@ class Evidence:
 
         return payload
 
+    @classmethod
+    def from_dict(cls, payload: dict) -> "Evidence":
+        """Rebuild evidence from its serialised form."""
+
+        return cls(
+            type=payload["type"],
+            detail=payload["detail"],
+            path=payload.get("path"),
+        )
+
 
 @dataclass
 class FileRecord:
@@ -175,6 +185,28 @@ class CandidateComponent:
             "file_count": self.file_count,
             "evidence": [item.to_dict() for item in self.evidence],
         }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "CandidateComponent":
+        """Rebuild a component from its serialised form.
+
+        Used when a later stage reads the inventory back from disk; a stage that
+        only needs the candidate boundaries should not have to re-scan the
+        repository to recover them.
+        """
+
+        return cls(
+            id=payload["id"],
+            name=payload["name"],
+            kind=ComponentKind(payload["kind"]),
+            confidence=Confidence(payload["confidence"]),
+            root_path=payload.get("root_path"),
+            languages=list(payload.get("languages") or []),
+            evidence=[
+                Evidence.from_dict(item) for item in payload.get("evidence") or []
+            ],
+            file_count=int(payload.get("file_count") or 0),
+        )
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,2 @@
+FROM golang:1.22
+EXPOSE 9000

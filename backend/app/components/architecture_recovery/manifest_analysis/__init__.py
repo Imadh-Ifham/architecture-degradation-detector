@@ -33,6 +33,10 @@ from app.components.architecture_recovery.manifest_analysis.errors import (
 from app.components.architecture_recovery.manifest_analysis.kubernetes import (
     KubernetesAnalyzer,
 )
+from app.components.architecture_recovery.manifest_analysis.loader import (
+    AnalysisArtifactError,
+    load_analysis_report,
+)
 from app.components.architecture_recovery.manifest_analysis.models import (
     SCHEMA_VERSION,
     Confidence,
@@ -87,6 +91,7 @@ __all__ = [
     "MANIFEST_ANALYSIS_FILE_NAME",
     "SCHEMA_VERSION",
     "AnalysisInputError",
+    "AnalysisArtifactError",
     "AnalysisWriteError",
     "AnalyzerRegistry",
     "AnalyzerResult",
@@ -120,6 +125,7 @@ __all__ = [
     "ResourceReference",
     "SourceLocation",
     "load_inventory",
+    "load_analysis_report",
     "load_manifest_analysis",
     "manifest_analysis_service_from_settings",
     "read_manifest_text",

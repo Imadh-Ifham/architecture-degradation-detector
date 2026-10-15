@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+spec:
+  template:
+    metadata:
+      labels: {app: orders}
+    spec:
+      containers:
+        - name: orders
+          image: example/orders:1.0.0
+          ports: [{containerPort: 8080}]

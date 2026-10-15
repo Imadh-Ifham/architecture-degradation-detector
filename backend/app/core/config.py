@@ -36,7 +36,7 @@ CONFIG_INI_PATH = Path(__file__).resolve().parents[2] / "config.ini"
 
 #: Sections of `config.ini` that map onto settings. A section name is a
 #: namespace in the file only; the field names stay flat.
-CONFIG_INI_SECTIONS = ("app", "git", "inventory", "manifest_analysis")
+CONFIG_INI_SECTIONS = ("app", "git", "inventory", "manifest_analysis", "validation")
 
 
 class ConfigIniSettingsSource(PydanticBaseSettingsSource):
@@ -89,12 +89,17 @@ class ConfigIniSettingsSource(PydanticBaseSettingsSource):
 
         return None, field_name, False
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     """Runtime configuration for the backend."""
 
     app_name: str = "Architecture Degradation Detector"
     app_env: str = "development"
+    # Published on the generated API documentation, so a client can tell two
+    # deployments apart.
+    app_version: str = "0.1.0"
 
     postgres_host: str
     postgres_port: int = 5434
@@ -108,6 +113,19 @@ class Settings(BaseSettings):
 
     # Local workspace holding ingested (cloned) repositories.
     repositories_root: Path = Path(gettempdir()) / "add-repositories"
+
+    # Where the architecture validation component reads its input from; see
+    # the [validation] section of config.ini. Never a silent fallback between
+    # the two: whichever answered is stamped on the run's provenance, so a
+    # result always says which input produced it.
+    architecture_source: str = "snapshot"
+    # Derived rather than configured, because it is the same relative location
+    # on every machine and an absolute path does not belong in a committed file.
+    snapshot_root: Path = BACKEND_ROOT / "data" / "snapshots"
+    # The decision history the validation component accumulates per
+    # repository. Output rather than input, so it lives under the ignored
+    # artifacts directory; the demonstration's corpus is a committed fixture.
+    decision_log_root: Path = BACKEND_ROOT / "artifacts" / "validation" / "decisions"
     clone_timeout_seconds: int = 300
 
     # Repository inventory limits.
