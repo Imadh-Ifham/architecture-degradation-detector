@@ -27,7 +27,6 @@ COMPONENT = Path(__file__).resolve().parents[3] / "app" / "components" / "archit
 
 SUBCOMPONENTS = (
     "observation_normalization",
-    "intent_extraction",
     "decision_knowledge",
     "evidence_retrieval",
     "validation_reasoning",
@@ -195,8 +194,9 @@ class TestOrchestration:
 
         service_class = _service_class(name)
         entry = _entry_method(service_class)
+        stub = service_class(*[None] * _init_arity(service_class))
         with pytest.raises(NotImplementedError):
-            getattr(service_class(), entry)(*[None] * _arity(service_class, entry))
+            getattr(stub, entry)(*[None] * _arity(service_class, entry))
 
     @pytest.mark.parametrize("name", sorted(IMPLEMENTED))
     def test_an_implemented_subcomponent_no_longer_raises(self, name):
@@ -276,6 +276,39 @@ class TestObservationNormalizationHasNoIO:
         assert "deleted when recovery ships" in docstring
 
 
+class TestDecisionKnowledgeDoesNoIO:
+    """The same boundary as M1's, asserted before there is anything to undo.
+
+    M2 has three decision sources and every one of them wants to open a file.
+    M1 learned this the expensive way: a manifest reader went inside the
+    component during the foundation phase and a whole stage of work went on
+    taking it out again. Two ports already exist for it - one for reading a
+    repository's files, one for the decision log - so the sources parse text
+    handed to them and the reading and writing happen under app/infrastructure.
+
+    Naming the ports is allowed and expected; they are declared in this
+    package. Parsing a string is allowed too. Touching the filesystem is not.
+    """
+
+    M2 = "decision_knowledge"
+
+    @pytest.mark.parametrize(
+        "path", sorted((COMPONENT / "decision_knowledge").rglob("*.py")),
+        ids=lambda p: p.name,
+    )
+    def test_no_module_touches_the_filesystem(self, path):
+        source = path.read_text(encoding="utf-8")
+        body = "\n".join(
+            line for line in source.splitlines() if not line.strip().startswith("#")
+        )
+
+        for forbidden in ("open(", "Path(", "pathlib", "os.path", "json.dump"):
+            assert forbidden not in body, (
+                f"{path.name} names '{forbidden}'; M2 reads and writes through "
+                "a port, and the implementation lives in app/infrastructure"
+            )
+
+
 class TestTheStyleIsInferredInExactlyOnePlace:
     """One inference, three readers.
 
@@ -319,6 +352,15 @@ class TestTheStyleIsInferredInExactlyOnePlace:
 
 class TestPipelineDescription:
     """What the component publishes about itself has to be true."""
+
+    def test_the_pipeline_has_the_eight_stages_the_research_describes(self):
+        """The count is pinned because the code has already disagreed with it
+        once. A ninth subcomponent was added to read intent from repositories
+        that keep no decision records; reading it produces decision records,
+        so it belongs to the module that holds them.
+        """
+
+        assert len(PIPELINE) == 8
 
     def test_the_description_lists_every_stage_in_run_order(self):
         from app.components.architecture_validation.service import STAGE_ORDER
@@ -373,6 +415,29 @@ def _entry_method(service_class) -> str:
     """The subcomponent's one public entry method."""
 
     return next(method for method in vars(service_class) if not method.startswith("_"))
+
+
+def _init_arity(service_class) -> int:
+    """Dependencies a subcomponent's service must be built with.
+
+    Counted rather than assumed: normalisation takes none, the knowledge model
+    takes the reader its sources read through, and later ones will take more.
+    A test that hard-codes "build it with no arguments" turns a legitimate
+    dependency into a failure.
+    """
+
+    import inspect
+
+    parameters = list(inspect.signature(service_class.__init__).parameters.values())
+    return len(
+        [
+            parameter
+            for parameter in parameters[1:]
+            if parameter.default is inspect.Parameter.empty
+            and parameter.kind
+            in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+        ]
+    )
 
 
 def _arity(service_class, method_name: str) -> int:

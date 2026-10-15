@@ -19,7 +19,7 @@ TAGS = [
         "name": "Validation",
         "description": (
             "Validate a recovered architecture against the architectural "
-            "intent recorded for the same release. Nine stages, of which two "
+            "intent recorded for the same release. Eight stages, of which two "
             "call a language model and the rest are deterministic code."
         ),
     },

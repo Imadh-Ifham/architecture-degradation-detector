@@ -225,10 +225,16 @@ class DecisionRecord:
     exclusive - so a decision and the decision that supersedes it never both
     apply to the same release. `valid_to` of None means still in force.
 
-    None of the five provenance fields has a default. A record that cannot say
-    where it came from, how strong that source is or how it was extracted
+    None of the seven provenance fields has a default. A record that cannot
+    say where it came from, how strong that source is or how it was extracted
     cannot be built at all, which is the only reliable way to stop one
     appearing later with its origin quietly missing.
+
+    `source` and `source_repository` are the two that answer questions the
+    others cannot. Which adapter produced a record decides whether its absence
+    from a later release means the rule was withdrawn, and which repository it
+    was read from matters as soon as decisions live somewhere other than the
+    code they describe.
     """
 
     decision_id: str
@@ -238,6 +244,8 @@ class DecisionRecord:
     valid_from: str
     valid_to: str | None
 
+    source: str
+    source_repository: str
     source_tier: SourceTier
     source_strength: EvidenceStrength
     source_ref: str
@@ -259,6 +267,8 @@ class DecisionRecord:
             "object": self.object,
             "valid_from": self.valid_from,
             "valid_to": self.valid_to,
+            "source": self.source,
+            "source_repository": self.source_repository,
             "source_tier": self.source_tier,
             "source_strength": self.source_strength,
             "source_ref": self.source_ref,
@@ -284,12 +294,24 @@ class Resolution:
 
     All three skip the model entirely except `governing`: there is nothing to
     reason about without a rule to reason against.
+
+    `superseded_ancestor` is what lets the answer be shown rather than
+    asserted - the decision that was considered and correctly rejected.
+    Resolving to the right record while forgetting the one it replaced is a
+    right answer nobody can defend.
+
+    `conflicting_sources` names the sources that described this relationship
+    differently from the one that governs. A written decision and a running
+    configuration disagreeing is a finding about the system under study, so it
+    travels with the answer instead of being dropped on the way.
     """
 
     governing: DecisionRecord | None
     uncovered: bool = False
     ambiguous: bool = False
     candidates: tuple[str, ...] = ()
+    superseded_ancestor: str | None = None
+    conflicting_sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -529,3 +551,11 @@ class ValidationRunResult:
     model_calls: int = 0
     style_resolved: str | None = None
     style_source: str | None = None
+    decision_mode: str | None = None
+    """Where this run's decisions came from.
+
+    On the run because it describes the whole of it: one answer decided what
+    every verdict in it was judged against. Published rather than inferred,
+    so a reader can always tell whether a result rests on decisions somebody
+    wrote or on rules this component reconstructed.
+    """

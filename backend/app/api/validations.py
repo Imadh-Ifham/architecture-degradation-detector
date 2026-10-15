@@ -25,7 +25,9 @@ Description:
     eventually describes something else.
 """
 
+from datetime import UTC, datetime
 from functools import lru_cache
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -37,9 +39,15 @@ from app.components.architecture_validation import (
 from app.components.architecture_validation.architect_review import (
     ArchitectReviewService,
 )
+from app.components.architecture_recovery.repository_ingestion.service import (
+    SOURCE_DIRECTORY_NAME,
+)
 from app.components.architecture_validation.classification import ClassificationService
 from app.components.architecture_validation.decision_knowledge import (
+    DEFAULT_MODE,
     DecisionKnowledgeService,
+    NoDecisionsAvailable,
+    SourceRequest,
 )
 from app.components.architecture_validation.evidence_retrieval import (
     EvidenceRetrievalService,
@@ -49,9 +57,6 @@ from app.components.architecture_validation.graph_publishing import (
 )
 from app.components.architecture_validation.independent_verification import (
     IndependentVerificationService,
-)
-from app.components.architecture_validation.intent_extraction import (
-    IntentExtractionService,
 )
 from app.components.architecture_validation.observation_normalization import (
     ObservationNormalizationService,
@@ -63,6 +68,8 @@ from app.components.architecture_validation.validation_reasoning import (
 )
 from app.core.config import settings
 from app.domain.recovered_architecture import IncoherentArchitecture
+from app.infrastructure.decision_log import JsonlDecisionStore
+from app.infrastructure.git.workspace_artifact_reader import WorkspaceArtifactReader
 from app.infrastructure.recovery_gateway import (
     InventoryContractError,
     InventoryFileArchitectureReader,
@@ -189,6 +196,15 @@ class ValidationRunResponse(BaseModel):
         ),
         examples=["inferred_by_c2"],
     )
+    decision_mode: str | None = Field(
+        default=None,
+        description=(
+            "Where this run's decisions came from. Every verdict in the run "
+            "was judged against what this mode supplied, so it travels with "
+            "the result rather than being remembered."
+        ),
+        examples=["combined"],
+    )
     stages: list[StageRecordResponse] = Field(
         description="One record per stage, in run order."
     )
@@ -204,13 +220,39 @@ class ValidationRunRequest(BaseModel):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "examples": [{"repository_id": "online-boutique", "release_id": "v0.10.0"}]
+            "examples": [
+                {
+                    "repository_id": "online-boutique",
+                    "release_id": "v0.10.0",
+                    "decision_mode": "combined",
+                }
+            ]
         }
     )
 
     repository_id: str = Field(
         min_length=1,
         description="The repository as recovery ingested it.",
+    )
+    decision_mode: Literal["repo_adr", "external_adr", "combined"] = Field(
+        default=DEFAULT_MODE,
+        description=(
+            "Where the decisions to validate against come from. repo_adr - "
+            "decision records kept in this repository. external_adr - records "
+            "kept in a separate repository, named below. combined - that "
+            "repository plus rules reconstructed from this one's "
+            "configuration, which is the only mode that produces a result on "
+            "a repository holding no decision records. Recorded on the run, "
+            "so every verdict can be traced to the kind of evidence behind it."
+        ),
+    )
+    adr_repository_id: str | None = Field(
+        default=None,
+        description=(
+            "The separate decision repository, as ingestion cloned it. "
+            "Required by the modes that read one; a mode that cannot run "
+            "reports that rather than reporting zero decisions."
+        ),
     )
     release_id: str = Field(
         min_length=1,
@@ -264,6 +306,33 @@ def get_architecture_reader():
 
 
 @lru_cache
+def get_artifact_reader() -> WorkspaceArtifactReader:
+    """Provide the reader the decision sources read repository files through.
+
+    The decision sources parse text and never open a file, so the composition
+    root is where the workspace layout is known: ingestion keeps a clone's
+    working tree one level inside the repository's own directory, and that is
+    this function's knowledge rather than the reader's or the component's.
+    """
+
+    return WorkspaceArtifactReader(
+        settings.repositories_root, checkout_subdirectory=SOURCE_DIRECTORY_NAME
+    )
+
+
+@lru_cache
+def get_decision_store() -> JsonlDecisionStore:
+    """Provide the log the decision history accumulates in.
+
+    One file per repository, under the ignored artifacts directory, because
+    the history is something a run produces. The corpus the demonstration is
+    rehearsed against is a committed fixture read through the same port.
+    """
+
+    return JsonlDecisionStore(settings.decision_log_root)
+
+
+@lru_cache
 def get_validation_service() -> ArchitectureValidationService:
     """Provide the validation service, wired to the configured input.
 
@@ -274,8 +343,9 @@ def get_validation_service() -> ArchitectureValidationService:
     return ArchitectureValidationService(
         architecture_reader=get_architecture_reader(),
         normalization=ObservationNormalizationService(),
-        intent=IntentExtractionService(),
-        knowledge=DecisionKnowledgeService(),
+        knowledge=DecisionKnowledgeService(
+            get_artifact_reader(), get_decision_store()
+        ),
         evidence=EvidenceRetrievalService(),
         reasoning=ValidationReasoningService(),
         verification=IndependentVerificationService(),
@@ -305,6 +375,106 @@ def describe_pipeline():
         stage_count=len(stages),
         implemented_count=sum(1 for stage in PIPELINE if stage.implemented),
         stages=[StageDescriptionResponse(**stage) for stage in stages],
+    )
+
+
+class ModeAvailabilityResponse(BaseModel):
+    """What one decision mode would find, before it is chosen."""
+
+    mode: str = Field(description="The mode this row is about.")
+    ran: bool = Field(
+        description=(
+            "Whether the sources behind this mode could run at all. False "
+            "means the mode is not configured - which is a different answer "
+            "from running and finding nothing, and the two must never be "
+            "presented the same way."
+        )
+    )
+    records: int = Field(description="Decisions this mode would supply.")
+    reason: str | None = Field(
+        default=None,
+        description="Why it would supply none, when it would supply none.",
+    )
+    by_source: dict[str, int] = Field(
+        default_factory=dict,
+        description="The same number broken down by the source that found it.",
+        examples=[{"config_scan": 25}],
+    )
+
+
+class DecisionSourcesResponse(BaseModel):
+    """Every mode's yield for one release, so nobody chooses blind."""
+
+    repository_id: str
+    release_id: str
+    recommended: str | None = Field(
+        description="The mode with the most to offer, or null if none has any."
+    )
+    modes: list[ModeAvailabilityResponse] = Field(description="One row per mode.")
+
+
+@router.get(
+    "/decision-sources",
+    response_model=DecisionSourcesResponse,
+    summary="What each decision source would supply",
+    response_description=(
+        "One row per mode, with what it would find and why it would find "
+        "nothing. Nothing is run and nothing is written."
+    ),
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "The recovered architecture for that release "
+            "cannot be read, so there are no manifest paths to scan."
+        }
+    },
+)
+def describe_decision_sources(
+    repository_id: str,
+    release_id: str,
+    service: ArchitectureValidationService = Depends(get_validation_service),
+    reader=Depends(get_architecture_reader),
+):
+    """Report what each decision mode would supply for one release.
+
+    Read before a run rather than discovered during one. A mode's yield is
+    the number a user needs at the moment they choose, and a number only
+    obtainable by starting a run is not available then - which is how someone
+    picks an empty mode and reads the result as a clean validation.
+
+    It runs the sources, because running them is the only way to be sure the
+    number is the one the run will produce. They read a handful of files, call
+    no model and write nothing.
+    """
+
+    try:
+        architecture = reader.read(repository_id, release_id)
+    except (
+        InventoryContractError,
+        SnapshotContractError,
+        IncoherentArchitecture,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
+
+    available = service.decision_sources(
+        SourceRequest(
+            code_repository_id=repository_id,
+            release_id=release_id,
+            extracted_at=datetime.now(UTC),
+            manifest_paths=architecture.manifest_paths,
+        )
+    )
+    best = max(available.values(), key=lambda found: found.records)
+
+    return DecisionSourcesResponse(
+        repository_id=repository_id,
+        release_id=release_id,
+        recommended=best.mode if best.records else None,
+        modes=[
+            ModeAvailabilityResponse(**found.to_dict())
+            for found in sorted(available.values(), key=lambda found: found.mode)
+        ],
     )
 
 
@@ -344,7 +514,22 @@ def run_validation(
     """
 
     try:
-        run = service.run(request.repository_id, request.release_id)
+        run = service.run(
+            request.repository_id,
+            request.release_id,
+            decision_mode=request.decision_mode,
+            adr_repository_id=request.adr_repository_id,
+        )
+    except NoDecisionsAvailable as error:
+        # Not a fault in the request and not a fault here: there is nothing to
+        # validate against. Refused rather than run, because an empty decision
+        # store makes every fact uncovered and publishes a graph that reads
+        # exactly like a clean validation of a healthy system. The detail
+        # carries what each mode would have found, so the block doubles as the
+        # thing that says which one to pick.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
     except (
         InventoryContractError,
         SnapshotContractError,
@@ -369,5 +554,6 @@ def run_validation(
         published_ref=run.published_ref,
         style_resolved=run.style_resolved,
         style_source=run.style_source,
+        decision_mode=run.decision_mode,
         stages=[StageRecordResponse(**stage.to_dict()) for stage in run.stages],
     )

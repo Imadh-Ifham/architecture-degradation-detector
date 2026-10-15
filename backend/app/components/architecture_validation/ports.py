@@ -16,6 +16,7 @@ Description:
     replaced with a fake in a test.
 """
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from app.domain.recovered_architecture import RecoveredArchitecture
@@ -64,14 +65,22 @@ class DecisionKnowledgeStore(Protocol):
     Append-only because "which decision applied at release X" has to stay
     answerable after the answer changes. An update-in-place store can report
     the present state but cannot reproduce a past one.
+
+    One log per repository, because the thing a log accumulates is one
+    system's decisions across its releases - and comparing a release against
+    what the log already holds is how a withdrawn rule is detected at all.
+
+    Events are appended as a batch rather than one at a time. A scan produces
+    a handful at once and they describe one release; half of them reaching
+    the log would be a history that never happened.
     """
 
-    def append(self, event: dict) -> None:
-        """Append one event. Never edits or removes an existing event."""
+    def append(self, repository_id: str, events: Sequence[dict]) -> None:
+        """Append these events. Never edits or removes an existing one."""
         ...
 
-    def replay(self) -> list[dict]:
-        """Return every event in the order it was appended."""
+    def replay(self, repository_id: str) -> list[dict]:
+        """Return every event for this repository, in the order appended."""
         ...
 
 

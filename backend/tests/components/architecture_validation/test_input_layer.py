@@ -32,7 +32,7 @@ from app.components.architecture_validation.observation_normalization._identity 
     collisions,
     fact_id,
 )
-from app.components.architecture_validation.observation_normalization._release import (
+from app.components.architecture_validation._release import (
     RELEASE_SEGMENTS,
     UnorderableRelease,
     release_sort_key,
