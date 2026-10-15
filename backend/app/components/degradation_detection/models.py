@@ -4,8 +4,8 @@ Pure data, no I/O. Internal models use ``extra="forbid"`` and are immutable. Mod
 port (``CanonicalRelease``...) and the enums that appear in the contracts (``Scope``,
 ``Worsening``, ``TestMethod``, ``ArchitectureStyle``...) live in ``app/domain/``.
 
-Lineage, instance-track and graph models are added by the tasks that build them (T-05, T-08,
-T-09).
+Lineage and instance-track models are added by the tasks that build them (T-08, T-09). The
+graph (``ArchGraph``) is used only by M2, so it lives in ``detection/models.py``.
 """
 
 from enum import StrEnum
@@ -80,6 +80,17 @@ class AntiPatternInstance(InternalModel):
     scope: Scope
     members: tuple[str, ...]
     measures: dict[str, float | None] = Field(default_factory=dict)
+
+
+class ReleaseDetection(InternalModel):
+    """Everything M2 found in one release; M3 builds series from a timeline of these."""
+
+    release_id: str
+    observations: tuple[MetricObservation, ...]
+    instances: tuple[AntiPatternInstance, ...] = ()
+    # Detector ids that ran on this release. A type missing here was not checked, so its absence
+    # from ``instances`` says nothing (M3 must not resolve an instance track on it).
+    detectors_run: tuple[str, ...] = ()
 
 
 # --- M3 output: series across releases ----------------------------------------------------
