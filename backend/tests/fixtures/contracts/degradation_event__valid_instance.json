@@ -1,0 +1,58 @@
+{
+  "schema_version": "2.0.0",
+  "event_id": "DEG-01JA0000000000000000000001",
+  "event_key": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "supersedes_event_id": null,
+  "run_id": "RUN-01JA0000000000000000000001",
+  "system_id": "shopfront",
+  "scope": "INSTANCE",
+  "anti_pattern_type": "CyclicDependency",
+  "catalog": "universal",
+  "architecture_style": "microservices",
+  "instance_id": "AP-CYC-0007",
+  "members": ["order-service", "payment-service", "inventory-service", "shipping-service"],
+  "element_id": null,
+  "lineage_id": null,
+  "lifecycle": "growing",
+  "window": {
+    "start_release": "v1.1.0",
+    "end_release": "v1.9.0",
+    "n_releases": 9,
+    "low_confidence_releases": ["v1.6.0"]
+  },
+  "affected_metrics": [
+    {
+      "metric": "member_count",
+      "unit": "elements",
+      "worsening": "INCREASE",
+      "n": 9,
+      "s": 30,
+      "tau": 0.83,
+      "p_value": 0.0012,
+      "q_value": 0.0081,
+      "test_method": "EXACT",
+      "sen_slope": 0.33,
+      "time_axis": "ordinal",
+      "series": [
+        {"release_id": "v1.1.0", "value": 3.0},
+        {"release_id": "v1.2.0", "value": null}
+      ]
+    }
+  ],
+  "trend_strength": 0.83,
+  "context": {
+    "tag": "GENUINE",
+    "stage": "DISABLED",
+    "rule_id": "R0_CONTEXT_DISABLED",
+    "justification": null,
+    "retrieved": [],
+    "cited": []
+  },
+  "review_status": "PENDING",
+  "provenance": {
+    "c1_model_refs": ["c1://shopfront/v1.1.0"],
+    "c2_validation_refs": ["c2://shopfront/v1.1.0"],
+    "release_package_hashes": ["sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+    "config_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+}

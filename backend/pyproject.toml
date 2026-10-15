@@ -65,6 +65,7 @@ files = [
     "app/components/degradation_detection",
     "app/domain",
     "app/shared",
+    "scripts/c3.py",
 ]
 
 [tool.pytest.ini_options]

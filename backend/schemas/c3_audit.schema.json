@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "Verdict": {
+      "enum": [
+        "CONFIRMED",
+        "REJECTED",
+        "NEEDS_INVESTIGATION"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "audit_id": {
+      "minLength": 1,
+      "title": "Audit Id",
+      "type": "string"
+    },
+    "entry_hash": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Entry Hash",
+      "type": "string"
+    },
+    "event_id": {
+      "minLength": 1,
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_key": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Event Key",
+      "type": "string"
+    },
+    "evidence_snapshot_ref": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Evidence Snapshot Ref",
+      "type": "string"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "prev_hash": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prev Hash"
+    },
+    "reviewer_id": {
+      "minLength": 1,
+      "title": "Reviewer Id",
+      "type": "string"
+    },
+    "seq": {
+      "minimum": 1,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "#/$defs/Verdict"
+    }
+  },
+  "required": [
+    "audit_id",
+    "seq",
+    "event_id",
+    "event_key",
+    "verdict",
+    "reviewer_id",
+    "timestamp",
+    "evidence_snapshot_ref",
+    "entry_hash"
+  ],
+  "title": "AuditEntryV1",
+  "type": "object"
+}

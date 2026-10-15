@@ -1,0 +1,503 @@
+{
+  "$defs": {
+    "AffectedMetric": {
+      "properties": {
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "n": {
+          "minimum": 1,
+          "title": "N",
+          "type": "integer"
+        },
+        "p_value": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "P Value",
+          "type": "number"
+        },
+        "q_value": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Q Value",
+          "type": "number"
+        },
+        "s": {
+          "title": "S",
+          "type": "integer"
+        },
+        "sen_slope": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sen Slope"
+        },
+        "series": {
+          "items": {
+            "$ref": "#/$defs/SeriesValue"
+          },
+          "title": "Series",
+          "type": "array"
+        },
+        "tau": {
+          "maximum": 1,
+          "minimum": -1,
+          "title": "Tau",
+          "type": "number"
+        },
+        "test_method": {
+          "$ref": "#/$defs/TestMethod"
+        },
+        "time_axis": {
+          "$ref": "#/$defs/TimeAxis"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "worsening": {
+          "$ref": "#/$defs/Worsening"
+        }
+      },
+      "required": [
+        "metric",
+        "worsening",
+        "n",
+        "s",
+        "tau",
+        "p_value",
+        "q_value",
+        "test_method",
+        "sen_slope",
+        "time_axis",
+        "series"
+      ],
+      "title": "AffectedMetric",
+      "type": "object"
+    },
+    "ArchitectureStyle": {
+      "enum": [
+        "monolith",
+        "microservices",
+        "layered",
+        "event-driven",
+        "generic"
+      ],
+      "title": "ArchitectureStyle",
+      "type": "string"
+    },
+    "Citation": {
+      "properties": {
+        "passage_id": {
+          "minLength": 1,
+          "title": "Passage Id",
+          "type": "string"
+        },
+        "quote": {
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "passage_id",
+        "quote"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "Context": {
+      "properties": {
+        "cited": {
+          "items": {
+            "$ref": "#/$defs/Citation"
+          },
+          "title": "Cited",
+          "type": "array"
+        },
+        "justification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Justification"
+        },
+        "retrieved": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Retrieved",
+          "type": "array"
+        },
+        "rule_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Id"
+        },
+        "stage": {
+          "$ref": "#/$defs/ContextStage"
+        },
+        "tag": {
+          "$ref": "#/$defs/ContextTag"
+        }
+      },
+      "required": [
+        "tag",
+        "stage"
+      ],
+      "title": "Context",
+      "type": "object"
+    },
+    "ContextStage": {
+      "enum": [
+        "DISABLED",
+        "DEFAULT",
+        "RULE",
+        "LLM"
+      ],
+      "title": "ContextStage",
+      "type": "string"
+    },
+    "ContextTag": {
+      "enum": [
+        "GENUINE",
+        "INTENTIONAL",
+        "UNCERTAIN"
+      ],
+      "title": "ContextTag",
+      "type": "string"
+    },
+    "EventProvenance": {
+      "properties": {
+        "c1_model_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "C1 Model Refs",
+          "type": "array"
+        },
+        "c2_validation_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "C2 Validation Refs",
+          "type": "array"
+        },
+        "config_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Config Hash",
+          "type": "string"
+        },
+        "release_package_hashes": {
+          "items": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Release Package Hashes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "release_package_hashes",
+        "config_hash"
+      ],
+      "title": "EventProvenance",
+      "type": "object"
+    },
+    "Lifecycle": {
+      "enum": [
+        "introduced",
+        "growing",
+        "persistent",
+        "resolved"
+      ],
+      "title": "Lifecycle",
+      "type": "string"
+    },
+    "ReviewStatus": {
+      "enum": [
+        "PENDING",
+        "CONFIRMED",
+        "REJECTED",
+        "NEEDS_INVESTIGATION"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    },
+    "Scope": {
+      "enum": [
+        "ELEMENT",
+        "INSTANCE",
+        "SYSTEM"
+      ],
+      "title": "Scope",
+      "type": "string"
+    },
+    "SeriesValue": {
+      "properties": {
+        "release_id": {
+          "minLength": 1,
+          "title": "Release Id",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "release_id",
+        "value"
+      ],
+      "title": "SeriesValue",
+      "type": "object"
+    },
+    "TestMethod": {
+      "enum": [
+        "EXACT",
+        "PERMUTATION",
+        "NORMAL",
+        "DEGENERATE"
+      ],
+      "title": "TestMethod",
+      "type": "string"
+    },
+    "TimeAxis": {
+      "enum": [
+        "ordinal",
+        "days"
+      ],
+      "title": "TimeAxis",
+      "type": "string"
+    },
+    "Window": {
+      "properties": {
+        "end_release": {
+          "minLength": 1,
+          "title": "End Release",
+          "type": "string"
+        },
+        "low_confidence_releases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Low Confidence Releases",
+          "type": "array"
+        },
+        "n_releases": {
+          "minimum": 1,
+          "title": "N Releases",
+          "type": "integer"
+        },
+        "start_release": {
+          "minLength": 1,
+          "title": "Start Release",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start_release",
+        "end_release",
+        "n_releases"
+      ],
+      "title": "Window",
+      "type": "object"
+    },
+    "Worsening": {
+      "enum": [
+        "INCREASE",
+        "DECREASE"
+      ],
+      "title": "Worsening",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "affected_metrics": {
+      "items": {
+        "$ref": "#/$defs/AffectedMetric"
+      },
+      "minItems": 1,
+      "title": "Affected Metrics",
+      "type": "array"
+    },
+    "anti_pattern_type": {
+      "minLength": 1,
+      "title": "Anti Pattern Type",
+      "type": "string"
+    },
+    "architecture_style": {
+      "$ref": "#/$defs/ArchitectureStyle"
+    },
+    "catalog": {
+      "minLength": 1,
+      "title": "Catalog",
+      "type": "string"
+    },
+    "context": {
+      "$ref": "#/$defs/Context"
+    },
+    "element_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Element Id"
+    },
+    "event_id": {
+      "minLength": 1,
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_key": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Event Key",
+      "type": "string"
+    },
+    "instance_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Instance Id"
+    },
+    "lifecycle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Lifecycle"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "lineage_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lineage Id"
+    },
+    "members": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Members",
+      "type": "array"
+    },
+    "provenance": {
+      "$ref": "#/$defs/EventProvenance"
+    },
+    "review_status": {
+      "$ref": "#/$defs/ReviewStatus",
+      "default": "PENDING"
+    },
+    "run_id": {
+      "minLength": 1,
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "2.0.0",
+      "pattern": "^2\\.\\d+\\.\\d+$",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/Scope"
+    },
+    "supersedes_event_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Supersedes Event Id"
+    },
+    "system_id": {
+      "minLength": 1,
+      "title": "System Id",
+      "type": "string"
+    },
+    "trend_strength": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Trend Strength",
+      "type": "number"
+    },
+    "window": {
+      "$ref": "#/$defs/Window"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_key",
+    "run_id",
+    "system_id",
+    "scope",
+    "anti_pattern_type",
+    "catalog",
+    "architecture_style",
+    "window",
+    "affected_metrics",
+    "trend_strength",
+    "context",
+    "provenance"
+  ],
+  "title": "DegradationEventV2",
+  "type": "object"
+}

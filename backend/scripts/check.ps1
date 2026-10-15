@@ -7,8 +7,12 @@ $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 # Paths C3 owns. Extend as C3 adds files to app/core, app/domain, app/shared and scripts.
-$c3Source = @("app/components/degradation_detection", "app/domain", "app/shared")
-$c3Tests = @("tests/components/degradation_detection")
+$c3Source = @(
+    "app/components/degradation_detection", "app/domain", "app/shared", "scripts/c3.py"
+)
+$c3Tests = @(
+    "tests/components/degradation_detection", "tests/domain", "tests/scripts", "tests/shared"
+)
 $c3Lint = $c3Source + $c3Tests
 
 function Invoke-Step([string]$Name, [scriptblock]$Step) {
