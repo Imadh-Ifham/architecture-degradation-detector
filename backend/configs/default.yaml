@@ -1,0 +1,81 @@
+# C3 default configuration (docs/implementation-plan.md Section 5).
+#
+# Validated by C3Config in app/components/degradation_detection/config.py: an unknown key is an
+# error. A test checks that this file equals the defaults in that model, so change both together.
+# Bracketed ids refer to the decision register in the plan, Section 10.
+#
+# Freeze this file before running evaluation systems and record the hash printed by
+#   uv run python -m scripts.c3 config show
+
+schema_version: "1.1.0"
+
+ingest:
+  release_line_regex: "^v?\\d+\\.\\d+\\.\\d+$"   # main release line only [D-06]
+  max_package_bytes: 20000000
+
+gate:                                            # validation confidence [D-07]
+  accept: 0.70                                   # >= accept: ACCEPTED
+  exclude: 0.50                                  # >= exclude: DOWNWEIGHTED, below: EXCLUDED
+
+metrics:
+  normalised_coupling: true                      # [D-04]
+  c1_passthrough:                                # [D-21]
+    - {name: "c1.lcom", unit: "lcom", worsening: "INCREASE"}
+
+detection:                                       # all relative to the release's own distribution
+  hub: {iqr_k: 1.5}
+  unstable: {ratio: 0.3}
+  oversized: {z_max: 3.5}
+  big_ball_of_mud: {largest_scc_share_min: 0.25, modularity_max: 0.30}   # [D-24]
+  modularity: {algorithm: "greedy"}                                       # [D-27]
+
+align:
+  weights: {name: 0.4, neighbours: 0.4, size: 0.2}
+  rename_min: 0.75
+  ambiguity_margin: 0.05
+  part_min: 0.5
+  split_min: 0.5
+
+tracking:
+  instance_jaccard_min: 0.5                      # [D-22]
+
+trend:
+  alpha: 0.05
+  gate_on: "q"                                   # [D-02]
+  sidedness: "two-sided"                         # [D-01]
+  min_releases: 8                                # [D-03]
+  exact_below: 10
+  n_perm: 20000
+  seed: 20261013
+  time_axis: "ordinal"                           # [D-05]
+  bh_family: "run"                               # [D-26]
+
+cp: {enabled: false, penalty_c: 2.0, min_size: 2}             # post-PP1
+
+context: {enabled: false, buffer_days: 90, strict: false}     # false = trend-only baseline [D-28]
+
+retrieval:                                       # post-PP1
+  mode: "dense"                                  # [D-13]
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_revision: null                       # pinned when M5 is built
+  chunk_tokens: 280
+  chunk_overlap: 50
+  top_k: 6
+  min_score: 0.35
+
+llm:                                             # post-PP1
+  provider: "anthropic"                          # [D-12]
+  model: null                                    # pinned when M5 is built
+  temperature: 0.0
+  max_tokens: 600
+  prompt_version: "classify_v1"
+  cache_mode: "record"
+  timeout_s: 60
+  max_retries: 3
+  max_calls_per_run: 500
+
+review:                                          # post-PP1 [D-19]
+  note_required_for: ["REJECTED", "NEEDS_INVESTIGATION"]
+  note_min_chars: 10
+
+eval: {mode: false}                              # [D-16]

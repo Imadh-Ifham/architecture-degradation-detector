@@ -63,6 +63,7 @@ python_version = "3.13"
 strict = true
 files = [
     "app/components/degradation_detection",
+    "app/core/logging.py",
     "app/domain",
     "app/shared",
     "scripts/c3.py",

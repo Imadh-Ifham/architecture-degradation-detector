@@ -8,12 +8,14 @@ Set-Location (Join-Path $PSScriptRoot "..")
 
 # Paths C3 owns. Extend as C3 adds files to app/core, app/domain, app/shared and scripts.
 $c3Source = @(
-    "app/components/degradation_detection", "app/domain", "app/shared", "scripts/c3.py"
+    "app/components/degradation_detection", "app/core/logging.py", "app/domain", "app/shared",
+    "scripts/c3.py"
 )
 $c3Tests = @(
-    "tests/components/degradation_detection", "tests/domain", "tests/scripts", "tests/shared"
+    "tests/components/degradation_detection", "tests/core", "tests/domain", "tests/scripts",
+    "tests/shared"
 )
-$c3Lint = $c3Source + $c3Tests
+$c3Lint = $c3Source + $c3Tests + @("tests/conftest.py")
 
 function Invoke-Step([string]$Name, [scriptblock]$Step) {
     Write-Host "== $Name" -ForegroundColor Cyan
