@@ -8,17 +8,21 @@ Description:
     repository ingestion subcomponent.
 """
 
+from app.components.architecture_recovery.component_discovery.service import (
+    ComponentDiscoveryService,
+)
+from app.components.architecture_recovery.manifest_analysis.service import (
+    ManifestAnalysisService,
+)
 from app.components.architecture_recovery.repository_ingestion.service import (
     RepositoryIngestionService,
 )
 from app.components.architecture_recovery.repository_inventory.service import (
     RepositoryInventoryService,
 )
-from app.components.architecture_recovery.manifest_analysis.service import (
-    ManifestAnalysisService,
-)
 
 __all__ = [
+    "ComponentDiscoveryService",
     "ManifestAnalysisService",
     "RepositoryIngestionService",
     "RepositoryInventoryService",
