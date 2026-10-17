@@ -10,6 +10,7 @@ from pydantic import Field
 
 from app.components.degradation_detection.models import (
     AlignMethod,
+    InstanceTrack,
     InternalModel,
     Lineage,
     LineageEvent,
@@ -21,6 +22,8 @@ from app.components.degradation_detection.models import (
 ALIGNMENT_AMBIGUOUS = "ALIGNMENT_AMBIGUOUS"  # best match not clearly ahead of the runner-up
 ALIAS_CONFLICT = "ALIAS_CONFLICT"  # alias names a live id, or is claimed twice (split/merge?)
 LINEAGE_KIND_CHANGED = "LINEAGE_KIND_CHANGED"  # same element, different kind: lineage ends
+INSTANCE_MATCH_AMBIGUOUS = "INSTANCE_MATCH_AMBIGUOUS"  # best overlap tied with another instance
+INSTANCE_TRACK_UNCHECKED = "INSTANCE_TRACK_UNCHECKED"  # detector did not run: track ends unresolved
 
 
 class AlignOutcome(StrEnum):
@@ -85,9 +88,10 @@ class SplitMerge(InternalModel):
 
 
 class TrackingResult(InternalModel):
-    """What M3 knows about one system's timeline. T-09 adds instance tracks, T-10 series."""
+    """What M3 knows about one system's timeline. T-10 adds series."""
 
     system_id: str
     lineages: tuple[Lineage, ...]
     events: tuple[LineageEvent, ...]
     decisions: tuple[AlignmentDecision, ...]
+    tracks: tuple[InstanceTrack, ...]

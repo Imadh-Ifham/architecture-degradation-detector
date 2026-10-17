@@ -10,26 +10,30 @@ from app.components.degradation_detection.tracking.alignment_sample import (
     alignment_sample_csv,
 )
 from app.components.degradation_detection.tracking.models import TrackingResult
-from tests.components.degradation_detection.tracking.timelines import el, rel, timeline
+from tests.components.degradation_detection.tracking.timelines import (
+    el,
+    no_detections,
+    rel,
+    timeline,
+)
 
 
 @pytest.fixture
 def result() -> TrackingResult:
     """One similarity rename (order) and one alias rename (pay) in the same release."""
-    return TrackingService(C3Config()).track(
-        timeline(
-            rel(
-                "v1.0.0",
-                ["a", "b", "order-svc", "pay-svc"],
-                [("a", "order-svc"), ("order-svc", "b")],
-            ),
-            rel(
-                "v1.1.0",
-                ["a", "b", "order-service", el("payments", aliases=["pay-svc"])],
-                [("a", "order-service"), ("order-service", "b")],
-            ),
-        )
+    tl = timeline(
+        rel(
+            "v1.0.0",
+            ["a", "b", "order-svc", "pay-svc"],
+            [("a", "order-svc"), ("order-svc", "b")],
+        ),
+        rel(
+            "v1.1.0",
+            ["a", "b", "order-service", el("payments", aliases=["pay-svc"])],
+            [("a", "order-service"), ("order-service", "b")],
+        ),
     )
+    return TrackingService(C3Config()).track(tl, no_detections(tl))
 
 
 def rows(text: str) -> list[dict[str, str]]:

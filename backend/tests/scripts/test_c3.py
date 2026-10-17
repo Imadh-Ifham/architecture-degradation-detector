@@ -227,7 +227,7 @@ def test_detect_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> 
 # --- c3 align ---------------------------------------------------------------------------------
 
 
-def test_align_prints_lineages_and_writes_the_alignment_sample(
+def test_align_prints_lineages_tracks_and_writes_the_alignment_sample(
     memory_repo: InMemoryReleaseRepository, stub_dir: Path, tmp_path: Path
 ) -> None:
     CliRunner().invoke(app, ["ingest", str(stub_dir)])
@@ -245,7 +245,16 @@ def test_align_prints_lineages_and_writes_the_alignment_sample(
         "order-svc",
         "order-service",
     ]
-    assert "10 releases, 15 lineages, 1 renames, 1 decisions" in result.output
+    tracks = {line.split()[0]: line.split()[1:] for line in result.output.splitlines()}
+    assert tracks["AP-CyclicDependency:inventory@v1.1.0"] == [  # S1, one track through S4
+        "v1.1.0",
+        "v1.9.0",
+        "OPEN",
+        "persistent",
+        "3>3>3>4>4>4>5>5>5",
+    ]
+    assert tracks["AP-SharedPersistence:orders_db@v1.2.0"][-1] == "2>2>3>3>4>4>5>5"  # S9
+    assert "10 releases, 15 lineages, 1 renames, 1 decisions, 14 instance tracks" in result.output
     lines = out.read_bytes().decode("utf-8").split("\n")
     assert len([line for line in lines if line]) == 2  # header + the S4 alias link
     assert lines[1].startswith("v1.3.0,v1.4.0,order-svc,order-service,service,ALIAS,LINKED")

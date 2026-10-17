@@ -22,13 +22,18 @@ from app.components.degradation_detection.tracking.models import (
     TrackingResult,
 )
 from tests.components.degradation_detection.fakes import FixedClock, InMemoryReleaseRepository
-from tests.components.degradation_detection.tracking.timelines import el, rel, timeline
+from tests.components.degradation_detection.tracking.timelines import (
+    el,
+    no_detections,
+    rel,
+    timeline,
+)
 
 CFG = C3Config()
 
 
 def track(tl: Timeline, cfg: C3Config = CFG) -> TrackingResult:
-    return TrackingService(cfg).track(tl)
+    return TrackingService(cfg).track(tl, no_detections(tl))
 
 
 def chains(result: TrackingResult) -> dict[str, list[tuple[str, str]]]:

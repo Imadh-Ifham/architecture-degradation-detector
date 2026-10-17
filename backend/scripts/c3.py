@@ -249,15 +249,18 @@ def detect(
 def align(
     system: Annotated[str, typer.Option(help="System id, as ingested.")],
     config: ConfigFile = DEFAULT_CONFIG_PATH,
+    catalog: CatalogFile = DEFAULT_CATALOG_PATH,
     out: Annotated[
         Path | None,
         typer.Option(help="CSV to write. Default: out/<system>/alignment_sample.csv."),
     ] = None,
 ) -> None:
-    """Print element lineages and renames, and write the alignment sample for a manual check."""
-    cfg = _load_config_or_exit(config)
+    """Print element lineages, renames and instance tracks; write the alignment sample."""
+    cfg = _load_config_or_exit(config, catalog)
     timeline = _timeline_or_exit(system, cfg)
-    result = TrackingService(cfg).track(timeline)
+    detection = DetectionService(cfg)
+    detections = [detection.detect(entry.release) for entry in timeline.entries]
+    result = TrackingService(cfg).track(timeline, detections)
 
     typer.echo(f"{'lineage_id':<34} {'kind':<10} {'first':<10} {'last':<10} element_ids")
     for lin in result.lineages:
@@ -271,12 +274,25 @@ def align(
             f"{';'.join(event.to_element_ids)}"
         )
 
+    typer.echo(
+        f"{'track_id':<46} {'first':<10} {'last':<10} {'end':<9} {'lifecycle':<11} member_counts"
+    )
+    for track in result.tracks:
+        first, last = track.occurrences[0].release_id, track.occurrences[-1].release_id
+        counts = ">".join(str(len(o.members)) for o in track.occurrences)
+        lifecycle = track.lifecycle.value if track.lifecycle else "-"
+        typer.echo(
+            f"{track.track_id:<46} {first:<10} {last:<10} {track.end.value:<9} "
+            f"{lifecycle:<11} {counts}"
+        )
+
     path = out or OUT_DIR / system / "alignment_sample.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(alignment_sample_csv(result), encoding="utf-8", newline="\n")
     typer.echo(
         f"{len(timeline.entries)} releases, {len(result.lineages)} lineages, "
-        f"{len(result.events)} renames, {len(result.decisions)} decisions; wrote {path}"
+        f"{len(result.events)} renames, {len(result.decisions)} decisions, "
+        f"{len(result.tracks)} instance tracks; wrote {path}"
     )
 
 

@@ -8,6 +8,9 @@ from app.components.degradation_detection.models import (
     AlignMethod,
     AntiPatternInstance,
     EventCandidate,
+    InstanceOccurrence,
+    InstanceTrack,
+    InstanceTransition,
     Lineage,
     LineageEvent,
     LineageEventType,
@@ -17,9 +20,10 @@ from app.components.degradation_detection.models import (
     MetricObservation,
     Series,
     SeriesPoint,
+    TrackEnd,
     TrendResult,
 )
-from app.domain.degradation_event import Scope, Worsening
+from app.domain.degradation_event import Lifecycle, Scope, Worsening
 
 HASH = "sha256:" + "a" * 64
 
@@ -27,7 +31,7 @@ HASH = "sha256:" + "a" * 64
 def trend(**overrides: object) -> TrendResult:
     fields: dict[str, object] = {
         "scope": Scope.INSTANCE,
-        "subject_id": "AP-CYC-0001",
+        "subject_id": "AP-CyclicDependency:a@v1.0.0",
         "metric": "member_count",
         "n": 9,
         "s": 30,
@@ -123,7 +127,7 @@ def test_event_candidate_groups_the_trends_behind_one_event() -> None:
     candidate = EventCandidate(
         event_key=HASH,
         scope=Scope.INSTANCE,
-        subject_id="AP-CYC-0001",
+        subject_id="AP-CyclicDependency:a@v1.0.0",
         anti_pattern_type="CyclicDependency",
         catalog="universal",
         start_release="v1.1.0",
@@ -169,3 +173,66 @@ def test_lineage_members_must_be_consecutive_releases(ordinals: tuple[int, int])
 def test_lineage_has_at_least_one_member() -> None:
     with pytest.raises(ValidationError):
         Lineage(lineage_id="LIN-a@v1.0.0", kind="service", members=())
+
+
+def occurrence(ordinal: int, *members: str) -> InstanceOccurrence:
+    ids = members or ("a", "b")
+    return InstanceOccurrence(
+        ordinal=ordinal,
+        release_id=f"v1.{ordinal}.0",
+        local_instance_id=f"CyclicDependency:{ids[0]}",
+        members=ids,
+        member_lineages=tuple(f"LIN-{m}@v1.0.0" for m in ids),
+        transition=InstanceTransition.INTRODUCED if ordinal == 0 else InstanceTransition.PERSISTED,
+    )
+
+
+def instance_track(*ordinals: int, **overrides: object) -> InstanceTrack:
+    fields: dict[str, object] = {
+        "track_id": "AP-CyclicDependency:a@v1.0.0",
+        "anti_pattern_type": "CyclicDependency",
+        "catalog": "universal",
+        "scope": Scope.INSTANCE,
+        "occurrences": tuple(map(occurrence, ordinals)),
+        "end": TrackEnd.OPEN,
+        "lifecycle": Lifecycle.PERSISTENT,
+    }
+    return InstanceTrack.model_validate(fields | overrides)
+
+
+def test_instance_track_follows_an_instance_through_consecutive_releases() -> None:
+    track = instance_track(0, 1, 2)
+
+    assert [o.release_id for o in track.occurrences] == ["v1.0.0", "v1.1.0", "v1.2.0"]
+    assert track.ended_at is None
+
+
+@pytest.mark.parametrize("ordinals", [(0, 2), (1, 0), (0, 0)], ids=["gap", "backwards", "repeat"])
+def test_instance_track_occurrences_must_be_consecutive_releases(
+    ordinals: tuple[int, int],
+) -> None:
+    with pytest.raises(ValidationError, match="consecutive"):
+        instance_track(*ordinals)
+
+
+def test_instance_track_has_at_least_one_occurrence() -> None:
+    with pytest.raises(ValidationError):
+        instance_track()
+
+
+@pytest.mark.parametrize(
+    ("end", "ended_at"),
+    [(TrackEnd.OPEN, "v1.1.0"), (TrackEnd.RESOLVED, None), (TrackEnd.UNCHECKED, None)],
+)
+def test_ended_at_is_set_exactly_when_the_track_has_ended(
+    end: TrackEnd, ended_at: str | None
+) -> None:
+    with pytest.raises(ValidationError, match="ended_at"):
+        instance_track(0, end=end, ended_at=ended_at)
+
+
+def test_occurrence_needs_one_lineage_per_member() -> None:
+    fields = occurrence(0).model_dump() | {"member_lineages": ("LIN-a@v1.0.0",)}
+
+    with pytest.raises(ValidationError, match="one lineage id per member"):
+        InstanceOccurrence.model_validate(fields)
