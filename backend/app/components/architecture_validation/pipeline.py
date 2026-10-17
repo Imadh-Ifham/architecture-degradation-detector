@@ -3,7 +3,7 @@
 Author: Aman Mohamed M.A
 Date: 2026-10-14
 Description:
-    What the nine stages are, in run order, and how far each one has been
+    What the eight stages are, in run order, and how far each one has been
     built. Declared here so there is one answer to that question: the API
     publishes this, and the structural tests verify the code against it, so a
     stage cannot claim to be implemented while its service still raises.
@@ -78,7 +78,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Judges one fact against the decision that governs it.",
         research_module="M4",
         uses_model=True,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="independent_verification",

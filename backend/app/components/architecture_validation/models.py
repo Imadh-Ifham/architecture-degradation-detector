@@ -88,6 +88,21 @@ class ConstraintKind(StrEnum):
     DECLARED_RPC = "declared_rpc"
 
 
+WILDCARD = "*"
+"""What a decision writes when it is about every element rather than a pair.
+
+A default-deny policy is one record about every pair, so it is `*` on both
+sides rather than one refusal per unpermitted pair - 116 records on a
+twelve-element system, all saying the same thing.
+
+It sits here rather than in the subcomponent that first needed it because two
+of them now read it: the resolver falls back to the general refusal when no
+rule names a pair, and the arbiter has to tell that refusal apart from a named
+prohibition. Two spellings of "about everything" would be two answers to
+whether a fact was specifically forbidden.
+"""
+
+
 class Verdict(StrEnum):
     """What the reasoner concluded about one fact against one decision.
 
@@ -114,6 +129,71 @@ class VerificationOutcome(StrEnum):
     AGREE = "agree"
     DISAGREE = "disagree"
     UNCERTAIN = "uncertain"
+
+
+class VerdictSource(StrEnum):
+    """What produced a verdict.
+
+    `ARBITER` means no model was involved at all: every rung above the last
+    one failed, and the deterministic table was the whole of it. Published on
+    the verdict, and from there onto the published edge, because a run with a
+    dead key would otherwise be indistinguishable from a successful one.
+    """
+
+    MODEL = "model"
+    ARBITER = "arbiter"
+
+
+class ArbiterAgreement(StrEnum):
+    """What comparing the model's verdict with the table's concluded.
+
+    The two kinds of silence are different and keeping them apart is the
+    point. `NOT_COMPARABLE` means the model answered in a vocabulary the table
+    does not share - `partially_confirms` and `unrelated` are refinements a
+    two-value oracle cannot speak to, and calling that a disagreement would
+    manufacture a conflict out of a vocabulary mismatch. `NOT_CHECKED` means
+    the table abstained, so nothing checked this fact.
+
+    The field that carries this is nullable, and null is a third absence
+    again: on a verdict the arbiter itself produced there is no model verdict
+    to compare with, and `NOT_CHECKED` would be wrong because the table did
+    not abstain - it answered.
+    """
+
+    AGREED = "agreed"
+    DISAGREED = "disagreed"
+    NOT_COMPARABLE = "not_comparable"
+    NOT_CHECKED = "not_checked"
+
+
+class GuardFailure(StrEnum):
+    """Why a model response was rejected.
+
+    Recorded rather than collapsed into a single error, because the failures
+    mean different things: a malformed response is a schema or provider
+    problem, and a citation that resolves to nothing is the model inventing
+    evidence.
+
+    It sits at the component level rather than inside the reasoner because the
+    verdict publishes it and because verification reuses the same guards. Two
+    vocabularies for one rejection would be two answers to why a fact was
+    held back.
+    """
+
+    MALFORMED = "malformed"
+    UNRESOLVED_CITATION = "unresolved_citation"
+    NO_CITATION = "no_citation"
+    CONTEXT_ONLY_CITATION = "context_only_citation"
+    SUPERSEDED_AS_GOVERNING = "superseded_as_governing"
+    """The two that are about a citation being real but unusable.
+
+    `CONTEXT_ONLY_CITATION` is a conclusion resting on a one-hop neighbour -
+    every reference exists, and none of them is the kind of thing a verdict
+    can rest on. `SUPERSEDED_AS_GOVERNING` is the sharper case and it is this
+    component's worst available output: a verdict resting on the decision the
+    resolver considered and correctly rejected, which is legitimately in the
+    package as context and looks completely normal.
+    """
 
 
 class EvidenceRole(StrEnum):
@@ -386,9 +466,25 @@ class EvidencePackage:
     `truncated` is published rather than silent. A package that quietly drops
     items produces a verdict that cannot be explained, and a package that
     truncates differently between runs would miss the cache without saying so.
+
+    `subject`, `relationship`, `object` and `release_id` are the question this
+    is evidence *for*, in the names a person reads. They are carried because
+    the reasoner's renderer is handed the package and nothing else - one that
+    could reach the fact would be reading evidence that was never sealed - and
+    a packet of evidence that cannot state its own question is a riddle rather
+    than a question.
+
+    They are deliberately **not** part of `evidence_hash`. `fact_id` is
+    hashed, and it is derived from this same triple and release, so adding
+    them would change every hash already recorded while discriminating between
+    nothing the fact id does not already separate.
     """
 
     fact_id: str
+    subject: str
+    relationship: RelationshipKind
+    object: str
+    release_id: str
     evidence_hash: str
     items: tuple[EvidenceItem, ...]
     truncated: bool = False
@@ -419,6 +515,44 @@ class AIResult:
 
 
 @dataclass(frozen=True)
+class PromptTemplate:
+    """One versioned prompt, already loaded.
+
+    `version` is the field that does the work: it is part of the cache key and
+    it is what a published result is attributed to. `v1` is never edited once
+    results exist - a changed prompt is `v2` - which is also what makes the
+    paraphrase-robustness arm a second file rather than a rewrite.
+
+    The component holds the shape and never the file. Loading happens in
+    infrastructure and the template is passed in, so a prompt stays a
+    reviewable text artifact without any component learning how to open one.
+    """
+
+    version: str
+    system: str
+    body: str
+
+
+@dataclass(frozen=True)
+class ArbiterCheck:
+    """What the deterministic table concluded about one fact.
+
+    Two fields, deliberately. `verdict` is `CONFIRMS`, `CONTRADICTS` or
+    `None`, and `None` is an abstention with a reason rather than a failure:
+    an oracle that answers everything is not an oracle.
+
+    `basis` names the row of the table that was used and is never empty, for
+    either answer. It is published because a mechanical verdict looks
+    authoritative and is only as good as the rule extraction above it - so the
+    row sits on screen beside the conclusion where it can be argued with,
+    rather than being a number nobody can question.
+    """
+
+    verdict: Verdict | None
+    basis: str
+
+
+@dataclass(frozen=True)
 class PrimaryVerdict:
     """The reasoner's conclusion about one fact.
 
@@ -437,6 +571,68 @@ class PrimaryVerdict:
     evidence_hash: str
     cached: bool
     retried: bool = False
+
+    provider: str = ""
+    schema_mode: str = ""
+    """What answered, and under what enforcement.
+
+    Two runs on two providers, or one in strict mode and one best-effort, are
+    not the same experiment, and a result that cannot say which it was cannot
+    be compared with the other. Provenance is also the one thing that cannot
+    be added to results afterwards.
+    """
+
+    produced_by: VerdictSource = VerdictSource.MODEL
+    arbiter: ArbiterCheck | None = None
+    arbiter_agreement: ArbiterAgreement | None = None
+    """What checked this verdict, and whether it agreed.
+
+    `arbiter` is the table's own answer with the row it used, kept beside the
+    model's rather than instead of it: overwriting would make the model
+    decoration and would throw away the only data that could ever show the
+    table itself to be wrong.
+
+    `arbiter_agreement` is null when there is no comparison to report, which
+    is the case on a verdict the arbiter produced alone - it was the verdict,
+    so there is nothing to compare it with. `NOT_CHECKED` means something
+    else: that the table abstained.
+    """
+
+    guard_failures: tuple[GuardFailure, ...] = ()
+    """Which guards rejected an answer before this one was accepted.
+
+    Kept even when the retry succeeded. A malformed response and an invented
+    citation have different fixes, and the rate of the second one is a result
+    about the model rather than an incident in a log.
+    """
+
+    ladder_rung: int = 1
+    """Which rung of the fallback ladder produced this verdict.
+
+    0 is the cache, 1 the configured model, 2 its identical retry, 3 and 4 the
+    models tried when nothing answered, 5 the arbiter alone and 6 nothing at
+    all. Published because `model_id` alone cannot distinguish a first answer
+    from a retried one, and a run that fell down the ladder and looked like a
+    normal run is the failure this component exists to prevent.
+    """
+
+    @property
+    def disagreement_note(self) -> str:
+        """One sentence for a screen, when the table and the model disagree.
+
+        Derived rather than stored, so it cannot drift from the two fields it
+        describes. Empty whenever there is no disagreement to report, which is
+        what lets a template print it unconditionally.
+        """
+
+        disagreed = self.arbiter_agreement is ArbiterAgreement.DISAGREED
+        if self.arbiter is None or not disagreed:
+            return ""
+
+        return (
+            f"The model answered {self.verdict} and the deterministic table "
+            f"answered {self.arbiter.verdict}: {self.arbiter.basis}."
+        )
 
 
 @dataclass(frozen=True)

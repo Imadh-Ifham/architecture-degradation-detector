@@ -8,26 +8,13 @@ Description:
 """
 
 from dataclasses import dataclass
-from enum import StrEnum
 
-
-class GuardFailure(StrEnum):
-    """Why a model response was rejected.
-
-    Recorded rather than collapsed into a single error, because the two
-    failures mean different things: a malformed response is a schema or
-    provider problem, and a citation that resolves to nothing is the model
-    inventing evidence.
-    """
-
-    MALFORMED = "malformed"
-    UNRESOLVED_CITATION = "unresolved_citation"
-    NO_CITATION = "no_citation"
+from ..models import GuardFailure
 
 
 @dataclass(frozen=True)
 class GuardOutcome:
-    """The result of running both guards over one response.
+    """The result of running the guards over one response.
 
     A rejected response is retried exactly once with identical input, then
     becomes insufficient evidence. It never becomes a verdict: a system that
@@ -37,4 +24,12 @@ class GuardOutcome:
 
     accepted: bool
     failure: GuardFailure | None = None
-    unresolved_refs: tuple[str, ...] = ()
+    refs_at_fault: tuple[str, ...] = ()
+    """The citations the rejection is about.
+
+    Named for the fault rather than for one guard's version of it, because
+    they are not always references that failed to resolve: guard C's are real
+    items that cannot carry a conclusion, and guard D's is the decision that
+    was replaced. Carried at all because *a citation was wrong* cannot be told
+    apart from *the model invented a document* without them.
+    """

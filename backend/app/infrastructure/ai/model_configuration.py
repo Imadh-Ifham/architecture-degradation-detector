@@ -27,6 +27,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 TASK_PRIMARY_VERDICT = "primary_verdict"
 TASK_VERIFICATION = "verification"
 
+TASK_PRIMARY_VERDICT_FALLBACK = "primary_verdict_fallback"
+TASK_PRIMARY_VERDICT_LOCAL = "primary_verdict_local"
+"""The two rungs below the primary verdict, named as tasks rather than models.
+
+The reasoner's ladder tries another model when nothing answered, and a
+component may not name a model - so the rungs are tasks and this file decides
+what answers them. Both are deliberately only for the reasoner: verification
+must never fall back to another model, because a verifier that is not
+independent of the reasoner is a model agreeing with itself.
+"""
+
 SCHEMA_MODE_STRICT = "strict"
 SCHEMA_MODE_BEST_EFFORT = "best_effort"
 
@@ -49,6 +60,13 @@ class AISettings(BaseSettings):
     # providers the second model costs nothing, so the stronger design is free.
     ai_reasoner_model: str = "openai/gpt-oss-20b"
     ai_verifier_model: str = "qwen/qwen3-32b"
+
+    # The reasoner's two fallbacks. The first is a larger sibling on the same
+    # provider, for when the configured model is the thing that is down; the
+    # second is a local runtime, for when the network is. Both are chosen for
+    # availability rather than for quality, and a verdict says which answered.
+    ai_fallback_model: str = "openai/gpt-oss-120b"
+    ai_local_model: str = "llama3.2:3b"
 
     ai_schema_mode: str = SCHEMA_MODE_STRICT
     ai_temperature: float = 0.0
@@ -78,6 +96,8 @@ class AISettings(BaseSettings):
 
         mapping = {
             TASK_PRIMARY_VERDICT: self.ai_reasoner_model,
+            TASK_PRIMARY_VERDICT_FALLBACK: self.ai_fallback_model,
+            TASK_PRIMARY_VERDICT_LOCAL: self.ai_local_model,
             TASK_VERIFICATION: self.ai_verifier_model,
         }
         if task not in mapping:

@@ -22,6 +22,7 @@ Description:
     inventory fixtures.
 """
 
+import inspect
 import json
 from datetime import datetime
 from pathlib import Path
@@ -29,9 +30,12 @@ from pathlib import Path
 import pytest
 
 from app.components.architecture_validation.models import (
-    EvidenceRole,
+    ArbiterAgreement,
+    ArbiterCheck,
     ClassifiedFact,
     EvidencePackage,
+    EvidenceRole,
+    GuardFailure,
     PrimaryVerdict,
     Resolution,
     ScoreTrace,
@@ -40,6 +44,7 @@ from app.components.architecture_validation.models import (
     Verdict,
     Verification,
     VerificationOutcome,
+    VerdictSource,
 )
 from app.components.architecture_validation.architect_review import (
     ArchitectReviewService,
@@ -62,6 +67,11 @@ from app.components.architecture_validation.observation_normalization import (
     ObservationNormalizationService,
 )
 from app.components.architecture_validation.pipeline import IMPLEMENTED_STAGES
+from app.components.architecture_validation.validation_reasoning._arbiter import decide
+from app.components.architecture_validation.validation_reasoning._prompt import (
+    render,
+    verdict_schema,
+)
 from app.components.architecture_validation.validation_reasoning import (
     ValidationReasoningService,
 )
@@ -85,6 +95,17 @@ from app.infrastructure.recovery_gateway.fixture_reader import (
 from app.components.architecture_validation.evidence_retrieval._neighbourhood import (
     MAX_NEIGHBOURS,
 )
+from app.infrastructure.ai import (
+    TASK_PRIMARY_VERDICT,
+    TASK_PRIMARY_VERDICT_FALLBACK,
+    TASK_PRIMARY_VERDICT_LOCAL,
+    AISettings,
+    ConfiguredAIClient,
+    VerdictCache,
+    load_prompt,
+)
+from app.infrastructure.ai.providers.fake import FakeProvider
+from app.infrastructure.ai.providers.openai_compatible import strictify
 from app.infrastructure.decision_log import JsonlDecisionStore
 from app.infrastructure.recovery_gateway.snapshot_file_reader import (
     SnapshotFileReader,
@@ -143,15 +164,25 @@ class StubEvidence:
 
     def assemble(self, fact, resolution, architecture) -> EvidencePackage:
         self.calls += 1
-        return EvidencePackage(fact_id=fact.fact_id, evidence_hash="hash-1", items=())
+        return EvidencePackage(
+            fact_id=fact.fact_id,
+            subject=fact.subject.name,
+            relationship=fact.relationship,
+            object=fact.object.name,
+            release_id=fact.release_id,
+            evidence_hash="hash-1",
+            items=(),
+        )
 
 
 class StubReasoning:
     def __init__(self) -> None:
         self.calls = 0
+        self.arbiter_checks = []
 
-    def judge(self, package) -> PrimaryVerdict:
+    def judge(self, package, arbiter) -> PrimaryVerdict:
         self.calls += 1
+        self.arbiter_checks.append(arbiter)
         return PrimaryVerdict(
             fact_id=package.fact_id,
             verdict=Verdict.CONFIRMS,
@@ -445,6 +476,35 @@ class TestAgainstTheRecordedInventory:
         assert not any("shoppingassistant" in path for path in policies)
 
 
+def unreachable_reasoner():
+    """The real reasoning stage over a provider that cannot answer.
+
+    The suite must never depend on a key or a network: a test that starts
+    making real calls the day somebody fills in `.env` is a test that fails
+    for reasons unrelated to the code. A provider that cannot answer is the
+    one state every machine is guaranteed to be in, and it exercises the rung
+    the demonstration's rollback rests on - a verdict from the deterministic
+    table, badged as having had no model behind it.
+    """
+
+    settings = AISettings(ai_api_key="not-a-real-key")
+    client = ConfiguredAIClient(
+        FakeProvider(fail_times=99),
+        settings=settings,
+        cache=VerdictCache("unused", enabled=False),
+    )
+    return ValidationReasoningService(
+        client,
+        load_prompt("primary_verdict.v1.md"),
+        (
+            TASK_PRIMARY_VERDICT,
+            TASK_PRIMARY_VERDICT_FALLBACK,
+            TASK_PRIMARY_VERDICT_LOCAL,
+        ),
+        provider="fake",
+    )
+
+
 def build_unimplemented(release="v0.10.0"):
     """Assemble the pipeline from the real subcomponents, stubs and all.
 
@@ -461,7 +521,7 @@ def build_unimplemented(release="v0.10.0"):
             WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
         ),
         evidence=EvidenceRetrievalService(WorkspaceReader()),
-        reasoning=ValidationReasoningService(),
+        reasoning=unreachable_reasoner(),
         verification=IndependentVerificationService(),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
@@ -1331,3 +1391,453 @@ class TestTheM3Gate:
         later = {package.evidence_hash for package in self.packages("v0.10.0")}
 
         assert not earlier & later
+
+
+def _rule_ref(prompt: str) -> str:
+    """The reference of the rule item in a rendered prompt.
+
+    Falls back to a reference that exists nowhere, so a package rendered
+    without a rule is caught by Guard B rather than quietly accepted.
+    """
+
+    for line in prompt.splitlines():
+        if line.startswith("[") and line.endswith("] rule"):
+            return line[1:].split("]")[0]
+    return "ADR-999"
+
+
+class CitingProvider(FakeProvider):
+    """A fake that cites the rule it was actually shown.
+
+    One canned answer resolves for exactly one of the fifteen packages, which
+    would make a corpus-wide gate a statement about a single fact. Reading the
+    reference out of the prompt is the least a model has to do to get past
+    Guard B, and it makes the run below fifteen real questions.
+    """
+
+    def complete(
+        self,
+        model_id: str,
+        prompt: str,
+        schema: dict,
+        strict: bool = True,
+        temperature: float = 0.0,
+        seed: int | None = 42,
+    ) -> dict:
+        self._responses = {
+            "reasoning": "the rule in this package names the dependency",
+            "cited_evidence_refs": [_rule_ref(prompt)],
+            "verdict": "confirms",
+        }
+        return super().complete(model_id, prompt, schema, strict, temperature, seed)
+
+
+class TestTheM4Gate:
+    """The stage gate for M4, as one executable checklist.
+
+    Every row of `05_validation_reasoning/01_TARGETED_ARCHITECTURE.md` §9,
+    asserted over **both** committed releases, beside the gates for M1, M2 and
+    M3. Most rows are covered in detail in `test_validation_reasoning.py`; the
+    point of repeating them here is that the checklist stops being a list
+    somebody ticks and becomes one the suite ticks.
+
+    Two rows carry more weight than the rest, and both are about a check that
+    did not happen looking like one that passed. A phantom citation is
+    perfectly schema-valid, so Guard B is the entire grounding guarantee. And
+    a verdict the deterministic table produced on its own is a real verdict
+    with no model behind it - if that is not badged, a run with a dead key is
+    indistinguishable from a successful one.
+    """
+
+    RELEASES = ("v0.9.0", "v0.10.0")
+    REPOSITORY = "online-boutique"
+    TASKS = (
+        TASK_PRIMARY_VERDICT,
+        TASK_PRIMARY_VERDICT_FALLBACK,
+        TASK_PRIMARY_VERDICT_LOCAL,
+    )
+
+    # ---- the pieces, wired the way the composition root wires them ----
+
+    def template(self):
+        return load_prompt("primary_verdict.v1.md")
+
+    def reasoner(self, provider, cache=None):
+        settings = AISettings(ai_api_key="not-a-real-key")
+        client = ConfiguredAIClient(
+            provider,
+            settings=settings,
+            cache=cache or VerdictCache("unused", enabled=False),
+        )
+        return ValidationReasoningService(
+            client, self.template(), self.TASKS, provider="fake"
+        )
+
+    def pipeline(self, provider, cache=None):
+        """The real first four stages, with the four after them stubbed.
+
+        Which is what makes this a gate on M4 rather than on the whole
+        component: every fact of a release reaches the reasoner, and nothing
+        downstream of it is real enough to hide a mistake.
+        """
+
+        return ArchitectureValidationService(
+            architecture_reader=SnapshotFileReader(SNAPSHOTS),
+            normalization=ObservationNormalizationService(),
+            knowledge=DecisionKnowledgeService(
+                WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
+            ),
+            evidence=EvidenceRetrievalService(WorkspaceReader()),
+            reasoning=self.reasoner(provider, cache),
+            verification=StubVerification(),
+            classification=StubClassification(),
+            review=StubReview(),
+            publishing=StubPublishing(),
+        )
+
+    def architecture(self, release):
+        return SnapshotFileReader(SNAPSHOTS).read(self.REPOSITORY, release)
+
+    def governed(self, release):
+        """Every fact of one release with the decision that governs it."""
+
+        architecture = self.architecture(release)
+        facts = ObservationNormalizationService().normalise(architecture).facts
+        store = DecisionKnowledgeService(
+            WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
+        )
+        for fact in facts:
+            resolution = store.resolve(fact, self.REPOSITORY)
+            if resolution.governing is not None:
+                yield fact, resolution
+
+    def packages(self, release):
+        architecture = self.architecture(release)
+        evidence = EvidenceRetrievalService(WorkspaceReader())
+        return [
+            evidence.assemble(fact, resolution, architecture)
+            for fact, resolution in self.governed(release)
+        ]
+
+    def stage(self, result, name="validation_reasoning"):
+        return next(stage for stage in result.stages if stage.name == name)
+
+    # ---- the boundary ----
+
+    def test_the_subcomponent_names_no_model_no_provider_and_no_key(self):
+        """It asks for a task and hands over a schema. The moment one of these
+        words appears in it, it has started choosing a model or reaching for a
+        credential."""
+
+        folder = (
+            Path(__file__).resolve().parents[3]
+            / "app"
+            / "components"
+            / "architecture_validation"
+            / "validation_reasoning"
+        )
+
+        for module in folder.rglob("*.py"):
+            body = module.read_text(encoding="utf-8").lower()
+            for forbidden in ("httpx", "openai", "groq", "ai_api_key", "open("):
+                assert forbidden not in body, f"{module.name} names {forbidden}"
+
+    # ---- the question the model is asked ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_item_reaches_the_prompt_with_its_reference(self, release):
+        """A model cites what it can name, so an item rendered without its
+        reference may as well not be in the package."""
+
+        template = self.template()
+        for package in self.packages(release):
+            rendered = render(template, package)
+            for item in package.items:
+                assert item.ref in rendered
+                assert item.text.splitlines()[0] in rendered
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_prompt_never_carries_the_arbiters_answer(self, release):
+        """Tell the model what the table decided and it agrees with it: the
+        agreement rate goes to a hundred per cent, every measured number
+        improves, and the only uncorrelated check in the component is gone."""
+
+        template = self.template()
+        for package in self.packages(release):
+            rendered = render(template, package).lower()
+            assert "arbiter" not in rendered
+            assert "basis" not in rendered
+
+    def test_the_renderer_takes_the_template_and_the_package_and_nothing_else(self):
+        assert list(inspect.signature(render).parameters) == ["template", "package"]
+
+    def test_the_schema_puts_the_reasoning_and_the_citations_first(self):
+        """Constrained decoding fills the fields in declaration order, so this
+        is what makes the verdict conditioned on the reasoning rather than
+        defended by it afterwards."""
+
+        properties = list(strictify(verdict_schema())["properties"])
+
+        assert properties.index("reasoning") < properties.index("verdict")
+        assert properties.index("cited_evidence_refs") < properties.index("verdict")
+        assert strictify(verdict_schema())["required"] == properties
+
+    # ---- what a guard refuses ----
+
+    def test_a_citation_outside_the_package_is_refused_retried_and_degraded(self):
+        """The most important row in this gate. `["ADR-999"]` is perfectly
+        schema-valid, and nothing but this comparison can say it refers to
+        nothing."""
+
+        package = self.packages("v0.10.0")[0]
+        phantom = {
+            "reasoning": "ADR-999 forbids this",
+            "cited_evidence_refs": ["ADR-999"],
+            "verdict": "contradicts",
+        }
+        ai = FakeProvider([phantom, phantom])
+
+        verdict = self.reasoner(ai).judge(
+            package, ArbiterCheck(Verdict.CONFIRMS, "named as permitted")
+        )
+
+        assert verdict.verdict is Verdict.INSUFFICIENT_EVIDENCE
+        assert verdict.verdict is not Verdict.CONTRADICTS
+        assert GuardFailure.UNRESOLVED_CITATION in verdict.guard_failures
+        assert verdict.retried is True
+        assert ai.call_count == 2
+
+    def test_a_malformed_answer_twice_never_becomes_a_verdict(self):
+        package = self.packages("v0.10.0")[0]
+
+        verdict = self.reasoner(FakeProvider(malformed_times=2)).judge(
+            package, ArbiterCheck(Verdict.CONFIRMS, "named as permitted")
+        )
+
+        assert verdict.verdict is Verdict.INSUFFICIENT_EVIDENCE
+        assert GuardFailure.MALFORMED in verdict.guard_failures
+
+    def test_a_conclusion_resting_only_on_context_is_refused(self):
+        package = next(
+            p
+            for p in self.packages("v0.10.0")
+            if any(i.role is EvidenceRole.STRUCTURAL_CONTEXT for i in p.items)
+        )
+        neighbour = next(
+            item.ref
+            for item in package.items
+            if item.role is EvidenceRole.STRUCTURAL_CONTEXT
+        )
+        answer = {
+            "reasoning": "its neighbours look reasonable",
+            "cited_evidence_refs": [neighbour],
+            "verdict": "confirms",
+        }
+
+        verdict = self.reasoner(FakeProvider([answer, answer])).judge(
+            package, ArbiterCheck(Verdict.CONFIRMS, "named as permitted")
+        )
+
+        assert verdict.verdict is Verdict.INSUFFICIENT_EVIDENCE
+        assert GuardFailure.CONTEXT_ONLY_CITATION in verdict.guard_failures
+
+    def test_a_verdict_resting_on_the_replaced_decision_is_refused(self):
+        """The decision the resolver considered and correctly rejected is in
+        the package as context. A verdict resting on it would be the single
+        most embarrassing output this component could produce, and it would
+        look entirely normal."""
+
+        fact, resolution = next(self.governed("v0.10.0"))
+        with_supersession = Resolution(
+            governing=resolution.governing,
+            superseded_ancestor="sa-shared-component",
+            superseded=_superseded_record(),
+        )
+        package = EvidenceRetrievalService(WorkspaceReader()).assemble(
+            fact, with_supersession, self.architecture("v0.10.0")
+        )
+        answer = {
+            "reasoning": "sa-shared-component settles it",
+            "cited_evidence_refs": ["sa-shared-component"],
+            "verdict": "confirms",
+        }
+
+        verdict = self.reasoner(FakeProvider([answer, answer])).judge(
+            package, ArbiterCheck(Verdict.CONFIRMS, "named as permitted")
+        )
+
+        assert verdict.verdict is Verdict.INSUFFICIENT_EVIDENCE
+        assert GuardFailure.SUPERSEDED_AS_GOVERNING in verdict.guard_failures
+
+    # ---- the three judges, over the whole corpus ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_the_arbiter_decides_or_abstains_for_every_governed_fact(self, release):
+        """With a basis either way. An abstention with no reason would be a
+        fact nothing checked, reported as though something had."""
+
+        for fact, resolution in self.governed(release):
+            check = decide(fact, resolution.governing)
+
+            assert check.basis
+            assert check.verdict in (None, Verdict.CONFIRMS, Verdict.CONTRADICTS)
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_every_verdict_of_a_whole_release_carries_its_provenance(self, release):
+        """Two runs on two providers, or one strict and one best-effort, are
+        not the same experiment - and provenance cannot be added to results
+        that already exist."""
+
+        reasoner = self.reasoner(CitingProvider())
+
+        for fact, resolution in self.governed(release):
+            package = EvidenceRetrievalService(WorkspaceReader()).assemble(
+                fact, resolution, self.architecture(release)
+            )
+            verdict = reasoner.judge(package, decide(fact, resolution.governing))
+
+            assert verdict.verdict is Verdict.CONFIRMS
+            assert verdict.model_id and verdict.provider and verdict.prompt_version
+            assert verdict.schema_mode == "strict"
+            assert verdict.evidence_hash == package.evidence_hash
+            assert verdict.produced_by is VerdictSource.MODEL
+            assert verdict.arbiter_agreement is ArbiterAgreement.AGREED
+
+    def test_a_model_disagreeing_with_a_decided_table_publishes_both(self):
+        package = self.packages("v0.10.0")[0]
+        mechanical = ArbiterCheck(Verdict.CONTRADICTS, "nothing names this pair")
+
+        verdict = self.reasoner(CitingProvider()).judge(package, mechanical)
+
+        assert verdict.verdict is Verdict.CONFIRMS
+        assert verdict.arbiter_agreement is ArbiterAgreement.DISAGREED
+        assert verdict.arbiter.basis in verdict.disagreement_note
+
+    def test_a_fact_the_table_abstained_on_says_so_rather_than_agreeing(self):
+        package = self.packages("v0.10.0")[0]
+
+        verdict = self.reasoner(CitingProvider()).judge(
+            package, ArbiterCheck(None, "the pair was inferred from prose")
+        )
+
+        assert verdict.arbiter_agreement is ArbiterAgreement.NOT_CHECKED
+
+    def test_a_dead_provider_still_produces_a_badged_verdict(self):
+        package = self.packages("v0.10.0")[0]
+
+        verdict = self.reasoner(FakeProvider(fail_times=99)).judge(
+            package, ArbiterCheck(Verdict.CONFIRMS, "named as permitted")
+        )
+
+        assert verdict.verdict is Verdict.CONFIRMS
+        assert verdict.produced_by is VerdictSource.ARBITER
+        assert verdict.model_id == "none"
+        assert verdict.ladder_rung == 5
+
+    def test_the_ladder_is_bounded_and_a_guard_failure_never_changes_model(self):
+        package = self.packages("v0.10.0")[0]
+        check = ArbiterCheck(Verdict.CONFIRMS, "named as permitted")
+
+        unreachable = FakeProvider(fail_times=99)
+        self.reasoner(unreachable).judge(package, check)
+
+        phantom = {
+            "reasoning": "ADR-999",
+            "cited_evidence_refs": ["ADR-999"],
+            "verdict": "confirms",
+        }
+        rejected = FakeProvider([phantom] * 4)
+        self.reasoner(rejected).judge(package, check)
+
+        assert unreachable.call_count <= 4
+        assert len({call["model_id"] for call in rejected.calls}) == 1
+
+    # ---- the run, and what it costs ----
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_a_run_calls_the_model_once_per_governed_fact_and_never_otherwise(
+        self, release
+    ):
+        """The short-circuit M1 and M2 earned, still holding now that this
+        stage exists: nothing uncovered, ambiguous or unresolved reaches a
+        model at all."""
+
+        ai = CitingProvider()
+        expected = len(list(self.governed(release)))
+
+        result = self.pipeline(ai).run(
+            repository_id=self.REPOSITORY, release_id=release
+        )
+        counts = self.stage(result).counts
+
+        assert ai.call_count == expected
+        assert counts["verdicts"] == expected
+        assert counts["from_model"] == expected
+        assert counts["from_arbiter"] == 0
+
+    def test_the_run_record_says_which_rung_each_verdict_came_from(self):
+        """A run that fell to the arbiter and looked like a normal run would be
+        the exact failure Rule 7 forbids, so the zero is published too."""
+
+        result = self.pipeline(CitingProvider()).run(
+            repository_id=self.REPOSITORY, release_id="v0.10.0"
+        )
+        counts = self.stage(result).counts
+
+        assert counts["from_cache"] == 0
+        assert counts["from_arbiter"] == 0
+        assert counts["retried"] == 0
+        assert counts["guard_rejections"] == 0
+        assert counts["arbiter_agreed"] == 15
+
+    def test_a_second_run_of_one_release_comes_entirely_from_the_cache(
+        self, tmp_path
+    ):
+        """Reproducibility, demonstrated rather than asserted: the same
+        question gets the same answer and costs nothing the second time."""
+
+        ai = CitingProvider()
+        cache = VerdictCache(tmp_path / "cache")
+
+        first = self.pipeline(ai, cache).run(
+            repository_id=self.REPOSITORY, release_id="v0.10.0"
+        )
+        calls_after_first = ai.call_count
+        second = self.pipeline(ai, cache).run(
+            repository_id=self.REPOSITORY, release_id="v0.10.0"
+        )
+
+        assert self.stage(first).counts["from_cache"] == 0
+        assert self.stage(second).counts["from_cache"] == 15
+        assert ai.call_count == calls_after_first
+
+    def test_four_of_eight_stages_are_implemented(self):
+        assert len(IMPLEMENTED_STAGES) == 4
+        assert "validation_reasoning" in IMPLEMENTED_STAGES
+
+
+def _superseded_record():
+    """The decision `sa-inline-with-workload` replaced, as M2 recorded it."""
+
+    from app.components.architecture_validation.models import (
+        ConstraintKind,
+        DecisionRecord,
+        EvidenceStrength,
+        ExtractionMethod,
+    )
+
+    return DecisionRecord(
+        decision_id="sa-shared-component",
+        subject="*",
+        constraint=ConstraintKind.MUST_CALL_VIA,
+        object="kustomize/components/service-accounts",
+        valid_from="v0.9.0",
+        valid_to="v0.10.0",
+        source="config_scan",
+        source_repository="online-boutique",
+        source_tier=SourceTier.EXECUTABLE_CONFIG,
+        source_strength=EvidenceStrength.AUTHORITATIVE,
+        source_ref="kustomize/components/service-accounts",
+        extraction_method=ExtractionMethod.RECONSTRUCTED,
+        extracted_at=datetime(2026, 10, 15),
+    )

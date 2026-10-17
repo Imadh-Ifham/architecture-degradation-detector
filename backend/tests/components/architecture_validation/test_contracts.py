@@ -28,6 +28,7 @@ from app.components.architecture_validation.models import (
     EvidenceRole,
     EvidenceStrength,
     ExtractionMethod,
+    RelationshipKind,
     SourceTier,
     Span,
 )
@@ -225,6 +226,10 @@ class TestEvidencePackage:
 
         package = EvidencePackage(
             fact_id="f3a1",
+            subject="checkoutservice",
+            relationship=RelationshipKind.COMMUNICATES_WITH,
+            object="paymentservice",
+            release_id="v0.10.0",
             evidence_hash="abc123",
             items=(
                 EvidenceItem(
@@ -242,6 +247,10 @@ class TestEvidencePackage:
     def test_truncation_is_recorded_rather_than_silent(self):
         package = EvidencePackage(
             fact_id="f3a1",
+            subject="checkoutservice",
+            relationship=RelationshipKind.COMMUNICATES_WITH,
+            object="paymentservice",
+            release_id="v0.10.0",
             evidence_hash="abc123",
             items=(),
             truncated=True,

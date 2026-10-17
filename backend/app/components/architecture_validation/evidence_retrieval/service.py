@@ -69,6 +69,12 @@ class EvidenceRetrievalService:
         Everything is ordered deterministically, because the package's hash is
         both the cache key and the guarantee that two runs over one release
         produce the same question.
+
+        The question itself travels on the package - the two element names as
+        a person reads them, the relationship and the release. The reasoner's
+        prompt is rendered from the package alone, so evidence that could not
+        say what it was evidence for would have to be rendered beside a fact
+        nothing had sealed.
         """
 
         if resolution.governing is None:
@@ -83,6 +89,10 @@ class EvidenceRetrievalService:
 
         return EvidencePackage(
             fact_id=fact.fact_id,
+            subject=fact.subject.name,
+            relationship=fact.relationship,
+            object=fact.object.name,
+            release_id=fact.release_id,
             evidence_hash=_hash(fact.fact_id, items),
             items=items,
             truncated=len(items) < len(offered),

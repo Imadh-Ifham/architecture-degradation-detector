@@ -31,8 +31,11 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.domain.model_access import ModelResponseUnusable, ModelUnavailable
+
 from .model_configuration import SCHEMA_MODE_STRICT, AISettings, ai_settings
 from .model_registry import capabilities_for
+from .providers.openai_compatible import ProviderContentError, ProviderError
 
 
 @dataclass(frozen=True)
@@ -189,14 +192,23 @@ class ConfiguredAIClient:
                 task=task,
             )
 
-        response = self._provider.complete(
-            model_id=model_id,
-            prompt=prompt,
-            schema=schema,
-            strict=strict,
-            temperature=self._settings.ai_temperature,
-            seed=self._settings.ai_seed,
-        )
+        try:
+            response = self._provider.complete(
+                model_id=model_id,
+                prompt=prompt,
+                schema=schema,
+                strict=strict,
+                temperature=self._settings.ai_temperature,
+                seed=self._settings.ai_seed,
+            )
+        except ProviderContentError as error:
+            # Translated here, because this is the last place that knows which
+            # provider raised and the first place whose errors a component is
+            # allowed to catch. The two are kept apart all the way through:
+            # one is a reason to try another model and the other is not.
+            raise ModelResponseUnusable(str(error)) from error
+        except ProviderError as error:
+            raise ModelUnavailable(str(error)) from error
 
         self._cache.put(
             key,
