@@ -38,10 +38,18 @@ function Invoke-Step([string]$Name, [scriptblock]$Step) {
 Invoke-Step "ruff check" { uv run ruff check @c3Lint }
 Invoke-Step "ruff format --check" { uv run ruff format --check @c3Lint }
 Invoke-Step "mypy --strict" { uv run mypy }
+# Coverage targets: >= 85% on the component, >= 95% on trends/ (M4, the statistics everything
+# else is judged by). One pytest run records the data; `coverage report` gates trends/ from it.
+$c3Cov = @(
+    "--cov=app/components/degradation_detection", "--cov-report=term", "--cov-fail-under=85"
+)
 if ($All) {
-    Invoke-Step "pytest (all)" { uv run pytest }
+    Invoke-Step "pytest (all)" { uv run pytest @c3Cov }
 } else {
-    Invoke-Step "pytest (C3)" { uv run pytest @c3Tests -m "not integration and not llm" }
+    Invoke-Step "pytest (C3)" { uv run pytest @c3Tests -m "not integration and not llm" @c3Cov }
+}
+Invoke-Step "coverage trends/ >= 95%" {
+    uv run coverage report --include="app/components/degradation_detection/trends/*" --fail-under=95
 }
 
 Write-Host "All checks passed." -ForegroundColor Green
