@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.1.0",
+  "system_id": "tiny",
+  "release_id": "v0.1.0",
+  "released_at": "2025-01-01T00:00:00Z",
+  "granularity": "module",
+  "elements": [{"id": "a"}],
+  "validation_confidence": 0.9
+}

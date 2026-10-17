@@ -1,0 +1,30 @@
+{
+  "name": "rising_gap",
+  "description": "x = 3 + 0.8 t with a missing value at t = 4. The slope is 0.8 only if the real time axis is used; re-indexing the remaining points changes it.",
+  "time": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "values": [
+    3.0,
+    3.8,
+    4.6,
+    5.4,
+    null,
+    7.0,
+    7.8,
+    8.6,
+    9.4,
+    10.2
+  ],
+  "expected_trend": "increasing",
+  "planted_slope": 0.8
+}

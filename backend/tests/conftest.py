@@ -10,12 +10,30 @@ Description:
     as part of this suite.
 """
 
+import logging
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import structlog
+
+from app.core.logging import HANDLER_NAME
 
 collect_ignore_glob = ["fixtures/*"]
+
+
+@pytest.fixture
+def clean_logging() -> Iterator[None]:
+    """Undo ``configure_logging`` after a test, so its handler never outlives its stream."""
+    root = logging.getLogger()
+    level = root.level
+    yield
+    for handler in [h for h in root.handlers if h.get_name() == HANDLER_NAME]:
+        root.removeHandler(handler)
+    root.setLevel(level)
+    structlog.reset_defaults()
+
 
 @pytest.fixture(scope="session", autouse=True)
 def subject_trees():
@@ -31,4 +49,3 @@ def subject_trees():
     import build_subject_tree
 
     build_subject_tree.build_all()
-

@@ -225,10 +225,13 @@ components/
 │   ├── architect_review/
 │   └── graph_publishing/
 ├── degradation_detection/
-│   ├── release_analysis/
-│   ├── architecture_comparison/
+│   ├── ingestion/
 │   ├── detection/
-│   └── cause_analysis/
+│   ├── tracking/
+│   ├── trends/
+│   ├── reasoning/
+│   ├── events/
+│   └── review/
 └── degradation_scoring/
     ├── scoring_engine/
     ├── severity/

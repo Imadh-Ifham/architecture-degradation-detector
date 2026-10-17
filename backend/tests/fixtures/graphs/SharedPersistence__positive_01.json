@@ -1,0 +1,14 @@
+{
+  "description": "Chain a->b->c, no cycle. a and b both access orders_db (b twice, read and write collapse to one access), so one SharedPersistence instance on orders_db with members a,b and services_per_store 2. c uses only its own c_db, a also has a private a_cache. No other detector fires: no SCC; instabilities 1, 1/2, 0 fall along every edge (no unstable dependency); fan fences are 1 + 1.5*0.5 = 1.75 and nobody exceeds 1 (no hub); no sizes (no oversized).",
+  "elements": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+  "dependencies": [["a", "b"], ["b", "c"]],
+  "datastore_access": [["a", "orders_db"], ["a", "a_cache"], ["b", "orders_db"], ["b", "orders_db"], ["c", "c_db"]],
+  "expected": [
+    {
+      "anti_pattern_type": "SharedPersistence",
+      "scope": "INSTANCE",
+      "members": ["a", "b"],
+      "measures": {"services_per_store": 2}
+    }
+  ]
+}
