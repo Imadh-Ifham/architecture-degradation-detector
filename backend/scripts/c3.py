@@ -1,12 +1,12 @@
 """C3 command line. Run from ``backend/``:  uv run python -m scripts.c3 --help
 
 Commands are added by the task that first needs them; T-01 adds ``schemas export``, T-02
-``config show``, T-03 ``stub``, T-04 ``ingest``, T-07 ``detect``, T-08 ``align``. Logs are JSON
-lines on stderr; command output goes to stdout.
+``config show``, T-03 ``stub``, T-04 ``ingest``, T-07 ``detect``, T-08 ``align``, T-10
+``series``. Logs are JSON lines on stderr; command output goes to stdout.
 
-``ingest`` stores into and ``detect`` / ``align`` read from PostgreSQL (``docker compose up -d``,
-then ``uv run alembic upgrade head``). The database modules are imported only when a command needs
-them, so every other command works without a ``.env``.
+``ingest`` stores into and ``detect`` / ``align`` / ``series`` read from PostgreSQL
+(``docker compose up -d``, then ``uv run alembic upgrade head``). The database modules are imported
+only when a command needs them, so every other command works without a ``.env``.
 """
 
 import json
@@ -38,10 +38,12 @@ from app.components.degradation_detection.stub import StubService
 from app.components.degradation_detection.stub.models import DEFAULT_SEED
 from app.components.degradation_detection.tracking import TrackingService
 from app.components.degradation_detection.tracking.alignment_sample import alignment_sample_csv
+from app.components.degradation_detection.tracking.models import TrackingResult
+from app.components.degradation_detection.tracking.series_csv import series_csv
 from app.core.logging import configure_logging
 from app.domain.audit_entry import AuditEntryV1
 from app.domain.canonical_release import GateStatus
-from app.domain.degradation_event import DegradationEventV2
+from app.domain.degradation_event import DegradationEventV2, Scope
 from app.domain.release_package import ReleasePackageV1
 from app.shared.clock import SystemClock
 
@@ -245,6 +247,14 @@ def detect(
     typer.echo(f"{len(timeline.entries)} releases, {total} instances")
 
 
+def _track_or_exit(system: str, cfg: C3Config) -> tuple[Timeline, TrackingResult]:
+    """M2 on every release of the timeline, then M3 (T-13 replaces this with ``c3 run``)."""
+    timeline = _timeline_or_exit(system, cfg)
+    detection = DetectionService(cfg)
+    detections = [detection.detect(entry.release) for entry in timeline.entries]
+    return timeline, TrackingService(cfg).track(timeline, detections)
+
+
 @app.command("align")
 def align(
     system: Annotated[str, typer.Option(help="System id, as ingested.")],
@@ -256,11 +266,7 @@ def align(
     ] = None,
 ) -> None:
     """Print element lineages, renames and instance tracks; write the alignment sample."""
-    cfg = _load_config_or_exit(config, catalog)
-    timeline = _timeline_or_exit(system, cfg)
-    detection = DetectionService(cfg)
-    detections = [detection.detect(entry.release) for entry in timeline.entries]
-    result = TrackingService(cfg).track(timeline, detections)
+    timeline, result = _track_or_exit(system, _load_config_or_exit(config, catalog))
 
     typer.echo(f"{'lineage_id':<34} {'kind':<10} {'first':<10} {'last':<10} element_ids")
     for lin in result.lineages:
@@ -293,6 +299,33 @@ def align(
         f"{len(timeline.entries)} releases, {len(result.lineages)} lineages, "
         f"{len(result.events)} renames, {len(result.decisions)} decisions, "
         f"{len(result.tracks)} instance tracks; wrote {path}"
+    )
+
+
+@app.command("series")
+def series(
+    system: Annotated[str, typer.Option(help="System id, as ingested.")],
+    config: ConfigFile = DEFAULT_CONFIG_PATH,
+    catalog: CatalogFile = DEFAULT_CATALOG_PATH,
+    out: Annotated[
+        Path | None,
+        typer.Option(help="CSV to write. Default: out/<system>/series.csv."),
+    ] = None,
+) -> None:
+    """Write every ELEMENT, INSTANCE and SYSTEM series M4 would test, one row per point."""
+    timeline, result = _track_or_exit(system, _load_config_or_exit(config, catalog))
+
+    path = out or OUT_DIR / system / "series.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(series_csv(result.series), encoding="utf-8", newline="\n")
+    counts = {
+        scope: sum(1 for s in result.series if s.scope is scope)
+        for scope in (Scope.ELEMENT, Scope.INSTANCE, Scope.SYSTEM)
+    }
+    by_scope = ", ".join(f"{n} {scope.value}" for scope, n in counts.items())
+    typer.echo(
+        f"{len(timeline.entries)} releases; series: {by_scope}; "
+        f"{sum(len(s.points) for s in result.series)} points; wrote {path}"
     )
 
 

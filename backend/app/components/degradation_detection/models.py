@@ -66,6 +66,27 @@ class MetricDef(InternalModel):
     worsening: Worsening | None = None
 
 
+# Metrics that count the detectors' output. Their names are shared vocabulary: M2 computes them,
+# the series builder breaks their series where a detector did not run, M4 maps ``ap_count.X``
+# back to anti-pattern X.
+AP_COUNT_PREFIX = "ap_count."
+AP_INVOLVEMENT_SHARE = "ap_involvement_share"
+
+
+def ap_count(anti_pattern_type: str) -> str:
+    """Name of the metric that counts one anti-pattern type's instances in a release."""
+    return f"{AP_COUNT_PREFIX}{anti_pattern_type}"
+
+
+def counted_type(metric: str) -> str | None:
+    """The anti-pattern type an ``ap_count.<Type>`` metric counts; None for any other metric."""
+    return metric.removeprefix(AP_COUNT_PREFIX) if metric.startswith(AP_COUNT_PREFIX) else None
+
+
+def is_anti_pattern_metric(name: str) -> bool:
+    return name.startswith(AP_COUNT_PREFIX) or name == AP_INVOLVEMENT_SHARE
+
+
 class MetricObservation(InternalModel):
     release_id: str
     element_id: str | None  # None for a system-level metric

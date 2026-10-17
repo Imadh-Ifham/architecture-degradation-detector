@@ -265,3 +265,33 @@ def test_align_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> N
 
     assert result.exit_code == 1
     assert "no releases" in result.output
+
+
+# --- c3 series --------------------------------------------------------------------------------
+
+
+def test_series_writes_the_series_table(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path, tmp_path: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+    out = tmp_path / "shopfront" / "series.csv"
+
+    result = CliRunner().invoke(app, ["series", "--system", "shopfront", "--out", str(out)])
+
+    assert result.exit_code == 0, result.output
+    rows = out.read_bytes().decode("utf-8").split("\n")
+    assert rows[0] == "scope,subject_id,metric,ordinal,release_id,value"
+    s1 = [
+        r
+        for r in rows
+        if r.startswith("INSTANCE,AP-CyclicDependency:inventory@v1.1.0,member_count")
+    ]
+    assert [r.rsplit(",", 1)[1] for r in s1] == ["3", "3", "3", "4", "4", "4", "5", "5", "5"]
+    assert "series: " in result.output and f"wrote {out}" in result.output
+
+
+def test_series_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> None:
+    result = CliRunner().invoke(app, ["series", "--system", "nowhere"])
+
+    assert result.exit_code == 1
+    assert "no releases" in result.output

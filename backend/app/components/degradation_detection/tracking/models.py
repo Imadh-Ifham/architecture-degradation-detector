@@ -15,6 +15,7 @@ from app.components.degradation_detection.models import (
     Lineage,
     LineageEvent,
     LineageEventType,
+    Series,
 )
 
 # Reason codes M3 logs. Each one leaves a link out: a missed link shortens a series, a wrong one
@@ -24,6 +25,7 @@ ALIAS_CONFLICT = "ALIAS_CONFLICT"  # alias names a live id, or is claimed twice 
 LINEAGE_KIND_CHANGED = "LINEAGE_KIND_CHANGED"  # same element, different kind: lineage ends
 INSTANCE_MATCH_AMBIGUOUS = "INSTANCE_MATCH_AMBIGUOUS"  # best overlap tied with another instance
 INSTANCE_TRACK_UNCHECKED = "INSTANCE_TRACK_UNCHECKED"  # detector did not run: track ends unresolved
+SERIES_DETECTOR_GAP = "SERIES_DETECTOR_GAP"  # count series cut where its detectors changed
 
 
 class AlignOutcome(StrEnum):
@@ -88,10 +90,11 @@ class SplitMerge(InternalModel):
 
 
 class TrackingResult(InternalModel):
-    """What M3 knows about one system's timeline. T-10 adds series."""
+    """What M3 knows about one system's timeline; ``series`` is what M4 tests."""
 
     system_id: str
     lineages: tuple[Lineage, ...]
     events: tuple[LineageEvent, ...]
     decisions: tuple[AlignmentDecision, ...]
     tracks: tuple[InstanceTrack, ...]
+    series: tuple[Series, ...]

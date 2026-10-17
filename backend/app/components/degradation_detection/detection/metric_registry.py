@@ -16,7 +16,13 @@ computed after detection (``metrics.count_anti_patterns``), not from the graph.
 from collections.abc import Iterable, Sequence
 
 from app.components.degradation_detection.config import MetricsConfig
-from app.components.degradation_detection.models import MetricDef, MetricLevel
+from app.components.degradation_detection.models import (
+    AP_INVOLVEMENT_SHARE,
+    MetricDef,
+    MetricLevel,
+    ap_count,
+    is_anti_pattern_metric,
+)
 from app.domain.degradation_event import Worsening
 
 # Element level
@@ -37,15 +43,8 @@ LARGEST_SCC_SHARE = "largest_scc_share"
 CYCLIC_EDGE_COUNT = "cyclic_edge_count"
 MODULARITY = "modularity"
 
-# System level, from the detectors' output
-AP_COUNT_PREFIX = "ap_count."
-AP_INVOLVEMENT_SHARE = "ap_involvement_share"
-
-
-def ap_count(anti_pattern_type: str) -> str:
-    """Name of the metric that counts one anti-pattern type's instances in a release."""
-    return f"{AP_COUNT_PREFIX}{anti_pattern_type}"
-
+# System level, from the detectors' output: ``ap_count(<Type>)`` and ``AP_INVOLVEMENT_SHARE``,
+# named in the component models because the series builder and M4 read those names too.
 
 _UP = Worsening.INCREASE
 
@@ -122,7 +121,3 @@ class MetricRegistry:
 
     def __contains__(self, name: object) -> bool:
         return name in self._defs
-
-
-def is_anti_pattern_metric(name: str) -> bool:
-    return name.startswith(AP_COUNT_PREFIX) or name == AP_INVOLVEMENT_SHARE

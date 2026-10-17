@@ -236,3 +236,19 @@ def test_occurrence_needs_one_lineage_per_member() -> None:
 
     with pytest.raises(ValidationError, match="one lineage id per member"):
         InstanceOccurrence.model_validate(fields)
+
+
+# --- anti-pattern count metric names (shared by M2, the series builder and M4) ---------------
+
+
+def test_anti_pattern_count_names_round_trip() -> None:
+    assert models.ap_count("CyclicDependency") == "ap_count.CyclicDependency"
+    assert models.counted_type("ap_count.CyclicDependency") == "CyclicDependency"
+    assert models.counted_type("modularity") is None
+    assert models.counted_type(models.AP_INVOLVEMENT_SHARE) is None
+
+
+def test_anti_pattern_metrics_are_the_counts_and_the_involvement_share() -> None:
+    assert models.is_anti_pattern_metric("ap_count.HubLikeElement")
+    assert models.is_anti_pattern_metric("ap_involvement_share")
+    assert not models.is_anti_pattern_metric("largest_scc_share")
