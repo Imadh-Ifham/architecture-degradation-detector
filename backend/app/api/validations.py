@@ -68,8 +68,20 @@ from app.components.architecture_validation.validation_reasoning import (
 )
 from app.core.config import settings
 from app.domain.recovered_architecture import IncoherentArchitecture
+from app.infrastructure.ai import (
+    TASK_PRIMARY_VERDICT,
+    TASK_PRIMARY_VERDICT_FALLBACK,
+    TASK_PRIMARY_VERDICT_LOCAL,
+    ConfiguredAIClient,
+    ai_settings,
+    load_prompt,
+)
+from app.infrastructure.ai.providers.openai_compatible import OpenAICompatibleProvider
 from app.infrastructure.decision_log import JsonlDecisionStore
-from app.infrastructure.git.workspace_artifact_reader import WorkspaceArtifactReader
+from app.infrastructure.git.workspace_artifact_reader import (
+    ArtifactUnavailableError,
+    WorkspaceArtifactReader,
+)
 from app.infrastructure.recovery_gateway import (
     InventoryContractError,
     InventoryFileArchitectureReader,
@@ -79,6 +91,19 @@ from app.infrastructure.recovery_gateway import (
 
 
 router = APIRouter(prefix="/validations", tags=["Validation"])
+
+PRIMARY_VERDICT_PROMPT = "primary_verdict.v1.md"
+
+REASONING_TASKS = (
+    TASK_PRIMARY_VERDICT,
+    TASK_PRIMARY_VERDICT_FALLBACK,
+    TASK_PRIMARY_VERDICT_LOCAL,
+)
+"""The reasoner's ladder, in the order it is climbed.
+
+The order is wiring rather than reasoning, so it is decided here: the
+subcomponent is handed task names and never learns which models answer them.
+"""
 
 
 class StageDescriptionResponse(BaseModel):
@@ -333,6 +358,56 @@ def get_decision_store() -> JsonlDecisionStore:
 
 
 @lru_cache
+def get_ai_client() -> ConfiguredAIClient:
+    """Provide model access, configured from the environment.
+
+    Built even when no key is set, and that is deliberate. The reasoner's
+    ladder ends at a deterministic arbiter, so a run on a machine with no key
+    still produces a verdict for every governed fact and says on every one of
+    them that no model was involved - which is more useful than refusing to
+    start, and it is the demonstration's rollback.
+
+    The second adapter is the local rung's, and it is built only when an
+    endpoint for it is configured. A local runtime differs from the hosted one
+    in the URL alone, which is why one adapter class serves both; and without
+    the second adapter the rung's model id would be posted to the hosted
+    provider, which does not serve it.
+    """
+
+    local = ai_settings.ai_local_base_url
+    return ConfiguredAIClient(
+        OpenAICompatibleProvider(
+            base_url=ai_settings.ai_base_url,
+            api_key=ai_settings.ai_api_key,
+            timeout_seconds=ai_settings.ai_timeout_seconds,
+        ),
+        settings=ai_settings,
+        local_provider=(
+            OpenAICompatibleProvider(
+                base_url=local,
+                api_key=ai_settings.ai_api_key,
+                timeout_seconds=ai_settings.ai_timeout_seconds,
+            )
+            if local
+            else None
+        ),
+    )
+
+
+@lru_cache
+def get_verdict_prompt():
+    """Load the versioned prompt once, here, because this is the only layer
+    that may read a file for the component.
+
+    The component holds the shape and never the file: a prompt that a
+    subcomponent could open would be a subcomponent that reads the repository
+    it is reasoning about.
+    """
+
+    return load_prompt(PRIMARY_VERDICT_PROMPT)
+
+
+@lru_cache
 def get_validation_service() -> ArchitectureValidationService:
     """Provide the validation service, wired to the configured input.
 
@@ -347,7 +422,13 @@ def get_validation_service() -> ArchitectureValidationService:
             get_artifact_reader(), get_decision_store()
         ),
         evidence=EvidenceRetrievalService(get_artifact_reader()),
-        reasoning=ValidationReasoningService(),
+        reasoning=ValidationReasoningService(
+            get_ai_client(),
+            get_verdict_prompt(),
+            REASONING_TASKS,
+            provider=ai_settings.ai_provider,
+            allow_arbiter_only=ai_settings.ai_allow_arbiter_only,
+        ),
         verification=IndependentVerificationService(),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
@@ -423,8 +504,9 @@ class DecisionSourcesResponse(BaseModel):
     ),
     responses={
         status.HTTP_409_CONFLICT: {
-            "description": "The recovered architecture for that release "
-            "cannot be read, so there are no manifest paths to scan."
+            "description": "The repository has not been ingested, or the "
+            "recovered architecture for that release cannot be read, so there "
+            "are no manifest paths to scan."
         }
     },
 )
@@ -449,6 +531,7 @@ def describe_decision_sources(
     try:
         architecture = reader.read(repository_id, release_id)
     except (
+        ArtifactUnavailableError,
         InventoryContractError,
         SnapshotContractError,
         IncoherentArchitecture,
@@ -457,14 +540,24 @@ def describe_decision_sources(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
 
-    available = service.decision_sources(
-        SourceRequest(
-            code_repository_id=repository_id,
-            release_id=release_id,
-            extracted_at=datetime.now(UTC),
-            manifest_paths=architecture.manifest_paths,
+    try:
+        available = service.decision_sources(
+            SourceRequest(
+                code_repository_id=repository_id,
+                release_id=release_id,
+                extracted_at=datetime.now(UTC),
+                manifest_paths=architecture.manifest_paths,
+            )
         )
-    )
+    except ArtifactUnavailableError as error:
+        # The sources read the repository, so this route needs the checkout as
+        # well as the recording. Answered rather than raised: a user asking
+        # which mode to pick before ingesting anything has made a mistake with
+        # an obvious fix, and the sentence that says so is the whole answer.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
+
     best = max(available.values(), key=lambda found: found.records)
 
     return DecisionSourcesResponse(
@@ -493,10 +586,11 @@ def describe_decision_sources(
             "releases, which leaves no temporal claim to make about it."
         },
         status.HTTP_409_CONFLICT: {
-            "description": "The recovered architecture for that repository and "
-            "release cannot be used: there is none recorded, or the one on "
-            "disk is a schema version this component does not read, or it has "
-            "a relationship naming an element it does not contain."
+            "description": "The input for that repository and release cannot "
+            "be used: the repository has not been ingested, or there is no "
+            "recovered architecture recorded, or the one on disk is a schema "
+            "version this component does not read, or it has a relationship "
+            "naming an element it does not contain."
         },
     },
 )
@@ -531,16 +625,17 @@ def run_validation(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
     except (
+        ArtifactUnavailableError,
         InventoryContractError,
         SnapshotContractError,
         IncoherentArchitecture,
     ) as error:
-        # Three shapes of the same situation: the recovered architecture for
-        # this release is missing, is a version this component does not read,
-        # or does not hold together. All three are about the state of the
-        # input rather than a fault here, and all three are fixed by producing
-        # a usable recording - so all three are a conflict and carry the
-        # message that says which one it was.
+        # Four shapes of one situation: the repository was never ingested, or
+        # the recovered architecture for this release is missing, is a version
+        # this component does not read, or does not hold together. All four
+        # are about the state of the input rather than a fault here, and all
+        # four are fixed by producing a usable recording - so all four are a
+        # conflict and carry the message that says which one it was.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error

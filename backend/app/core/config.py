@@ -147,6 +147,13 @@ class Settings(BaseSettings):
         # So a key renamed in the environment fails loudly rather than being
         # silently ignored.
         extra="forbid",
+        # Read only this class's own fields from the file. `.env` is shared
+        # with `AISettings`, which owns the `ai_*` names, so without this
+        # `extra="forbid"` rejects the whole file over a key that belongs to
+        # another settings class and every consumer of these settings fails.
+        # The environment source already ignores names it does not own; this
+        # makes the file source consistent with it.
+        dotenv_filtering="only_existing",
     )
 
     @classmethod

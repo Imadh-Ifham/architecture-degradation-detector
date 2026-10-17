@@ -10,6 +10,6 @@ Description:
     Re-exports the service class only. No logic lives here.
 """
 
-from .service import ValidationReasoningService
+from .service import ArbiterOnlyRefused, ValidationReasoningService
 
-__all__ = ["ValidationReasoningService"]
+__all__ = ["ArbiterOnlyRefused", "ValidationReasoningService"]

@@ -16,6 +16,7 @@ import json
 import httpx
 import pytest
 
+from app.domain.model_access import ModelUnavailable
 from app.infrastructure.ai.interface import (
     ConfiguredAIClient,
     StrictSchemaUnsupportedError,
@@ -25,6 +26,7 @@ from app.infrastructure.ai.model_configuration import (
     SCHEMA_MODE_BEST_EFFORT,
     SCHEMA_MODE_STRICT,
     TASK_PRIMARY_VERDICT,
+    TASK_PRIMARY_VERDICT_LOCAL,
     TASK_VERIFICATION,
     AISettings,
     UnknownTaskError,
@@ -50,7 +52,7 @@ def settings(tmp_path, **overrides) -> AISettings:
         "ai_api_key": "test-key",
         "ai_cache_directory": str(tmp_path / "cache"),
         "ai_reasoner_model": "openai/gpt-oss-20b",
-        "ai_verifier_model": "qwen/qwen3-32b",
+        "ai_verifier_model": "qwen/qwen3.8-27b",
     }
     values.update(overrides)
     return AISettings(**values)
@@ -72,7 +74,7 @@ class TestTaskToModelResolution:
         configuration = settings(tmp_path)
 
         assert configuration.model_for(TASK_PRIMARY_VERDICT) == "openai/gpt-oss-20b"
-        assert configuration.model_for(TASK_VERIFICATION) == "qwen/qwen3-32b"
+        assert configuration.model_for(TASK_VERIFICATION) == "qwen/qwen3.8-27b"
 
     def test_the_reasoner_and_verifier_are_different_models_by_default(self, tmp_path):
         """With identical weights the verifier would share the reasoner's blind
@@ -101,12 +103,67 @@ class TestTaskToModelResolution:
         assert provider.calls[0]["model_id"] == "openai/gpt-oss-20b"
 
 
+class TestTheLocalEndpoint:
+    """The local rung is a second URL, and that is the whole of what it is.
+
+    Before this existed the rung resolved to a local model id and posted it to
+    the hosted provider, which does not serve it. The 404 arrived as
+    `ModelUnavailable`, the ladder moved past it, and the rung looked present
+    while being unable ever to answer - the failure Rule 7 is about, since an
+    absent fallback read as a working one.
+    """
+
+    def test_the_hosted_tasks_share_one_endpoint(self, tmp_path):
+        configured = settings(tmp_path, ai_local_base_url="http://localhost:11434/v1")
+
+        assert configured.base_url_for(TASK_PRIMARY_VERDICT) == configured.ai_base_url
+        assert configured.base_url_for(TASK_VERIFICATION) == configured.ai_base_url
+
+    def test_the_local_task_resolves_to_the_local_endpoint(self, tmp_path):
+        configured = settings(tmp_path, ai_local_base_url="http://localhost:11434/v1")
+
+        assert configured.base_url_for(TASK_PRIMARY_VERDICT_LOCAL) == (
+            "http://localhost:11434/v1"
+        )
+
+    def test_the_local_rung_goes_to_the_local_adapter_not_the_hosted_one(self, tmp_path):
+        hosted = FakeProvider(VERDICT)
+        local = FakeProvider(VERDICT, model_id="local/fake")
+        configured = settings(tmp_path, ai_local_base_url="http://localhost:11434/v1")
+        subject = ConfiguredAIClient(
+            hosted,
+            settings=configured,
+            cache=VerdictCache(tmp_path / "cache", enabled=False),
+            local_provider=local,
+        )
+
+        result = subject.complete(task=TASK_PRIMARY_VERDICT_LOCAL, prompt="p", schema={})
+
+        assert result.model_id == "local/fake"
+        assert hosted.call_count == 0
+        assert local.call_count == 1
+
+    def test_with_no_local_runtime_the_rung_says_so_instead_of_asking_the_wrong_url(
+        self, tmp_path
+    ):
+        """`ModelUnavailable` because that is the truth and because the ladder
+        already moves past it - so an unconfigured rung costs a run nothing,
+        and the message names the setting that would configure it."""
+
+        hosted = FakeProvider(VERDICT)
+        subject = client(tmp_path, hosted, ai_local_base_url="")
+
+        with pytest.raises(ModelUnavailable, match="ai_local_base_url"):
+            subject.complete(task=TASK_PRIMARY_VERDICT_LOCAL, prompt="p", schema={})
+        assert hosted.call_count == 0
+
+
 class TestModelRegistry:
     """What is known about a model, before it is used."""
 
     def test_the_default_models_support_strict_schema(self):
         assert capabilities_for("openai/gpt-oss-20b").supports_strict_schema
-        assert capabilities_for("qwen/qwen3-32b").supports_strict_schema
+        assert capabilities_for("qwen/qwen3.8-27b").supports_strict_schema
 
     def test_a_model_without_strict_support_is_recorded_as_such(self):
         """Recorded so it is not chosen by mistake."""

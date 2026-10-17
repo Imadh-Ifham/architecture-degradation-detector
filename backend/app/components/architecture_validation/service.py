@@ -25,6 +25,7 @@ Description:
 """
 
 import uuid
+from collections import Counter
 from datetime import UTC, datetime
 from time import perf_counter
 
@@ -42,13 +43,17 @@ from .graph_publishing import GraphPublishingService
 from .independent_verification import IndependentVerificationService
 from .models import (
     ClassifiedFact,
+    PrimaryVerdict,
     StageRecord,
     StageStatus,
     ValidationRunResult,
+    Verdict,
+    VerdictSource,
 )
 from .observation_normalization import ObservationNormalizationService
 from .ports import RecoveredArchitectureReader
 from .validation_reasoning import ValidationReasoningService
+from .validation_reasoning._arbiter import decide
 
 STAGE_ORDER = (
     "observation_normalization",
@@ -120,6 +125,40 @@ def _attempt(stage: _Stage, call, *arguments):
     except NotImplementedError as error:
         stage.pending(str(error) or None)
         return None, False
+
+
+def _reasoning_counts(verdicts: list[PrimaryVerdict]) -> dict:
+    """What the reasoning stage did, in the numbers a reader has to have.
+
+    Three of these answer the question the run record exists to answer: how
+    many of these verdicts had a model behind them at all. A run that fell to
+    the arbiter for every fact and reported itself the same way as a normal
+    run would be the exact failure Rule 7 forbids, so `from_arbiter` is
+    published even when it is zero - and especially then.
+
+    The agreement counts are the component's own research output: how often a
+    free open-weights model and a deterministic table reach the same verdict
+    on the cases the table can decide.
+    """
+
+    agreement = Counter(
+        str(verdict.arbiter_agreement) if verdict.arbiter_agreement else "not_compared"
+        for verdict in verdicts
+    )
+    return {
+        "verdicts": len(verdicts),
+        "from_cache": sum(1 for v in verdicts if v.cached),
+        "from_model": sum(1 for v in verdicts if v.produced_by is VerdictSource.MODEL),
+        "from_arbiter": sum(
+            1 for v in verdicts if v.produced_by is VerdictSource.ARBITER
+        ),
+        "retried": sum(1 for v in verdicts if v.retried),
+        "guard_rejections": sum(len(v.guard_failures) for v in verdicts),
+        "insufficient_evidence": sum(
+            1 for v in verdicts if v.verdict is Verdict.INSUFFICIENT_EVIDENCE
+        ),
+        **{f"arbiter_{name}": count for name, count in sorted(agreement.items())},
+    }
 
 
 def _run_status(stages: list[StageRecord]) -> str:
@@ -305,6 +344,7 @@ class ArchitectureValidationService:
         group = (knowledge, evidence, reasoning, verification, classification)
         counts = {"resolved": 0, "uncovered": 0, "ambiguous": 0, "reasoned": 0}
         classified: list[ClassifiedFact] = []
+        verdicts: list[PrimaryVerdict] = []
 
         with knowledge, evidence, reasoning, verification, classification:
             for fact in facts:
@@ -338,9 +378,21 @@ class ArchitectureValidationService:
                 if not ran:
                     break
 
-                verdict, ran = _attempt(reasoning, self._reasoning.judge, package)
+                # The arbiter is computed here, beside the resolution it
+                # reads, and handed to the reasoner. It is deliberately not
+                # the reasoner's own call to make: a stage that could decide
+                # when to consult the table could also decide to tell the
+                # model what it said, and that would end the independence the
+                # whole three-judge design rests on.
+                verdict, ran = _attempt(
+                    reasoning,
+                    self._reasoning.judge,
+                    package,
+                    decide(fact, resolution.governing),
+                )
                 if not ran:
                     break
+                verdicts.append(verdict)
 
                 checked, ran = _attempt(
                     verification, self._verification.verify, verdict, package
@@ -382,7 +434,7 @@ class ArchitectureValidationService:
                 for decision_id in unmatched
             )
         evidence.counts = {"packages": counts["resolved"]}
-        reasoning.counts = {"verdicts": counts["reasoned"]}
+        reasoning.counts = _reasoning_counts(verdicts)
         verification.counts = {"verifications": counts["reasoned"]}
         classification.counts = {"facts": len(classified)}
 

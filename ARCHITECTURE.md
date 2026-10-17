@@ -94,7 +94,7 @@ The physical skeleton established now:
 
 **Purpose:** Determine whether the recovered architecture matches the architecture that was **intended**.
 
-**Planned subcomponents:**
+**Subcomponents — the first four are built; the four after them are planned:**
 
 - **Observation normalization** — turn the recovered architecture into one uniform fact per relationship, whatever architectural style it came from, with every element name reduced to a single identity and every release identifier made orderable.
 - **Decision knowledge** — hold the architectural decisions as an append-only history and answer which one governed a relationship at a given release, with three sources behind one protocol (records in the code repository, records in a repository the user names, rules reconstructed from the repository's own configuration) and half-open validity intervals so a superseded decision never governs.
@@ -192,8 +192,8 @@ Rules:
 | `degradation_detection`   | `release_analysis`, `architecture_comparison`, `detection`, `cause_analysis`                                                     |
 | `degradation_scoring`     | `scoring_engine`, `severity`, `rules`                                                                                            |
 
-`architecture_validation`'s pipeline is **eight** subcomponents. The three already built are
-described in §3.2 and are no longer listed as planned. The four names originally listed are
+`architecture_validation`'s pipeline is **eight** subcomponents, and the first **four** are built
+(normalization, decision knowledge, evidence retrieval and validation reasoning). The four names originally listed are
 preserved rather than dropped:
 
 | Originally listed | Where its responsibility now sits |

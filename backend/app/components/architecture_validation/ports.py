@@ -115,8 +115,28 @@ class AIClient(Protocol):
     a provider or a vendor: the architecture document requires that no
     component depend on either, and it is also what makes the model a variable
     the research can change without touching reasoning code.
+
+    `prompt_version` and `evidence_hash` are passed rather than hashed out of
+    the prompt text, because together with the task they are the cache key: an
+    edited prompt file or one changed character of evidence has to miss, and
+    hashing the string would hide which of the two moved.
+
+    **How this fails is part of the contract**, because the fallback ladder is
+    built on the difference. An implementation raises `ModelUnavailable` when
+    nothing answered and `ModelResponseUnusable` when something answered with
+    content that could not be read. Anything else - a model that cannot do
+    strict schema, a task with no model configured - propagates and fails the
+    run, which is the right outcome for a misconfiguration that would
+    otherwise look like a bad day on a free tier.
     """
 
-    def complete(self, task: str, prompt: str, schema: dict) -> AIResult:
+    def complete(
+        self,
+        task: str,
+        prompt: str,
+        schema: dict,
+        prompt_version: str,
+        evidence_hash: str,
+    ) -> AIResult:
         """Return the model's response, validated against `schema`."""
         ...
