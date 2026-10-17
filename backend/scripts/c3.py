@@ -1,11 +1,11 @@
 """C3 command line. Run from ``backend/``:  uv run python -m scripts.c3 --help
 
 Commands are added by the task that first needs them; T-01 adds ``schemas export``, T-02
-``config show``, T-03 ``stub``, T-04 ``ingest``, T-07 ``detect``. Logs are JSON lines on
-stderr; command output goes to stdout.
+``config show``, T-03 ``stub``, T-04 ``ingest``, T-07 ``detect``, T-08 ``align``. Logs are JSON
+lines on stderr; command output goes to stdout.
 
-``ingest`` stores into and ``detect`` reads from PostgreSQL (``docker compose up -d``, then
-``uv run alembic upgrade head``). The database modules are imported only when a command needs
+``ingest`` stores into and ``detect`` / ``align`` read from PostgreSQL (``docker compose up -d``,
+then ``uv run alembic upgrade head``). The database modules are imported only when a command needs
 them, so every other command works without a ``.env``.
 """
 
@@ -32,9 +32,12 @@ from app.components.degradation_detection.ingestion.models import (
     IngestStatus,
     RawPackage,
 )
+from app.components.degradation_detection.models import Timeline
 from app.components.degradation_detection.ports import ReleaseRepository
 from app.components.degradation_detection.stub import StubService
 from app.components.degradation_detection.stub.models import DEFAULT_SEED
+from app.components.degradation_detection.tracking import TrackingService
+from app.components.degradation_detection.tracking.alignment_sample import alignment_sample_csv
 from app.core.logging import configure_logging
 from app.domain.audit_entry import AuditEntryV1
 from app.domain.canonical_release import GateStatus
@@ -46,6 +49,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = BACKEND_ROOT / "schemas"
 STUB_SYSTEM_DIR = BACKEND_ROOT / "data" / "samples" / "shopfront"
 SERIES_FIXTURE_DIR = BACKEND_ROOT / "tests" / "fixtures" / "series"
+OUT_DIR = BACKEND_ROOT / "out"
 
 CONTRACTS: dict[str, type[BaseModel]] = {
     "c3_input.schema.json": ReleasePackageV1,
@@ -208,6 +212,14 @@ def ingest(
     typer.echo(_summary_line(report))
 
 
+def _timeline_or_exit(system: str, cfg: C3Config) -> Timeline:
+    timeline = IngestService(release_repository(), SystemClock(), cfg).timeline(system)
+    if not timeline.entries:
+        typer.echo(f"no releases on the timeline of system {system!r}; run `c3 ingest` first")
+        raise typer.Exit(code=1)
+    return timeline
+
+
 @app.command("detect")
 def detect(
     system: Annotated[str, typer.Option(help="System id, as ingested.")],
@@ -216,10 +228,7 @@ def detect(
 ) -> None:
     """Print the anti-pattern instances M2 finds in every release on the system's timeline."""
     cfg = _load_config_or_exit(config, catalog)
-    timeline = IngestService(release_repository(), SystemClock(), cfg).timeline(system)
-    if not timeline.entries:
-        typer.echo(f"no releases on the timeline of system {system!r}; run `c3 ingest` first")
-        raise typer.Exit(code=1)
+    timeline = _timeline_or_exit(system, cfg)
 
     detection = DetectionService(cfg)
     typer.echo(f"{'release':<10} {'gate':<12} {'anti_pattern_type':<20} members")
@@ -234,6 +243,41 @@ def detect(
                 f"{r.release_id:<10} {r.gate_status.value:<12} {anti_pattern_type:<20} {members}"
             )
     typer.echo(f"{len(timeline.entries)} releases, {total} instances")
+
+
+@app.command("align")
+def align(
+    system: Annotated[str, typer.Option(help="System id, as ingested.")],
+    config: ConfigFile = DEFAULT_CONFIG_PATH,
+    out: Annotated[
+        Path | None,
+        typer.Option(help="CSV to write. Default: out/<system>/alignment_sample.csv."),
+    ] = None,
+) -> None:
+    """Print element lineages and renames, and write the alignment sample for a manual check."""
+    cfg = _load_config_or_exit(config)
+    timeline = _timeline_or_exit(system, cfg)
+    result = TrackingService(cfg).track(timeline)
+
+    typer.echo(f"{'lineage_id':<34} {'kind':<10} {'first':<10} {'last':<10} element_ids")
+    for lin in result.lineages:
+        ids = list(dict.fromkeys(m.element_id for m in lin.members))  # each id once, in order
+        first, last = lin.members[0].release_id, lin.members[-1].release_id
+        typer.echo(f"{lin.lineage_id:<34} {lin.kind:<10} {first:<10} {last:<10} {' > '.join(ids)}")
+    for event in result.events:
+        typer.echo(
+            f"{event.release_id:<10} {event.event_type.value} {event.method.value} "
+            f"{event.lineage_id} {';'.join(event.from_element_ids)} "
+            f"{';'.join(event.to_element_ids)}"
+        )
+
+    path = out or OUT_DIR / system / "alignment_sample.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(alignment_sample_csv(result), encoding="utf-8", newline="\n")
+    typer.echo(
+        f"{len(timeline.entries)} releases, {len(result.lineages)} lineages, "
+        f"{len(result.events)} renames, {len(result.decisions)} decisions; wrote {path}"
+    )
 
 
 if __name__ == "__main__":

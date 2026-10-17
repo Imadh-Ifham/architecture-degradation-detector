@@ -222,3 +222,37 @@ def test_detect_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> 
 
     assert result.exit_code == 1
     assert "no releases" in result.output
+
+
+# --- c3 align ---------------------------------------------------------------------------------
+
+
+def test_align_prints_lineages_and_writes_the_alignment_sample(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path, tmp_path: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+    out = tmp_path / "shopfront" / "alignment_sample.csv"
+
+    result = CliRunner().invoke(app, ["align", "--system", "shopfront", "--out", str(out)])
+
+    assert result.exit_code == 0, result.output
+    rename = next(line for line in result.output.splitlines() if "RENAME" in line)
+    assert rename.split() == [
+        "v1.4.0",
+        "RENAME",
+        "ALIAS",
+        "LIN-order-svc@v1.0.0",
+        "order-svc",
+        "order-service",
+    ]
+    assert "10 releases, 15 lineages, 1 renames, 1 decisions" in result.output
+    lines = out.read_bytes().decode("utf-8").split("\n")
+    assert len([line for line in lines if line]) == 2  # header + the S4 alias link
+    assert lines[1].startswith("v1.3.0,v1.4.0,order-svc,order-service,service,ALIAS,LINKED")
+
+
+def test_align_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> None:
+    result = CliRunner().invoke(app, ["align", "--system", "nowhere"])
+
+    assert result.exit_code == 1
+    assert "no releases" in result.output

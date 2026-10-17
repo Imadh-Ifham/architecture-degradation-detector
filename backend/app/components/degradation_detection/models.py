@@ -4,8 +4,9 @@ Pure data, no I/O. Internal models use ``extra="forbid"`` and are immutable. Mod
 port (``CanonicalRelease``...) and the enums that appear in the contracts (``Scope``,
 ``Worsening``, ``TestMethod``, ``ArchitectureStyle``...) live in ``app/domain/``.
 
-Lineage and instance-track models are added by the tasks that build them (T-08, T-09). The
-graph (``ArchGraph``) is used only by M2, so it lives in ``detection/models.py``.
+Lineages (T-08) are here because instance tracking, series and the event export all read them;
+instance-track models are added by T-09. The graph (``ArchGraph``) is used only by M2, so it
+lives in ``detection/models.py``.
 """
 
 from enum import StrEnum
@@ -91,6 +92,62 @@ class ReleaseDetection(InternalModel):
     # Detector ids that ran on this release. A type missing here was not checked, so its absence
     # from ``instances`` says nothing (M3 must not resolve an instance track on it).
     detectors_run: tuple[str, ...] = ()
+
+
+# --- M3 output: element lineages -----------------------------------------------------------
+
+
+class AlignMethod(StrEnum):
+    """How an element was linked to its predecessor in the previous release."""
+
+    EXACT = "EXACT"  # same id
+    ALIAS = "ALIAS"  # the new element lists the old id in ``aliases``
+    SIMILARITY = "SIMILARITY"  # name + neighbours + size, one-to-one (Hungarian)
+
+
+class LineageEventType(StrEnum):
+    RENAME = "RENAME"
+    SPLIT = "SPLIT"  # post-PP1
+    MERGE = "MERGE"  # post-PP1
+
+
+class LineageMember(InternalModel):
+    # Position on this run's timeline, for building series. Never part of the identity.
+    ordinal: int = Field(ge=0)
+    release_id: str
+    element_id: str
+
+
+class Lineage(InternalModel):
+    """One element through time, across renames. Its members are consecutive releases.
+
+    ``lineage_id`` is ``LIN-<element_id>@<release_id>`` of the first member: unique, readable,
+    and unchanged when later releases are added. A lineage never crosses a change of ``kind``
+    and never spans a release it is missing from (the element that comes back starts a new one).
+    """
+
+    lineage_id: str
+    kind: str
+    members: tuple[LineageMember, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_members_consecutive(self) -> Self:
+        ordinals = [member.ordinal for member in self.members]
+        if ordinals != list(range(ordinals[0], ordinals[0] + len(ordinals))):
+            raise ValueError("lineage members must be in consecutive releases")
+        return self
+
+
+class LineageEvent(InternalModel):
+    """A change of identity inside a lineage, kept as evidence for M5."""
+
+    lineage_id: str
+    event_type: LineageEventType
+    release_id: str  # the release where the new identity first appears
+    from_element_ids: tuple[str, ...]
+    to_element_ids: tuple[str, ...]
+    method: AlignMethod
+    similarity: float | None = Field(default=None, ge=0, le=1)  # SIMILARITY only
 
 
 # --- M3 output: series across releases ----------------------------------------------------

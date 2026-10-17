@@ -5,8 +5,13 @@ from pydantic import ValidationError
 
 from app.components.degradation_detection import models
 from app.components.degradation_detection.models import (
+    AlignMethod,
     AntiPatternInstance,
     EventCandidate,
+    Lineage,
+    LineageEvent,
+    LineageEventType,
+    LineageMember,
     MetricDef,
     MetricLevel,
     MetricObservation,
@@ -130,3 +135,37 @@ def test_event_candidate_groups_the_trends_behind_one_event() -> None:
     )
 
     assert candidate.trends[0].metric == "member_count"
+
+
+def member(ordinal: int, element_id: str = "a") -> LineageMember:
+    return LineageMember(ordinal=ordinal, release_id=f"v1.{ordinal}.0", element_id=element_id)
+
+
+def test_lineage_follows_an_element_through_a_rename() -> None:
+    lineage = Lineage(
+        lineage_id="LIN-order-svc@v1.0.0",
+        kind="service",
+        members=(member(0, "order-svc"), member(1, "order-service")),
+    )
+    event = LineageEvent(
+        lineage_id=lineage.lineage_id,
+        event_type=LineageEventType.RENAME,
+        release_id="v1.1.0",
+        from_element_ids=("order-svc",),
+        to_element_ids=("order-service",),
+        method=AlignMethod.ALIAS,
+    )
+
+    assert [m.element_id for m in lineage.members] == ["order-svc", "order-service"]
+    assert event.similarity is None
+
+
+@pytest.mark.parametrize("ordinals", [(0, 2), (1, 0), (0, 0)], ids=["gap", "backwards", "repeat"])
+def test_lineage_members_must_be_consecutive_releases(ordinals: tuple[int, int]) -> None:
+    with pytest.raises(ValidationError, match="consecutive"):
+        Lineage(lineage_id="LIN-a@v1.0.0", kind="service", members=tuple(map(member, ordinals)))
+
+
+def test_lineage_has_at_least_one_member() -> None:
+    with pytest.raises(ValidationError):
+        Lineage(lineage_id="LIN-a@v1.0.0", kind="service", members=())
