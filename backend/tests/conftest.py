@@ -1,12 +1,26 @@
-"""Fixtures shared by the whole test suite."""
+"""Shared pytest configuration for the backend test suite.
+
+Author: Imadh Ifham
+Date: 2026-10-13
+Description:
+    Keeps the fixture repositories out of test collection. The multi-service
+    fixture deliberately contains files named like tests (for example
+    `services/checkout/tests/test_service.py`) so the inventory can be checked
+    against a realistic layout; those files must not be collected or imported
+    as part of this suite.
+"""
 
 import logging
+import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 import structlog
 
 from app.core.logging import HANDLER_NAME
+
+collect_ignore_glob = ["fixtures/*"]
 
 
 @pytest.fixture
@@ -20,25 +34,6 @@ def clean_logging() -> Iterator[None]:
     root.setLevel(level)
     structlog.reset_defaults()
 
-
-"""Shared pytest configuration for the backend test suite.
-
-Author: Imadh Ifham
-Date: 2026-10-13
-Description:
-    Keeps the fixture repositories out of test collection. The multi-service
-    fixture deliberately contains files named like tests (for example
-    `services/checkout/tests/test_service.py`) so the inventory can be checked
-    against a realistic layout; those files must not be collected or imported
-    as part of this suite.
-"""
-
-import sys
-from pathlib import Path
-
-import pytest
-
-collect_ignore_glob = ["fixtures/*"]
 
 @pytest.fixture(scope="session", autouse=True)
 def subject_trees():
@@ -54,4 +49,3 @@ def subject_trees():
     import build_subject_tree
 
     build_subject_tree.build_all()
-

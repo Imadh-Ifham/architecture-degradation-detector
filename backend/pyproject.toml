@@ -90,10 +90,6 @@ markers = [
     "integration: needs a database or the full pipeline",
     "llm: makes real LLM calls",
     "slow: long-running",
-]
-
-[tool.pytest.ini_options]
-markers = [
     "live: calls a real model provider. Deselected by default; needs a key in .env.",
 ]
 addopts = "-m 'not live'"
