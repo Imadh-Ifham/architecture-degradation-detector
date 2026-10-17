@@ -7,24 +7,89 @@ requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.0",
     "fastapi>=0.141.1",
+    "jsonschema>=4.26.0",
+    "matplotlib>=3.11.2",
     "neo4j>=6.3.1",
+    "networkx>=3.7",
+    "numpy>=2.5.4",
     "packaging>=26.3",
     "pydantic>=2.13.5",
     "psycopg[binary]>=3.3.6",
+    "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "pyyaml>=6.0.3",
+    "rapidfuzz>=3.14.6",
+    "scipy>=1.18.1",
     "sqlalchemy>=2.0.54",
+    "structlog>=26.1.0",
+    "typer>=0.27.3",
     "uvicorn[standard]>=0.53.0",
+]
+
+[project.optional-dependencies]
+cp = [
+    "ruptures>=1.1.10",
+]
+rag = [
+    "chromadb>=1.5.9",
+    "sentence-transformers>=6.1.0",
 ]
 
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "hypothesis>=6.169.0",
+    "mypy>=2.4.0",
+    "pymannkendall>=1.4.3",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.0",
+    "scipy-stubs>=1.18.1.1",
+    "statsmodels>=0.15.0",
+    "types-jsonschema>=4.26.0.20261006",
+    "types-networkx>=3.6.1.20261006",
+    "types-pyyaml>=6.0.12.20260906",
 ]
 
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+# Strict typing is scoped to the degradation detection component (C3); extend `files` as C3
+# adds modules to app/domain, app/infrastructure, app/shared, alembic and scripts. Shared folders
+# are listed file by file because other components add their own (not strict-clean) modules.
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = [
+    "app/components/degradation_detection",
+    "app/core/logging.py",
+    "app/domain/audit_entry.py",
+    "app/domain/boundary.py",
+    "app/domain/canonical_release.py",
+    "app/domain/degradation_event.py",
+    "app/domain/release_package.py",
+    "app/infrastructure/postgres/models/c3_release.py",
+    "app/infrastructure/postgres/repositories/c3_release_repository.py",
+    "app/shared",
+    "alembic/versions/0001_c3_ingestion.py",
+    "scripts/c3.py",
+]
+
+# Team modules that C3 files import but that are not strict-clean.
+[[tool.mypy.overrides]]
+module = ["app.core.config", "app.infrastructure.postgres.database"]
+ignore_errors = true
+
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
+    "integration: needs a database or the full pipeline",
+    "llm: makes real LLM calls",
+    "slow: long-running",
     "live: calls a real model provider. Deselected by default; needs a key in .env.",
 ]
 addopts = "-m 'not live'"

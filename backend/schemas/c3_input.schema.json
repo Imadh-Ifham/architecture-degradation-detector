@@ -1,0 +1,389 @@
+{
+  "$defs": {
+    "ArchitectureStyle": {
+      "enum": [
+        "monolith",
+        "microservices",
+        "layered",
+        "event-driven",
+        "generic"
+      ],
+      "title": "ArchitectureStyle",
+      "type": "string"
+    },
+    "DatastoreAccess": {
+      "properties": {
+        "datastore": {
+          "minLength": 1,
+          "title": "Datastore",
+          "type": "string"
+        },
+        "element": {
+          "minLength": 1,
+          "title": "Element",
+          "type": "string"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        }
+      },
+      "required": [
+        "element",
+        "datastore"
+      ],
+      "title": "DatastoreAccess",
+      "type": "object"
+    },
+    "Dependency": {
+      "properties": {
+        "count": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "from": {
+          "minLength": 1,
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "minLength": 1,
+          "title": "To",
+          "type": "string"
+        },
+        "types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Types",
+          "type": "array"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "title": "Dependency",
+      "type": "object"
+    },
+    "Element": {
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "extra": {
+          "additionalProperties": true,
+          "title": "Extra",
+          "type": "object"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Layer"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Metrics",
+          "type": "object"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "size_unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Unit"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Element",
+      "type": "object"
+    },
+    "IntentEntry": {
+      "properties": {
+        "date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Date"
+        },
+        "decision": {
+          "title": "Decision",
+          "type": "string"
+        },
+        "decision_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Kind"
+        },
+        "element": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Element"
+        },
+        "intent_id": {
+          "minLength": 1,
+          "title": "Intent Id",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ref"
+        },
+        "source_type": {
+          "minLength": 1,
+          "title": "Source Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent_id",
+        "source_type",
+        "decision"
+      ],
+      "title": "IntentEntry",
+      "type": "object"
+    },
+    "Provenance": {
+      "properties": {
+        "c1_model_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "C1 Model Ref"
+        },
+        "c2_validation_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "C2 Validation Ref"
+        }
+      },
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "architecture_style": {
+      "$ref": "#/$defs/ArchitectureStyle",
+      "default": "generic"
+    },
+    "datastore_access": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/DatastoreAccess"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Datastore Access"
+    },
+    "delegation": {
+      "anyOf": [
+        {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delegation"
+    },
+    "dependencies": {
+      "items": {
+        "$ref": "#/$defs/Dependency"
+      },
+      "title": "Dependencies",
+      "type": "array"
+    },
+    "elements": {
+      "items": {
+        "$ref": "#/$defs/Element"
+      },
+      "minItems": 1,
+      "title": "Elements",
+      "type": "array"
+    },
+    "granularity": {
+      "minLength": 1,
+      "title": "Granularity",
+      "type": "string"
+    },
+    "intent": {
+      "items": {
+        "$ref": "#/$defs/IntentEntry"
+      },
+      "title": "Intent",
+      "type": "array"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "release_id": {
+      "minLength": 1,
+      "title": "Release Id",
+      "type": "string"
+    },
+    "released_at": {
+      "format": "date-time",
+      "title": "Released At",
+      "type": "string"
+    },
+    "schema_version": {
+      "pattern": "^1\\.\\d+\\.\\d+$",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "system_id": {
+      "minLength": 1,
+      "title": "System Id",
+      "type": "string"
+    },
+    "validation_confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Validation Confidence",
+      "type": "number"
+    }
+  },
+  "required": [
+    "schema_version",
+    "system_id",
+    "release_id",
+    "released_at",
+    "granularity",
+    "elements",
+    "validation_confidence"
+  ],
+  "title": "ReleasePackageV1.1",
+  "type": "object"
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.1.0",
+  "system_id": "tiny",
+  "released_at": "2025-01-01T00:00:00Z",
+  "granularity": "module",
+  "elements": [
+    {
+      "id": "a"
+    },
+    {
+      "id": "b"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "a",
+      "to": "b",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    }
+  ],
+  "validation_confidence": 0.9
+}

@@ -1,0 +1,6 @@
+{
+  "description": "Diamond DAG a->b, a->c, b->d, c->d: undirected it has a cycle, directed it has none. fan_in 0,1,1,2: inclusive Q1 = 0.75, Q3 = 1.25, fence 2 (d = 2 is not above it). Instability 1, 1/2, 1/2, 0 falls along every edge.",
+  "elements": [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}],
+  "dependencies": [["a", "b"], ["a", "c"], ["b", "d"], ["c", "d"]],
+  "expected": []
+}

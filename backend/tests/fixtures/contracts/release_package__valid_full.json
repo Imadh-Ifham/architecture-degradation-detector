@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.1.0",
+  "system_id": "shopfront",
+  "release_id": "v1.4.0",
+  "released_at": "2025-04-01T00:00:00Z",
+  "architecture_style": "microservices",
+  "granularity": "service",
+  "elements": [
+    {
+      "id": "order-service",
+      "name": "order-service",
+      "kind": "service",
+      "size": 12450,
+      "size_unit": "loc",
+      "aliases": ["order-svc"],
+      "layer": null,
+      "metrics": {"lcom": 0.42},
+      "extra": {}
+    },
+    {
+      "id": "payment-service",
+      "name": "payment-service",
+      "kind": "service",
+      "size": 8300,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {"lcom": null},
+      "extra": {"team": "payments"}
+    }
+  ],
+  "dependencies": [
+    {"from": "order-service", "to": "payment-service", "types": ["call"], "count": 3}
+  ],
+  "datastore_access": [
+    {"element": "order-service", "datastore": "orders_db", "mode": "readwrite"}
+  ],
+  "delegation": null,
+  "intent": [
+    {
+      "intent_id": "ADR-021",
+      "element": "payment-service",
+      "source_type": "adr",
+      "ref": "ADR-021",
+      "decision": "split fraud-check out of payment-service",
+      "decision_kind": "split",
+      "date": "2025-03-20"
+    }
+  ],
+  "validation_confidence": 0.83,
+  "provenance": {
+    "c1_model_ref": "c1://shopfront/v1.4.0",
+    "c2_validation_ref": "c2://shopfront/v1.4.0"
+  }
+}

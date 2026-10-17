@@ -1,0 +1,30 @@
+{
+  "name": "flat",
+  "description": "A constant. The test is degenerate: p = 1.",
+  "time": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "values": [
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0,
+    5.0
+  ],
+  "expected_trend": "none",
+  "planted_slope": 0.0
+}

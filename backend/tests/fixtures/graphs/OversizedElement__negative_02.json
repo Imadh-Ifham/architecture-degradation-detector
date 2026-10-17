@@ -1,0 +1,10 @@
+{
+  "description": "MAD = 0: five of six elements share size 100, so there is no spread to measure against and size_rz is null for every element (T-05 rule). Null never fires a detector, so even the 5000-line element is not flagged.",
+  "elements": [
+    {"id": "giant", "size": 5000},
+    {"id": "e1", "size": 100}, {"id": "e2", "size": 100}, {"id": "e3", "size": 100},
+    {"id": "e4", "size": 100}, {"id": "e5", "size": 100}
+  ],
+  "dependencies": [["e1", "giant"], ["e2", "giant"]],
+  "expected": []
+}

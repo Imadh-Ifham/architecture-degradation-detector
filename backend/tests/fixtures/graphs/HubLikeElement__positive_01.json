@@ -1,0 +1,20 @@
+{
+  "description": "Star hub: s1..s6 -> h -> t1..t6 (13 elements). fan_in sorted 0x6, 1x6, 6: inclusive Q1 = x[3] = 0, Q3 = x[9] = 1, fence 1 + 1.5*1 = 2.5; fan_out is symmetric. h has 6 > 2.5 on both, degree 12. Instability 1 -> 1/2 -> 0 along every edge, so no unstable dependency.",
+  "elements": [
+    {"id": "h"},
+    {"id": "s1"}, {"id": "s2"}, {"id": "s3"}, {"id": "s4"}, {"id": "s5"}, {"id": "s6"},
+    {"id": "t1"}, {"id": "t2"}, {"id": "t3"}, {"id": "t4"}, {"id": "t5"}, {"id": "t6"}
+  ],
+  "dependencies": [
+    ["s1", "h"], ["s2", "h"], ["s3", "h"], ["s4", "h"], ["s5", "h"], ["s6", "h"],
+    ["h", "t1"], ["h", "t2"], ["h", "t3"], ["h", "t4"], ["h", "t5"], ["h", "t6"]
+  ],
+  "expected": [
+    {
+      "anti_pattern_type": "HubLikeElement",
+      "scope": "ELEMENT",
+      "members": ["h"],
+      "measures": {"degree": 12}
+    }
+  ]
+}

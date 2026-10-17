@@ -1,0 +1,11 @@
+{
+  "description": "High fan-in only (the S3 legacy-auth shape): s1..s6 -> h -> t. h is a fan-in outlier (6) but its fan-out is 1, and the fan_out fence is 1 + 1.5*0 = 1 (sorted 0, 1x7: Q1 = Q3 = 1). A hub needs both. Instability 1 -> 1/7 -> 0.",
+  "elements": [
+    {"id": "h"}, {"id": "t"},
+    {"id": "s1"}, {"id": "s2"}, {"id": "s3"}, {"id": "s4"}, {"id": "s5"}, {"id": "s6"}
+  ],
+  "dependencies": [
+    ["s1", "h"], ["s2", "h"], ["s3", "h"], ["s4", "h"], ["s5", "h"], ["s6", "h"], ["h", "t"]
+  ],
+  "expected": []
+}

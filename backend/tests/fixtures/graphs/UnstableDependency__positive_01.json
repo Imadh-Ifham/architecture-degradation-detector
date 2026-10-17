@@ -1,0 +1,17 @@
+{
+  "description": "x1, x2 -> g; g -> u, g -> z; u -> y1, y2. Instability: g = 2/4 = 1/2, u = 2/3, z = 0. g -> u points to a less stable element, so g has unstable_dep_ratio 1/2 >= 0.3 with 1 bad edge. x1, x2 (I = 1) and u (targets are sinks) have ratio 0. fan_in fence 1 + 1.5*0.5 = 1.75 (g = 2 is above), fan_out fence 1.5 + 1.5*1.5 = 3.75 (g = 2 is below): not a hub.",
+  "elements": [
+    {"id": "g"}, {"id": "u"}, {"id": "x1"}, {"id": "x2"}, {"id": "y1"}, {"id": "y2"}, {"id": "z"}
+  ],
+  "dependencies": [
+    ["x1", "g"], ["x2", "g"], ["g", "u"], ["g", "z"], ["u", "y1"], ["u", "y2"]
+  ],
+  "expected": [
+    {
+      "anti_pattern_type": "UnstableDependency",
+      "scope": "ELEMENT",
+      "members": ["g"],
+      "measures": {"bad_edge_count": 1}
+    }
+  ]
+}

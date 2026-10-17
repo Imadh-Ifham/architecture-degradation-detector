@@ -1,0 +1,21 @@
+{
+  "description": "Everyone calls one giant element. Sizes 100..170 (step 10) and 1000: median 140, absolute deviations 0,10,10,20,20,30,30,40,860, MAD 20, size_rz(giant) = 860 / (1.4826*20) = 29.0 > 3.5; the next largest (170) is 30 / 29.652 = 1.01. The giant has fan_in 8 but fan_out 0: not a hub.",
+  "elements": [
+    {"id": "giant", "size": 1000},
+    {"id": "e1", "size": 100}, {"id": "e2", "size": 110}, {"id": "e3", "size": 120},
+    {"id": "e4", "size": 130}, {"id": "e5", "size": 140}, {"id": "e6", "size": 150},
+    {"id": "e7", "size": 160}, {"id": "e8", "size": 170}
+  ],
+  "dependencies": [
+    ["e1", "giant"], ["e2", "giant"], ["e3", "giant"], ["e4", "giant"],
+    ["e5", "giant"], ["e6", "giant"], ["e7", "giant"], ["e8", "giant"]
+  ],
+  "expected": [
+    {
+      "anti_pattern_type": "OversizedElement",
+      "scope": "ELEMENT",
+      "members": ["giant"],
+      "measures": {"size_rz": 29.003102657493596}
+    }
+  ]
+}

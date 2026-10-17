@@ -1,0 +1,11 @@
+{
+  "description": "Tangled but acyclic: a complete DAG on a..e (each element depends on every later one). Undirected it is K5, so modularity is 0 <= 0.30, but there is no cycle: largest_scc_share = 0 < 0.25. Instability 1, 3/4, 1/2, 1/4, 0 falls along every edge. fan_in 0..4: fence 3 + 1.5*2 = 6.",
+  "elements": [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}, {"id": "e"}],
+  "dependencies": [
+    ["a", "b"], ["a", "c"], ["a", "d"], ["a", "e"],
+    ["b", "c"], ["b", "d"], ["b", "e"],
+    ["c", "d"], ["c", "e"],
+    ["d", "e"]
+  ],
+  "expected": []
+}
