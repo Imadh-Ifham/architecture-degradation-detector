@@ -33,7 +33,12 @@ from pathlib import Path
 
 from app.domain.model_access import ModelResponseUnusable, ModelUnavailable
 
-from .model_configuration import SCHEMA_MODE_STRICT, AISettings, ai_settings
+from .model_configuration import (
+    SCHEMA_MODE_STRICT,
+    TASK_PRIMARY_VERDICT_LOCAL,
+    AISettings,
+    ai_settings,
+)
 from .model_registry import capabilities_for
 from .providers.openai_compatible import ProviderContentError, ProviderError
 
@@ -150,12 +155,36 @@ class ConfiguredAIClient:
         provider,
         settings: AISettings | None = None,
         cache: VerdictCache | None = None,
+        local_provider=None,
     ) -> None:
         self._provider = provider
         self._settings = settings or ai_settings
         self._cache = cache or VerdictCache(
             self._settings.ai_cache_directory, self._settings.ai_cache_enabled
         )
+        self._local_provider = local_provider
+
+    def _provider_for(self, task: str):
+        """Return the adapter that reaches `task`'s endpoint.
+
+        Two adapters rather than one because they differ in the only thing an
+        adapter holds: the URL. The alternative - one adapter told the URL per
+        call - would put the endpoint in the caller's hands, and the caller is
+        the thing that is not allowed to know where a model lives.
+
+        With no local runtime configured this raises the same error a dead
+        network raises, which is the truth: the rung cannot answer. The ladder
+        then moves past it, as it already did when the local model id was
+        being posted to the hosted provider.
+        """
+
+        if task != TASK_PRIMARY_VERDICT_LOCAL:
+            return self._provider
+        if self._local_provider is None:
+            raise ModelUnavailable(
+                "No local runtime is configured. Set ai_local_base_url to reach one."
+            )
+        return self._local_provider
 
     def complete(
         self,
@@ -193,7 +222,7 @@ class ConfiguredAIClient:
             )
 
         try:
-            response = self._provider.complete(
+            response = self._provider_for(task).complete(
                 model_id=model_id,
                 prompt=prompt,
                 schema=schema,

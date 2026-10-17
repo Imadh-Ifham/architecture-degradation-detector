@@ -29,6 +29,27 @@ CONCLUSIVE_VERDICTS = (Verdict.CONFIRMS, Verdict.CONTRADICTS)
 """The two the arbiter's table also speaks, and so the two it can be compared to."""
 
 
+class ArbiterOnlyRefused(RuntimeError):
+    """Rung 5 was reached in a run that was configured not to allow it.
+
+    Raised rather than returned, because the thing being prevented is a run
+    that *looks* complete. A keyless run degrades every governed fact to the
+    table, each verdict honestly saying so, and a reported figure drawn from
+    those would describe the table and be presented as describing a model.
+    Failing the run is the only outcome a reader cannot misread.
+    """
+
+    def __init__(self, fact_id: str, attempted: tuple[str, ...]) -> None:
+        super().__init__(
+            f"No model could be reached for fact '{fact_id}' (tried: "
+            f"{', '.join(attempted) or 'nothing'}), and this run does not "
+            f"allow a verdict from the deterministic table alone. Set a key, "
+            f"or set ai_allow_arbiter_only to permit it."
+        )
+        self.fact_id = fact_id
+        self.attempted = attempted
+
+
 class ValidationReasoningService:
     """Judges one fact against the decision that governs it."""
 
@@ -38,6 +59,7 @@ class ValidationReasoningService:
         prompt: PromptTemplate,
         tasks: tuple[str, ...],
         provider: str = "",
+        allow_arbiter_only: bool = True,
     ) -> None:
         """Takes the model port, the loaded prompt and the ladder's task order.
 
@@ -50,12 +72,20 @@ class ValidationReasoningService:
         here opens a file or chooses a model: the first is why `PromptTemplate`
         is passed in, and the second is why the fallbacks are tasks that
         configuration resolves.
+
+        `allow_arbiter_only` defaults to true because the no-model rung is the
+        demonstration's rollback and must work by default. It is turned off
+        for a run whose numbers get reported, where a silent degradation to
+        the table is the failure that matters. It arrives here as an argument
+        for the same reason the prompt and the tasks do: this service reads no
+        settings file.
         """
 
         self._ai = ai
         self._prompt = prompt
         self._tasks = tasks
         self._provider = provider
+        self._allow_arbiter_only = allow_arbiter_only
 
     def judge(self, package: EvidencePackage, arbiter: ArbiterCheck) -> PrimaryVerdict:
         """Produces the primary verdict for one evidence package.
@@ -89,6 +119,8 @@ class ValidationReasoningService:
         if outcome.result is not None:
             return self._from_model(package, arbiter, outcome, outcome.result)
         if outcome.rung == RUNG_ARBITER and arbiter.verdict is not None:
+            if not self._allow_arbiter_only:
+                raise ArbiterOnlyRefused(package.fact_id, outcome.attempted)
             return self._from_arbiter(package, arbiter, outcome)
         return self._from_nothing(package, arbiter, outcome)
 

@@ -366,8 +366,15 @@ def get_ai_client() -> ConfiguredAIClient:
     still produces a verdict for every governed fact and says on every one of
     them that no model was involved - which is more useful than refusing to
     start, and it is the demonstration's rollback.
+
+    The second adapter is the local rung's, and it is built only when an
+    endpoint for it is configured. A local runtime differs from the hosted one
+    in the URL alone, which is why one adapter class serves both; and without
+    the second adapter the rung's model id would be posted to the hosted
+    provider, which does not serve it.
     """
 
+    local = ai_settings.ai_local_base_url
     return ConfiguredAIClient(
         OpenAICompatibleProvider(
             base_url=ai_settings.ai_base_url,
@@ -375,6 +382,15 @@ def get_ai_client() -> ConfiguredAIClient:
             timeout_seconds=ai_settings.ai_timeout_seconds,
         ),
         settings=ai_settings,
+        local_provider=(
+            OpenAICompatibleProvider(
+                base_url=local,
+                api_key=ai_settings.ai_api_key,
+                timeout_seconds=ai_settings.ai_timeout_seconds,
+            )
+            if local
+            else None
+        ),
     )
 
 
@@ -411,6 +427,7 @@ def get_validation_service() -> ArchitectureValidationService:
             get_verdict_prompt(),
             REASONING_TASKS,
             provider=ai_settings.ai_provider,
+            allow_arbiter_only=ai_settings.ai_allow_arbiter_only,
         ),
         verification=IndependentVerificationService(),
         classification=ClassificationService(),

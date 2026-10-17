@@ -58,6 +58,7 @@ from app.components.architecture_validation.observation_normalization import (
     ObservationNormalizationService,
 )
 from app.components.architecture_validation.validation_reasoning import (
+    ArbiterOnlyRefused,
     ValidationReasoningService,
 )
 from app.components.architecture_validation.validation_reasoning._arbiter import decide
@@ -560,22 +561,40 @@ TASKS = (
 )
 
 
-def reasoner(provider: FakeProvider, cache: VerdictCache | None = None):
+def reasoner(
+    provider: FakeProvider,
+    cache: VerdictCache | None = None,
+    allow_arbiter_only: bool = True,
+):
     """The real service over the real client, with a scripted provider.
 
     Built through `ConfiguredAIClient` rather than a hand-written stub, so the
     cache key, the strict-schema check and the translation of a provider's
     failure into the port's own error are all exercised by these tests rather
     than assumed.
+
+    The one fake answers for both endpoints, so a test counting calls counts
+    the whole ladder rather than the hosted part of it. That the two endpoints
+    are really distinct is a property of the client and is tested there; here
+    the subject is the order the rungs are tried in.
     """
 
-    settings = AISettings(ai_api_key="not-a-real-key")
+    settings = AISettings(
+        ai_api_key="not-a-real-key", ai_local_base_url="http://localhost:11434/v1"
+    )
     client = ConfiguredAIClient(
         provider,
         settings=settings,
         cache=cache or VerdictCache("unused", enabled=False),
+        local_provider=provider,
     )
-    return ValidationReasoningService(client, TEMPLATE, TASKS, provider="fake")
+    return ValidationReasoningService(
+        client,
+        TEMPLATE,
+        TASKS,
+        provider="fake",
+        allow_arbiter_only=allow_arbiter_only,
+    )
 
 
 def answer(
@@ -782,6 +801,37 @@ class TestTheVerdictAndTheLadder:
         assert result.model_id == "none"
         assert result.reasoning.startswith("No model was available")
         assert result.ladder_rung == 5
+
+    def test_the_no_model_rung_is_allowed_unless_a_run_turns_it_off(self):
+        """The default has to be permissive: rung 5 is the demonstration's
+        rollback, and a rollback disarmed by default is not one."""
+
+        assert AISettings().ai_allow_arbiter_only is True
+
+    def test_a_run_that_reports_numbers_refuses_the_table_alone(self):
+        """The other half of rung 5, and the reason it needs a switch.
+
+        A keyless run degrades every governed fact to the table and each
+        verdict honestly says so - but a figure drawn from that run would
+        describe the table while being read as describing a model. Nothing in
+        the output is wrong; the aggregate is. So a run whose numbers get
+        reported fails instead, and the error names the fact it stopped on.
+        """
+
+        subject = reasoner(FakeProvider(fail_times=9), allow_arbiter_only=False)
+
+        with pytest.raises(ArbiterOnlyRefused, match="does not allow a verdict"):
+            subject.judge(package(), confirms())
+
+    def test_refusing_the_table_does_not_refuse_a_model_that_answered(self):
+        """The switch is about the absence of a model and nothing else. With
+        one answering, a run that forbids the table is an ordinary run."""
+
+        result = reasoner(
+            FakeProvider(answer()), allow_arbiter_only=False
+        ).judge(package(), confirms())
+
+        assert result.produced_by is VerdictSource.MODEL
 
     def test_a_verdict_from_the_arbiter_still_cites_something_that_exists(self):
         """The citation contract is not relaxed because no model was involved:
