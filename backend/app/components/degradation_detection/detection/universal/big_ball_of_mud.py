@@ -16,8 +16,8 @@ from app.components.degradation_detection.detection.models import (
     ReleaseContext,
     local_instance_id,
 )
-from app.components.degradation_detection.models import AntiPatternInstance
-from app.domain.degradation_event import Scope
+from app.components.degradation_detection.models import AntiPatternInstance, MetricDef
+from app.domain.degradation_event import Scope, Worsening
 
 SYSTEM_KEY = "system"
 
@@ -29,7 +29,10 @@ class BigBallOfMud:
     scope: Scope = Scope.SYSTEM
     required_fields: frozenset[str] = frozenset()
     driving_metrics: tuple[str, ...] = (m.LARGEST_SCC_SHARE, m.MODULARITY)
-    instance_measures: tuple[str, ...] = (m.LARGEST_SCC_SHARE, m.MODULARITY)
+    instance_measures: tuple[MetricDef, ...] = (
+        m.instance_measure(m.LARGEST_SCC_SHARE, "ratio"),
+        m.instance_measure(m.MODULARITY, "modularity", Worsening.DECREASE),
+    )
 
     def detect(self, g: ArchGraph, ctx: ReleaseContext) -> list[AntiPatternInstance]:
         share = ctx.system_value(m.LARGEST_SCC_SHARE)

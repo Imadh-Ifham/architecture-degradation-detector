@@ -1,6 +1,7 @@
 """UnstableDependency: an element whose share of out-deps on less stable elements is too high."""
 
 from app.components.degradation_detection.config import DetectionConfig, UnstableConfig
+from app.components.degradation_detection.detection.metric_registry import instance_measure
 from app.components.degradation_detection.detection.universal.unstable_dependency import (
     UnstableDependency,
 )
@@ -24,7 +25,7 @@ def test_declaration() -> None:
     assert DETECTOR.scope is Scope.ELEMENT
     assert DETECTOR.required_fields == frozenset()
     assert DETECTOR.driving_metrics == ("unstable_dep_ratio",)
-    assert DETECTOR.instance_measures == ("bad_edge_count",)
+    assert DETECTOR.instance_measures == (instance_measure("bad_edge_count", "count"),)
 
 
 def test_members_are_the_element_alone() -> None:

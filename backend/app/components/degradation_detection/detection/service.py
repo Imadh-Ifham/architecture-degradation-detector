@@ -4,6 +4,9 @@ Per release: build the graph, compute every metric the registry declares, choose
 for the release's architecture style (``registry.py``, the only style branch in C3), run them
 over the graph and those metrics, then count what they found. Each release is analysed on its
 own; M3 joins releases together.
+
+``describe()`` is the second public method (owner decision, T-12): M4 needs the worsening
+directions and driving metrics, and they are M2's declarations.
 """
 
 from app.components.degradation_detection.config import C3Config
@@ -15,7 +18,11 @@ from app.components.degradation_detection.detection.metrics import (
 )
 from app.components.degradation_detection.detection.models import ReleaseContext
 from app.components.degradation_detection.detection.registry import DetectorRegistry
-from app.components.degradation_detection.models import ReleaseDetection
+from app.components.degradation_detection.models import (
+    DetectionCatalog,
+    DetectorInfo,
+    ReleaseDetection,
+)
 from app.domain.canonical_release import CanonicalRelease
 
 
@@ -43,4 +50,24 @@ class DetectionService:
             observations=observations + count_anti_patterns(graph, self._metrics, ran, instances),
             instances=instances,
             detectors_run=ran,
+        )
+
+    def describe(self) -> DetectionCatalog:
+        """The declared metrics and the detectors behind them, the same for every release.
+
+        M4 reads the worsening directions and each detector's driving metrics from here; the
+        component service passes it on (subcomponents never import each other).
+        """
+        return DetectionCatalog(
+            metrics=self._metrics.defs,
+            detectors=tuple(
+                DetectorInfo(
+                    anti_pattern_type=d.id,
+                    catalog=d.catalog,
+                    scope=d.scope,
+                    driving_metrics=d.driving_metrics,
+                    instance_measures=d.instance_measures,
+                )
+                for d in self._detectors.detectors
+            ),
         )

@@ -23,7 +23,7 @@ from app.components.degradation_detection.models import (
     TrackEnd,
     TrendResult,
 )
-from app.domain.degradation_event import Lifecycle, Scope, Worsening
+from app.domain.degradation_event import Lifecycle, Scope, TimeAxis, Worsening
 
 HASH = "sha256:" + "a" * 64
 
@@ -33,11 +33,24 @@ def trend(**overrides: object) -> TrendResult:
         "scope": Scope.INSTANCE,
         "subject_id": "AP-CyclicDependency:a@v1.0.0",
         "metric": "member_count",
-        "n": 9,
-        "s": 30,
-        "tau": 0.83,
-        "p_value": 0.0012,
+        "unit": "count",
+        "worsening": Worsening.INCREASE,
+        "points": (
+            SeriesPoint(ordinal=0, release_id="v1.0.0", value=None),
+            SeriesPoint(ordinal=1, release_id="v1.1.0", value=3.0),
+            SeriesPoint(ordinal=2, release_id="v1.2.0", value=4.0),
+        ),
+        "n": 2,
+        "s": 1,
+        "tau": 1.0,
+        "p_value": 1.0,
+        "q_value": 1.0,
         "method": models.TestMethod.EXACT,
+        "time_axis": TimeAxis.ORDINAL,
+        "sen_slope": 1.0,
+        "intercept": 2.0,
+        "is_worsening": True,
+        "is_significant": False,
     }
     return TrendResult.model_validate(fields | overrides)
 
@@ -114,13 +127,11 @@ def test_anti_pattern_instance_carries_members_and_measures() -> None:
     assert instance.measures["internal_edge_count"] is None
 
 
-def test_trend_result_before_and_after_multiple_testing() -> None:
-    untested = trend()
-    adjusted = trend(q_value=0.0081, is_worsening=True, is_significant=True)
+def test_trend_result_keeps_the_whole_series_and_knows_the_tested_points() -> None:
+    result = trend()
 
-    assert untested.q_value is None
-    assert untested.is_significant is False
-    assert adjusted.is_significant is True
+    assert [p.value for p in result.points] == [None, 3.0, 4.0]
+    assert [p.release_id for p in result.tested_points] == ["v1.1.0", "v1.2.0"]
 
 
 def test_event_candidate_groups_the_trends_behind_one_event() -> None:
@@ -130,15 +141,35 @@ def test_event_candidate_groups_the_trends_behind_one_event() -> None:
         subject_id="AP-CyclicDependency:a@v1.0.0",
         anti_pattern_type="CyclicDependency",
         catalog="universal",
+        instance_id="AP-CyclicDependency:a@v1.0.0",
+        members=("a", "b", "c"),
+        lifecycle=Lifecycle.GROWING,
         start_release="v1.1.0",
         end_release="v1.9.0",
         n_releases=9,
         low_confidence_releases=("v1.5.0",),
-        trends=(trend(q_value=0.0081, is_worsening=True, is_significant=True),),
+        trends=(trend(q_value=0.0081, is_significant=True),),
         trend_strength=0.83,
     )
 
     assert candidate.trends[0].metric == "member_count"
+    assert candidate.element_id is None
+
+
+def test_event_candidate_needs_a_trend() -> None:
+    with pytest.raises(ValidationError):
+        EventCandidate(
+            event_key=HASH,
+            scope=Scope.SYSTEM,
+            subject_id="shopfront",
+            anti_pattern_type="MetricDrift",
+            catalog="universal",
+            start_release="v1.0.0",
+            end_release="v1.9.0",
+            n_releases=10,
+            trends=(),
+            trend_strength=0.5,
+        )
 
 
 def member(ordinal: int, element_id: str = "a") -> LineageMember:

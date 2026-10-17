@@ -11,7 +11,7 @@ from app.components.degradation_detection.detection.models import (
     ReleaseContext,
     local_instance_id,
 )
-from app.components.degradation_detection.models import AntiPatternInstance
+from app.components.degradation_detection.models import AntiPatternInstance, MetricDef
 from app.domain.degradation_event import Scope
 
 
@@ -22,7 +22,7 @@ class OversizedElement:
     scope: Scope = Scope.ELEMENT
     required_fields: frozenset[str] = frozenset()
     driving_metrics: tuple[str, ...] = (m.SIZE_RZ,)
-    instance_measures: tuple[str, ...] = (m.SIZE_RZ,)
+    instance_measures: tuple[MetricDef, ...] = (m.instance_measure(m.SIZE_RZ, "robust_z"),)
 
     def detect(self, g: ArchGraph, ctx: ReleaseContext) -> list[AntiPatternInstance]:
         size_rz = ctx.element_values(m.SIZE_RZ)

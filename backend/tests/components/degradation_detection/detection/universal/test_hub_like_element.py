@@ -1,6 +1,7 @@
 """HubLikeElement: fan-in and fan-out both above the release's upper IQR fence."""
 
 from app.components.degradation_detection.config import DetectionConfig, HubConfig
+from app.components.degradation_detection.detection.metric_registry import instance_measure
 from app.components.degradation_detection.detection.universal.hub_like_element import (
     HubLikeElement,
 )
@@ -22,7 +23,7 @@ def test_declaration() -> None:
     assert DETECTOR.scope is Scope.ELEMENT
     assert DETECTOR.required_fields == frozenset()
     assert DETECTOR.driving_metrics == ("fan_in_norm", "fan_out_norm")
-    assert DETECTOR.instance_measures == ("degree",)
+    assert DETECTOR.instance_measures == (instance_measure("degree", "count"),)
 
 
 def test_star_centre_is_a_hub() -> None:

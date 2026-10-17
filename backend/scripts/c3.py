@@ -2,14 +2,16 @@
 
 Commands are added by the task that first needs them; T-01 adds ``schemas export``, T-02
 ``config show``, T-03 ``stub``, T-04 ``ingest``, T-07 ``detect``, T-08 ``align``, T-10
-``series``. Logs are JSON lines on stderr; command output goes to stdout.
+``series``, T-12 ``trends``. Logs are JSON lines on stderr; command output goes to stdout.
 
-``ingest`` stores into and ``detect`` / ``align`` / ``series`` read from PostgreSQL
+``ingest`` stores into and ``detect`` / ``align`` / ``series`` / ``trends`` read from PostgreSQL
 (``docker compose up -d``, then ``uv run alembic upgrade head``). The database modules are imported
 only when a command needs them, so every other command works without a ``.env``.
 """
 
 import json
+import uuid
+from collections import Counter
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -25,6 +27,7 @@ from app.components.degradation_detection.config import (
     load_config,
 )
 from app.components.degradation_detection.detection import DetectionService
+from app.components.degradation_detection.events import EventService
 from app.components.degradation_detection.ingestion import IngestService
 from app.components.degradation_detection.ingestion.models import (
     IngestOutcome,
@@ -32,7 +35,7 @@ from app.components.degradation_detection.ingestion.models import (
     IngestStatus,
     RawPackage,
 )
-from app.components.degradation_detection.models import Timeline
+from app.components.degradation_detection.models import DetectionCatalog, Timeline
 from app.components.degradation_detection.ports import ReleaseRepository
 from app.components.degradation_detection.stub import StubService
 from app.components.degradation_detection.stub.models import DEFAULT_SEED
@@ -40,6 +43,7 @@ from app.components.degradation_detection.tracking import TrackingService
 from app.components.degradation_detection.tracking.alignment_sample import alignment_sample_csv
 from app.components.degradation_detection.tracking.models import TrackingResult
 from app.components.degradation_detection.tracking.series_csv import series_csv
+from app.components.degradation_detection.trends import TrendService
 from app.core.logging import configure_logging
 from app.domain.audit_entry import AuditEntryV1
 from app.domain.canonical_release import GateStatus
@@ -247,12 +251,12 @@ def detect(
     typer.echo(f"{len(timeline.entries)} releases, {total} instances")
 
 
-def _track_or_exit(system: str, cfg: C3Config) -> tuple[Timeline, TrackingResult]:
+def _track_or_exit(system: str, cfg: C3Config) -> tuple[Timeline, TrackingResult, DetectionCatalog]:
     """M2 on every release of the timeline, then M3 (T-13 replaces this with ``c3 run``)."""
     timeline = _timeline_or_exit(system, cfg)
     detection = DetectionService(cfg)
     detections = [detection.detect(entry.release) for entry in timeline.entries]
-    return timeline, TrackingService(cfg).track(timeline, detections)
+    return timeline, TrackingService(cfg).track(timeline, detections), detection.describe()
 
 
 @app.command("align")
@@ -266,7 +270,7 @@ def align(
     ] = None,
 ) -> None:
     """Print element lineages, renames and instance tracks; write the alignment sample."""
-    timeline, result = _track_or_exit(system, _load_config_or_exit(config, catalog))
+    timeline, result, _ = _track_or_exit(system, _load_config_or_exit(config, catalog))
 
     typer.echo(f"{'lineage_id':<34} {'kind':<10} {'first':<10} {'last':<10} element_ids")
     for lin in result.lineages:
@@ -313,7 +317,7 @@ def series(
     ] = None,
 ) -> None:
     """Write every ELEMENT, INSTANCE and SYSTEM series M4 would test, one row per point."""
-    timeline, result = _track_or_exit(system, _load_config_or_exit(config, catalog))
+    timeline, result, _ = _track_or_exit(system, _load_config_or_exit(config, catalog))
 
     path = out or OUT_DIR / system / "series.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -327,6 +331,61 @@ def series(
         f"{len(timeline.entries)} releases; series: {by_scope}; "
         f"{sum(len(s.points) for s in result.series)} points; wrote {path}"
     )
+
+
+@app.command("trends")
+def trends(
+    system: Annotated[str, typer.Option(help="System id, as ingested.")],
+    config: ConfigFile = DEFAULT_CONFIG_PATH,
+    catalog: CatalogFile = DEFAULT_CATALOG_PATH,
+    run_id: Annotated[
+        str | None, typer.Option("--run-id", help="Run id on the events. Default: a new one.")
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option(help="JSON to write. Default: out/<run_id>/events.json."),
+    ] = None,
+) -> None:
+    """Test every series for a trend; print the significant worsening ones and the event
+    candidates; write the DegradationEventV2 export for C4."""
+    cfg = _load_config_or_exit(config, catalog)
+    timeline, result, described = _track_or_exit(system, cfg)
+    analysis = TrendService(cfg).analyze(
+        timeline, result.series, result.lineages, result.tracks, described
+    )
+    run = run_id or f"RUN-{uuid.uuid4().hex[:16]}"  # T-13: the analysis_run id
+    export = EventService(cfg).emit(analysis.candidates, timeline, run)
+
+    untested = Counter(u.reason for u in analysis.untested)
+    skipped = ", ".join(f"{n} {reason}" for reason, n in sorted(untested.items())) or "none"
+    typer.echo(f"{len(analysis.results)} series tested; not tested: {skipped}")
+
+    typer.echo(
+        f"{'scope':<8} {'subject_id':<40} {'metric':<26} {'n':>2} {'S':>4} {'tau':>6} "
+        f"{'p':>8} {'q':>8} {'sen':>8}"
+    )
+    for r in analysis.results:
+        if r.is_significant and r.is_worsening:
+            typer.echo(
+                f"{r.scope.value:<8} {r.subject_id:<40} {r.metric:<26} {r.n:>2} {r.s:>4} "
+                f"{r.tau:>6.2f} {r.p_value:>8.2g} {r.q_value:>8.2g} {r.sen_slope:>8.3g}"
+            )
+
+    typer.echo(
+        f"{'scope':<8} {'anti_pattern_type':<20} {'subject_id':<40} {'window':<17} lifecycle"
+    )
+    for c in analysis.candidates:
+        window = f"{c.start_release}..{c.end_release}"
+        lifecycle = c.lifecycle.value if c.lifecycle else "-"
+        typer.echo(
+            f"{c.scope.value:<8} {c.anti_pattern_type:<20} {c.subject_id:<40} {window:<17} "
+            f"{lifecycle}"
+        )
+
+    path = out or OUT_DIR / run / "events.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(export.text, encoding="utf-8", newline="\n")
+    typer.echo(f"{len(export.events)} events (run {run}); wrote {path}")
 
 
 if __name__ == "__main__":

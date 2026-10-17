@@ -1,1 +1,3 @@
-"""M4 trend analysis. ``TrendService`` (the analyzer) and its re-export arrive in T-12."""
+from app.components.degradation_detection.trends.service import TrendService
+
+__all__ = ["TrendService"]

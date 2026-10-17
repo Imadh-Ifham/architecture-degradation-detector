@@ -11,12 +11,13 @@ release to release while the datastore does not. Access modes are ignored: a rea
 still coupled to the schema.
 """
 
+from app.components.degradation_detection.detection.metric_registry import instance_measure
 from app.components.degradation_detection.detection.models import (
     ArchGraph,
     ReleaseContext,
     local_instance_id,
 )
-from app.components.degradation_detection.models import AntiPatternInstance
+from app.components.degradation_detection.models import AntiPatternInstance, MetricDef
 from app.domain.degradation_event import Scope
 
 SERVICES_PER_STORE = "services_per_store"
@@ -29,7 +30,7 @@ class SharedPersistence:
     scope: Scope = Scope.INSTANCE
     required_fields: frozenset[str] = frozenset({"datastore_access"})
     driving_metrics: tuple[str, ...] = ()  # degradation is the instance's services_per_store
-    instance_measures: tuple[str, ...] = (SERVICES_PER_STORE,)
+    instance_measures: tuple[MetricDef, ...] = (instance_measure(SERVICES_PER_STORE, "count"),)
 
     def detect(self, g: ArchGraph, ctx: ReleaseContext) -> list[AntiPatternInstance]:
         if g.datastore_access is None:  # the registry skips this detector; never guess

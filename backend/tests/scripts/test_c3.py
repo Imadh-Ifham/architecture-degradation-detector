@@ -295,3 +295,49 @@ def test_series_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> 
 
     assert result.exit_code == 1
     assert "no releases" in result.output
+
+
+def test_trends_prints_the_worsening_trends_and_candidates_and_writes_the_events(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path, tmp_path: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+    out = tmp_path / "events.json"
+
+    result = CliRunner().invoke(
+        app, ["trends", "--system", "shopfront", "--run-id", "RUN-cli", "--out", str(out)]
+    )
+
+    assert result.exit_code == 0, result.output
+    events = json.loads(out.read_bytes().decode("utf-8"))
+    assert events, "the stub has planted worsening trends"
+    assert {e["run_id"] for e in events} == {"RUN-cli"}
+    assert any(
+        e["scope"] == "INSTANCE" and e["anti_pattern_type"] == "CyclicDependency" for e in events
+    )
+    assert "series tested" in result.output
+    assert "AP-CyclicDependency:inventory@v1.1.0" in result.output
+    assert f"{len(events)} events (run RUN-cli); wrote {out}" in result.output
+
+
+def test_trends_default_run_id_is_new_and_names_the_output_folder(
+    memory_repo: InMemoryReleaseRepository,
+    stub_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+    monkeypatch.setattr(c3, "OUT_DIR", tmp_path)
+
+    result = CliRunner().invoke(app, ["trends", "--system", "shopfront"])
+
+    assert result.exit_code == 0, result.output
+    [written] = list(tmp_path.glob("RUN-*/events.json"))
+    run_id = written.parent.name
+    assert {e["run_id"] for e in json.loads(written.read_text(encoding="utf-8"))} == {run_id}
+
+
+def test_trends_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> None:
+    result = CliRunner().invoke(app, ["trends", "--system", "nowhere"])
+
+    assert result.exit_code == 1
+    assert "no releases" in result.output

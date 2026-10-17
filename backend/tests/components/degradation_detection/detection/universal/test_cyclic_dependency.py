@@ -1,5 +1,6 @@
 """CyclicDependency: one instance per strongly connected component of two or more elements."""
 
+from app.components.degradation_detection.detection.metric_registry import instance_measure
 from app.components.degradation_detection.detection.universal.cyclic_dependency import (
     CyclicDependency,
 )
@@ -17,7 +18,10 @@ def test_declaration() -> None:
     assert DETECTOR.scope is Scope.INSTANCE
     assert DETECTOR.required_fields == frozenset()
     assert DETECTOR.driving_metrics == ("scc_size",)
-    assert DETECTOR.instance_measures == ("member_count", "internal_edge_count")
+    assert DETECTOR.instance_measures == (
+        instance_measure("member_count", "count"),
+        instance_measure("internal_edge_count", "count"),
+    )
 
 
 def test_two_separate_cycles_are_two_instances_in_member_order() -> None:

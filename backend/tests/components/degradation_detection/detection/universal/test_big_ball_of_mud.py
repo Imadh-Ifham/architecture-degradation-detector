@@ -7,11 +7,12 @@ Presence only [D-24]. Whether the mud is getting worse is decided by the trend o
 import pytest
 
 from app.components.degradation_detection.config import BigBallOfMudConfig, DetectionConfig
+from app.components.degradation_detection.detection.metric_registry import instance_measure
 from app.components.degradation_detection.detection.models import ReleaseContext
 from app.components.degradation_detection.detection.universal.big_ball_of_mud import (
     BigBallOfMud,
 )
-from app.domain.degradation_event import Scope
+from app.domain.degradation_event import Scope, Worsening
 from tests.components.degradation_detection.detection.graphs import release
 from tests.components.degradation_detection.detection.universal.run import prepare
 
@@ -36,7 +37,10 @@ def test_declaration() -> None:
     assert DETECTOR.scope is Scope.SYSTEM
     assert DETECTOR.required_fields == frozenset()
     assert DETECTOR.driving_metrics == ("largest_scc_share", "modularity")
-    assert DETECTOR.instance_measures == ("largest_scc_share", "modularity")
+    assert DETECTOR.instance_measures == (
+        instance_measure("largest_scc_share", "ratio"),
+        instance_measure("modularity", "modularity", Worsening.DECREASE),
+    )
 
 
 def test_thresholds_are_inclusive() -> None:
