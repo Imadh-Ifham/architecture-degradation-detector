@@ -5,7 +5,7 @@
   "mapping_provenance": "manual-mapping",
   "repository": "https://github.com/GoogleCloudPlatform/microservices-demo",
   "repository_head": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389",
-  "code_commit": "23044ac0f90212e81cb3c1f15a02252ab436572c",
+  "code_commit": "8220f73863abbedfa2a8702fd88536b8aa2bbfae",
   "window": {
     "from_tag": "v0.10.4",
     "to_tag": "v0.10.7"

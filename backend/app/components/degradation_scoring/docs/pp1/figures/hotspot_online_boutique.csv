@@ -3,11 +3,11 @@ adservice,0.0,0,0,0.0,0
 cartservice,0.0,0,0,0.0,0
 checkoutservice,6.63,1,0,1.0,1
 currencyservice,0.0,0,0,0.0,0
-emailservice,14.648,1,0,1.0,1
+emailservice,14.648,1,0,0.0,1
 frontend,17.161,1,0,1.0,1
 loadgenerator,0.0,0,0,0.0,0
 paymentservice,0.0,0,0,0.0,0
 productcatalogservice,12.778,2,0,1.0,2
-recommendationservice,15.079,1,0,1.0,1
+recommendationservice,15.079,1,0,0.0,1
 shippingservice,78.696,2,0,1.0,2
 shoppingassistantservice,0.0,0,0,0.0,0

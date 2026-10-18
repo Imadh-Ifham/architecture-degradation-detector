@@ -17,9 +17,13 @@ and showed one gap in the pattern.
    common forms: "Fixed login crash", "fixes the totals", "Fixing flaky test" and
    "bugfix: rounding" (`\bbug\b` does not match inside "bugfix"). The keyword list is now
    `fix|fixed|fixes|fixing|bug|bugfix|defect|fault|patch|hotfix` (case-insensitive, whole
-   words). Issue keys `[A-Z][A-Z0-9]+-\d+` and `#\d+` stay, matched case-sensitively, so
-   "abc-123" is not a key. The pattern remains a heuristic and a declared threat to validity
-   ("resolve crash" is missed, "fix typo" counts, "#12" may be a pull request).
+   words), and **only fix words count**. §5.2's issue-key alternatives (`#\d+` and
+   `[A-Z][A-Z0-9]+-\d+`) were removed after T14 (owner, 2026-10-18): on Online Boutique every
+   GitHub squash-merge message ends with `(#PR)`, which made `bugfix_ratio` 1.0 for every
+   changed service, and Apache-style Java repositories put a key such as `HADOOP-123` on
+   nearly every commit. A message with a key *and* a fix word ("HADOOP-123. Fix NPE",
+   "Fixes #12") still counts through the word. The pattern remains a heuristic and a
+   declared threat to validity ("resolve crash" is missed, "fix typo" counts).
 2. **An event's elements are one unit.** Churn counts each changed file once, even when two
    members own it; authors and commits are counted over all members without duplicates;
    coupling counts elements *outside* the unit that co-change with it in ≥ θ commits (bulk
@@ -42,6 +46,8 @@ and showed one gap in the pattern.
 ## Alternatives considered
 
 - **Keep §5.2's word list.** Rejected: it would label "Fixed login crash" as not a fix.
+- **Keep issue keys, or only closing phrases ("closes #12").** Rejected: keys mark tracked
+  work of any kind, not fixes, and closing phrases with a fix word already count.
 - **Sum per-element values for multi-element events.** Rejected (decision 2).
 - **Skip hotspot when a tag is missing.** Rejected: it would hide a configuration problem.
 - **All repository tags for the median gap.** Rejected: pre-release tags would shrink it.

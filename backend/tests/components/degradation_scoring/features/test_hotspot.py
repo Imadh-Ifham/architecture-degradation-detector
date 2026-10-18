@@ -129,7 +129,8 @@ def test_order_features_by_hand(repo: Path) -> None:
     assert order.churn_decayed == pytest.approx(3 * 2**-0.5 + 4 * 2 ** (-2 / 7) + 2, abs=1e-9)
     assert order.authors == 2  # alice, bob (any case)
     assert order.coupling == 0  # pay co-changes in 2 commits < theta 5
-    assert order.bugfix_ratio == pytest.approx(2 / 3)  # "fix: rounding", "ABC-12 tidy"
+    # only "fix: rounding"; "ABC-12 tidy" has an issue key but no fix word (C4-ADR-009)
+    assert order.bugfix_ratio == pytest.approx(1 / 3)
     assert order.commits == 3
     assert (order.from_release, order.to_release) == ("v3", "v4")
     assert order.first_seen_fallback  # C3 does not send first_seen_release yet
@@ -234,8 +235,8 @@ def test_service_without_history_source_is_inactive(repo: Path) -> None:
         "bugfix: rounding",
         "hotfix for prod",
         "Patch the parser",
-        "ABC-123 tidy",
-        "closes #45",
+        "HADOOP-123. Fix NPE in parser",
+        "Fixes #12",
     ],
 )
 def test_bugfix_messages(message: str) -> None:
@@ -244,7 +245,18 @@ def test_bugfix_messages(message: str) -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["prefix handling", "debugging output", "abc-123 tidy", "resolve crash", "add feature"],
+    [
+        "prefix handling",
+        "debugging output",
+        "resolve crash",
+        "add feature",
+        # issue keys alone do not count (C4-ADR-009): squash merges and Apache-style repos
+        # put one on nearly every commit
+        "ABC-123 tidy",
+        "HDFS-4567. Add metrics",
+        "closes #45",
+        "Bundle of dependency updates (#3196)",
+    ],
 )
 def test_not_bugfix_messages(message: str) -> None:
     # "resolve crash" is a real fix the heuristic misses: a declared threat to validity

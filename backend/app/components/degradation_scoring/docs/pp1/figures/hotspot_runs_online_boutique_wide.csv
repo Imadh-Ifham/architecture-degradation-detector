@@ -1,3 +1,4 @@
 run_at_utc,window,cache,history_seconds,total_seconds,commits,mapped_commits,total_lines,unmapped_lines,unmapped_line_share,features_identical_to_previous_run
 2026-10-18T13:20:28+00:00,"(v0.10.0, v0.10.7]",miss,48.371,48.567,9,9,506,0,0.0,
 2026-10-18T13:20:32+00:00,"(v0.10.0, v0.10.7]",hit,0.004,0.243,9,9,506,0,0.0,True
+2026-10-18T14:14:20+00:00,"(v0.10.0, v0.10.7]",miss,38.965,39.199,9,9,506,0,0.0,False

@@ -31,17 +31,17 @@ log = structlog.get_logger(__name__)
 
 SECONDS_PER_DAY = 86_400
 
-# A commit counts as a bug fix when its message has a fix word or an issue key. This is a
-# heuristic and a declared threat to validity: "fix typo" counts, "resolve crash" does not,
-# and "#12" may be a pull request. Fix forms and "bugfix" added to §5.2's list (C4-ADR-009).
+# A commit counts as a bug fix when its message has a fix word. Issue keys (#12, ABC-123)
+# are not counted: GitHub squash merges and Apache-style repos put one on nearly every commit
+# (C4-ADR-009). A heuristic and a declared threat to validity: "fix typo" counts, "resolve
+# crash" does not.
 FIX_WORDS = re.compile(
     r"\b(fix|fixed|fixes|fixing|bug|bugfix|defect|fault|patch|hotfix)\b", re.IGNORECASE
 )
-ISSUE_KEY = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b|#\d+\b")
 
 
 def is_bugfix(message: str) -> bool:
-    return bool(FIX_WORDS.search(message) or ISSUE_KEY.search(message))
+    return bool(FIX_WORDS.search(message))
 
 
 def match_tag(release_id: str, tags: Collection[str]) -> str:
