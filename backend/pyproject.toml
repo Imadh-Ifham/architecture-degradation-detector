@@ -7,16 +7,20 @@ requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.0",
     "fastapi>=0.141.1",
+    "jinja2>=3.1.6",
     "jsonschema>=4.26.0",
     "matplotlib>=3.11.2",
     "neo4j>=6.3.1",
     "networkx>=3.7",
     "numpy>=2.5.4",
     "packaging>=26.3",
+    "pathspec>=1.1.1",
     "pydantic>=2.13.5",
     "psycopg[binary]>=3.3.6",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
+    "pydriller>=2.12",
+    "pymcdm>=1.4.0",
     "pyyaml>=6.0.3",
     "rapidfuzz>=3.14.6",
     "scipy>=1.18.1",
@@ -37,6 +41,7 @@ rag = [
 
 [dependency-groups]
 dev = [
+    "gitpython>=3.2.1",
     "httpx>=0.28.1",
     "hypothesis>=6.169.0",
     "mypy>=2.4.0",
@@ -50,6 +55,31 @@ dev = [
     "types-networkx>=3.6.1.20261006",
     "types-pyyaml>=6.0.12.20260906",
 ]
+# Degradation scoring (C4): heavy libraries for explanation, evaluation and the
+# LambdaMART comparator. `uv sync --group scoring-ml`.
+scoring-ml = [
+    "faiss-cpu>=1.15.1",
+    "krippendorff>=0.9.0",
+    "lightgbm>=4.7.0",
+    "pandas>=3.0.6",
+    "pytrec-eval-terrier>=0.5.11",
+    "scikit-learn>=1.9.1",
+    "sentence-transformers>=6.1.0",
+    "shap>=0.54.1",
+    "torch>=2.14.1",
+]
+
+# sentence-transformers (C4 `scoring-ml`, C3 `rag`) runs pretrained models for
+# inference only. Pin torch to the CPU-only wheels: the default Linux wheel pulls
+# ~15 CUDA packages (several GB) that nothing here uses. See
+# app/components/degradation_scoring/docs/decisions/C4-ADR-005.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [tool.ruff]
 line-length = 100
@@ -66,6 +96,7 @@ python_version = "3.13"
 strict = true
 files = [
     "app/components/degradation_detection",
+    "app/components/degradation_scoring",
     "app/core/logging.py",
     "app/domain/audit_entry.py",
     "app/domain/boundary.py",
@@ -83,6 +114,27 @@ files = [
 [[tool.mypy.overrides]]
 module = ["app.core.config", "app.infrastructure.postgres.database"]
 ignore_errors = true
+
+# Libraries degradation scoring (C4) uses that ship no type information.
+[[tool.mypy.overrides]]
+module = [
+    "faiss.*",
+    "krippendorff.*",
+    "lightgbm.*",
+    "pydriller.*",
+    "pymcdm.*",
+    "pytrec_eval.*",
+    "shap.*",
+    "sklearn.*",
+]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

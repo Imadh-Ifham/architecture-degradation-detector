@@ -1,0 +1,756 @@
+{
+  "schema_version": "1.1.0",
+  "system_id": "c4-fixture-shop",
+  "release_id": "v1.5.0",
+  "released_at": "2026-06-01T00:00:00Z",
+  "architecture_style": "microservices",
+  "granularity": "service",
+  "elements": [
+    {
+      "id": "gateway",
+      "name": "gateway",
+      "kind": "service",
+      "size": 3200,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/edge/gateway/GatewayController.java",
+          "src/edge/gateway/GatewayService.java",
+          "src/edge/gateway/GatewayRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "web-frontend",
+      "name": "web-frontend",
+      "kind": "service",
+      "size": 15400,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "mobile-bff",
+      "name": "mobile-bff",
+      "kind": "service",
+      "size": 4100,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/edge/mobile-bff/MobileBffController.java",
+          "src/edge/mobile-bff/MobileBffService.java",
+          "src/edge/mobile-bff/MobileBffRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "admin-ui",
+      "name": "admin-ui",
+      "kind": "service",
+      "size": 6900,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "order-service",
+      "name": "order-service",
+      "kind": "service",
+      "size": 12450,
+      "size_unit": "loc",
+      "aliases": [
+        "order-svc"
+      ],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/order/OrderController.java",
+          "src/services/order/OrderService.java",
+          "src/services/order/OrderRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "payment-service",
+      "name": "payment-service",
+      "kind": "service",
+      "size": 8300,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/payment/PaymentController.java",
+          "src/services/payment/PaymentService.java",
+          "src/services/payment/PaymentRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "inventory-service",
+      "name": "inventory-service",
+      "kind": "service",
+      "size": 7200,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/inventory/InventoryController.java",
+          "src/services/inventory/InventoryService.java",
+          "src/services/inventory/InventoryRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "shipping-service",
+      "name": "shipping-service",
+      "kind": "service",
+      "size": 6100,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/shipping/ShippingController.java",
+          "src/services/shipping/ShippingService.java",
+          "src/services/shipping/ShippingRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "cart-service",
+      "name": "cart-service",
+      "kind": "service",
+      "size": 4800,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/cart/CartController.java",
+          "src/services/cart/CartService.java",
+          "src/services/cart/CartRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "catalog-service",
+      "name": "catalog-service",
+      "kind": "service",
+      "size": 9900,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/catalog/CatalogController.java",
+          "src/services/catalog/CatalogService.java",
+          "src/services/catalog/CatalogRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "search-service",
+      "name": "search-service",
+      "kind": "service",
+      "size": 5600,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/search/SearchController.java",
+          "src/services/search/SearchService.java",
+          "src/services/search/SearchRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "recommendation-service",
+      "name": "recommendation-service",
+      "kind": "service",
+      "size": 3900,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/recommendation/RecommendationController.java",
+          "src/services/recommendation/RecommendationService.java",
+          "src/services/recommendation/RecommendationRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "review-service",
+      "name": "review-service",
+      "kind": "service",
+      "size": 3300,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/review/ReviewController.java",
+          "src/services/review/ReviewService.java",
+          "src/services/review/ReviewRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "user-service",
+      "name": "user-service",
+      "kind": "service",
+      "size": 5200,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/user/UserController.java",
+          "src/services/user/UserService.java",
+          "src/services/user/UserRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "auth-service",
+      "name": "auth-service",
+      "kind": "service",
+      "size": 4400,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/auth/AuthController.java",
+          "src/services/auth/AuthService.java",
+          "src/services/auth/AuthRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "notification-service",
+      "name": "notification-service",
+      "kind": "service",
+      "size": 3700,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/services/notification/NotificationController.java",
+          "src/services/notification/NotificationService.java",
+          "src/services/notification/NotificationRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "email-adapter",
+      "name": "email-adapter",
+      "kind": "service",
+      "size": 1200,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/adapters/email/EmailController.java",
+          "src/adapters/email/EmailService.java",
+          "src/adapters/email/EmailRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "sms-adapter",
+      "name": "sms-adapter",
+      "kind": "service",
+      "size": 900,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/adapters/sms/SmsController.java",
+          "src/adapters/sms/SmsService.java",
+          "src/adapters/sms/SmsRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "common-lib",
+      "name": "common-lib",
+      "kind": "service",
+      "size": 2600,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/shared/common/CommonController.java",
+          "src/shared/common/CommonService.java",
+          "src/shared/common/CommonRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "reporting-service",
+      "name": "reporting-service",
+      "kind": "service",
+      "size": 5800,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/backoffice/reporting/ReportingController.java",
+          "src/backoffice/reporting/ReportingService.java",
+          "src/backoffice/reporting/ReportingRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "analytics-service",
+      "name": "analytics-service",
+      "kind": "service",
+      "size": 6400,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/backoffice/analytics/AnalyticsController.java",
+          "src/backoffice/analytics/AnalyticsService.java",
+          "src/backoffice/analytics/AnalyticsRepository.java"
+        ]
+      }
+    },
+    {
+      "id": "integration-hub",
+      "name": "integration-hub",
+      "kind": "service",
+      "size": 2900,
+      "size_unit": "loc",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {
+        "source_paths": [
+          "src/backoffice/integration-hub/IntegrationHubController.java",
+          "src/backoffice/integration-hub/IntegrationHubService.java",
+          "src/backoffice/integration-hub/IntegrationHubRepository.java"
+        ]
+      }
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "web-frontend",
+      "to": "gateway",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "mobile-bff",
+      "to": "gateway",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "gateway",
+      "to": "order-service",
+      "types": [
+        "call"
+      ],
+      "count": 3
+    },
+    {
+      "from": "gateway",
+      "to": "catalog-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "gateway",
+      "to": "cart-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "gateway",
+      "to": "user-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "gateway",
+      "to": "review-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "gateway",
+      "to": "recommendation-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "order-service",
+      "to": "payment-service",
+      "types": [
+        "call"
+      ],
+      "count": 4
+    },
+    {
+      "from": "payment-service",
+      "to": "inventory-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "inventory-service",
+      "to": "shipping-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "shipping-service",
+      "to": "order-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "order-service",
+      "to": "cart-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "cart-service",
+      "to": "catalog-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "cart-service",
+      "to": "user-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "catalog-service",
+      "to": "search-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "recommendation-service",
+      "to": "catalog-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "review-service",
+      "to": "catalog-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "review-service",
+      "to": "user-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "user-service",
+      "to": "auth-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "payment-service",
+      "to": "notification-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "shipping-service",
+      "to": "notification-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "notification-service",
+      "to": "email-adapter",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "notification-service",
+      "to": "sms-adapter",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "admin-ui",
+      "to": "reporting-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "admin-ui",
+      "to": "analytics-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "reporting-service",
+      "to": "integration-hub",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "analytics-service",
+      "to": "integration-hub",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "integration-hub",
+      "to": "order-service",
+      "types": [
+        "call"
+      ],
+      "count": 2
+    },
+    {
+      "from": "integration-hub",
+      "to": "user-service",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "order-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "payment-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "inventory-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "shipping-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "catalog-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "cart-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "user-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "auth-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "notification-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "search-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    },
+    {
+      "from": "review-service",
+      "to": "common-lib",
+      "types": [
+        "call"
+      ],
+      "count": 1
+    }
+  ],
+  "datastore_access": [
+    {
+      "element": "order-service",
+      "datastore": "orders_db",
+      "mode": "readwrite"
+    },
+    {
+      "element": "reporting-service",
+      "datastore": "orders_db",
+      "mode": "read"
+    },
+    {
+      "element": "inventory-service",
+      "datastore": "orders_db",
+      "mode": "read"
+    }
+  ],
+  "delegation": null,
+  "intent": [
+    {
+      "intent_id": "ADR-0001",
+      "element": null,
+      "source_type": "adr",
+      "ref": "adr/0001-modular-core.md",
+      "decision": "Core services depend only on common-lib and their own data.",
+      "decision_kind": "principle",
+      "date": "2025-09-01"
+    },
+    {
+      "intent_id": "ADR-0002",
+      "element": "catalog-service",
+      "source_type": "adr",
+      "ref": "adr/0002-catalog-owns-search-index.md",
+      "decision": "catalog-service owns the search index.",
+      "decision_kind": "ownership",
+      "date": "2025-11-10"
+    },
+    {
+      "intent_id": "ADR-0003",
+      "element": "notification-service",
+      "source_type": "adr",
+      "ref": "adr/0003-notification-retry-queue.md",
+      "decision": "Use a local retry queue for notifications.",
+      "decision_kind": "local",
+      "date": "2026-03-02"
+    }
+  ],
+  "validation_confidence": 0.9,
+  "provenance": {
+    "c1_model_ref": "c1://c4-fixture-shop/v1.5.0",
+    "c2_validation_ref": "c2://c4-fixture-shop/v1.5.0"
+  }
+}
