@@ -1,24 +1,18 @@
-"""Degradation scoring ports.
+# Protocols for everything C4 needs from outside the component (INSTRUCTIONS §7.1).
+# Implementations live under app/infrastructure/ or an entry point; tests use in-memory fakes.
+# Each Protocol arrives with the first task that needs it. Still to come:
+#   ArchitectureGraphSource (T09), CommitHistorySource + MiningCache (T12),
+#   AdrIndexSource (T16), ScoringRunRepository (T20), TextGenerator + GenerationCache (T22),
+#   TextEmbedder (T23), EntailmentJudge (T25), RefactoringDetector (T29).
 
-Author: Dahami
-Date: 2026-10-14
-Description:
-    Protocols for everything C4 needs from outside the component: databases,
-    git history, AI models and external tools. Implementations live under
-    app/infrastructure/ (INSTRUCTIONS §7.1); tests use in-memory fakes.
+from collections.abc import Sequence
+from typing import Protocol
 
-    Scaffold only (C4-T02). Each Protocol is added by the first task that
-    needs it, together with its tests:
 
-      * DegradationEventSource   - C3 events for a (system, release)   C4-T08
-      * ArchitectureGraphSource  - validated graph as a DiGraph        C4-T09
-      * CommitHistorySource      - mined commit rows between tags      C4-T12
-      * MiningCache              - cached commit rows                  C4-T12
-      * AdrIndexSource           - C2 ADR index (optional)             C4-T16
-      * ScoringRunRepository     - persisted manifest and report       C4-T20
-      * TextGenerator            - LLM text generation                 C4-T22
-      * GenerationCache          - cached LLM generations              C4-T22
-      * TextEmbedder             - sentence embeddings                 C4-T23
-      * EntailmentJudge          - NLI entailment scores               C4-T25
-      * RefactoringDetector      - RefactoringMiner operations         C4-T29
-"""
+class DegradationEventSource(Protocol):
+    def fetch(self, system_id: str, release_id: str) -> Sequence[object]:
+        """Raw C3 event payloads for one (system, release), unvalidated (CLAUDE.md §4.1).
+
+        Validation and quarantine happen in ingestion, so every source behaves the same.
+        """
+        ...

@@ -76,7 +76,7 @@ Status: ✅ done · ◐ partly done · — not started. Updated at the end of ev
 
 | Req | Module(s) | Test(s) | Task | Status |
 |---|---|---|---|---|
-| FR-01 | `ingestion/events.py` | `ingestion/test_events.py` | T08 | — |
+| FR-01 | `ingestion/events.py` | `ingestion/test_events.py` | T08 | ✅ |
 | FR-02 | `ingestion/graph.py` | `ingestion/test_graph.py` | T09 | — |
 | FR-03 | `ingestion/resolution.py` | `ingestion/test_resolution.py` | T10 | — |
 | FR-04 | `features/blast_radius.py` | `features/test_blast_radius.py` | T11 | — |

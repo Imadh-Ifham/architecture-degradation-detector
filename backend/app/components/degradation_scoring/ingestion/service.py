@@ -1,16 +1,18 @@
-"""Ingestion service.
+# Ingestion: validates C3 events and decides which are ranked
+# Element resolution (T10) and ADR loading (T16) join this entry point later.
 
-Author: Dahami
-Date: 2026-10-14
-Description:
-    Validates C3 degradation events and quarantines malformed, non-confirmed
-    and intentional ones; resolves event elements to graph nodes; parses ADR
-    index entries. Implements CLAUDE.md §4.1, §5.1 (resolution) and §5.3
-    (ADR loading).
+from collections.abc import Iterable
 
-    Scaffold only (C4-T02): the public entry method is added by C4-T08.
-"""
+from app.components.degradation_scoring.config import C4Config
+from app.components.degradation_scoring.ingestion.events import ingest_events
+from app.components.degradation_scoring.ingestion.models import EventIngestion
 
 
 class IngestionService:
-    """Turns raw C3 events into validated, resolved events plus a quarantine."""
+    """Turns raw C3 payloads into eligible events plus quarantine and skip lists."""
+
+    def __init__(self, config: C4Config) -> None:
+        self._config = config
+
+    def ingest(self, payloads: Iterable[object]) -> EventIngestion:
+        return ingest_events(payloads, rank_only_confirmed=self._config.rank_only_confirmed)
