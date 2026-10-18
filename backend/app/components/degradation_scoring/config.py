@@ -41,6 +41,10 @@ class C4Config(BaseModel):
     hotspot_half_life_releases: float
     cochange_threshold: int
     max_files_per_commit: int
+    eh_weight_churn_decayed: float
+    eh_weight_authors: float
+    eh_weight_coupling: float
+    eh_weight_bugfix_ratio: float
     history_include_globs: str
     history_exclude_globs: str
     ps_weight_consecutive_releases: float

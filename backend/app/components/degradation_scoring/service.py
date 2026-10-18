@@ -20,6 +20,8 @@ from app.components.degradation_scoring.ports import (
     MiningCache,
     ScoringRunRepository,
 )
+from app.components.degradation_scoring.scoring_engine.models import RawEvent
+from app.domain.severity_report import Dimension
 
 
 class FeaturesRun(BaseModel):
@@ -82,6 +84,42 @@ class DegradationScoringService:
                 feature_rows(run),
             )
         return run
+
+
+# Scoring input: features -> the scoring engine's plain rows (subcomponents never import
+# each other). Hotspot and AV are active only when the features subcomponent says so.
+
+
+def scoring_inputs(features: FeatureSet) -> tuple[list[Dimension], list[RawEvent]]:
+    active = [Dimension.BLAST_RADIUS]
+    if features.hotspot.active:
+        active.append(Dimension.HOTSPOT)
+    if features.adr.active:
+        active.append(Dimension.ADR_VIOLATION)
+    active.append(Dimension.PERSISTENCE)
+    return active, [_raw_event(row) for row in features.events]
+
+
+def _raw_event(row: EventFeatures) -> RawEvent:
+    br, ps, eh, av = row.blast_radius, row.persistence, row.hotspot, row.adr_violation
+    values = {
+        "br_fan_in_ratio": br.fan_in_ratio,
+        "br_pagerank": br.pagerank,
+        "br_betweenness": br.betweenness,
+        "br_depth": float(br.depth),
+        "ps_consecutive_releases": float(ps.consecutive_releases),
+        "ps_growth_slope": ps.growth_slope,
+    }
+    if eh is not None:
+        values |= {
+            "eh_churn_decayed": eh.churn_decayed,
+            "eh_authors": float(eh.authors),
+            "eh_coupling": float(eh.coupling),
+            "eh_bugfix_ratio": eh.bugfix_ratio,
+        }
+    if av is not None:
+        values["av_weight"] = av.av
+    return RawEvent(event_id=row.event_id, values=values)
 
 
 # Plain rows for the ScoringRunRepository port; keys = c4_* table columns.

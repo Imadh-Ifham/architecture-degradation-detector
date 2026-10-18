@@ -24,6 +24,10 @@ EXPECTED_DEFAULTS = {
     "scoring_hotspot_half_life_releases": 2.0,  # §5.2
     "scoring_cochange_threshold": 5,  # §5.2 theta
     "scoring_max_files_per_commit": 50,  # §5.2
+    "scoring_eh_weight_churn_decayed": 0.25,  # §5.2 equal weights, C4-ADR-013
+    "scoring_eh_weight_authors": 0.25,  # §5.2
+    "scoring_eh_weight_coupling": 0.25,  # §5.2
+    "scoring_eh_weight_bugfix_ratio": 0.25,  # §5.2
     "scoring_history_include_globs": (
         "*.py,*.java,*.go,*.js,*.ts,*.cs,*.kt,*.rb,*.php,*.cpp,*.c,*.h"
     ),  # §5.2, T12

@@ -1,12 +1,15 @@
 # Tests for the degradation scoring service (C4-T16b): layers 1-2 on the fixtures and the
-# plain rows saved for inspection (c4_scoring_run, c4_event_ingestion, c4_event_features).
+# plain rows saved for inspection (c4_scoring_run, c4_event_ingestion, c4_event_features),
+# and the scoring engine's input built from the features (C4-T17).
 
 from typing import Any
 
 import pytest
 
 from app.components import degradation_scoring
-from app.components.degradation_scoring.service import DegradationScoringService
+from app.components.degradation_scoring.features.models import HotspotFeatures
+from app.components.degradation_scoring.service import DegradationScoringService, scoring_inputs
+from app.domain.severity_report import Dimension
 from tests.components.degradation_scoring.support import (
     FakeRunRepository,
     adr_index_document,
@@ -142,3 +145,39 @@ def test_every_row_column_exists_in_the_tables() -> None:
     assert set(run_row) == set(c4_scoring_run.c.keys())
     assert set(ingestion[0]) == set(c4_event_ingestion.c.keys())
     assert set(features[0]) == set(c4_event_features.c.keys())
+
+
+def test_scoring_inputs_match_the_saved_feature_rows() -> None:
+    result, repo = run(adr_document=adr_index_document())
+    ((_, _, rows),) = repo.saved
+    active, events = scoring_inputs(result.features)
+    assert active == [Dimension.BLAST_RADIUS, Dimension.ADR_VIOLATION, Dimension.PERSISTENCE]
+    for row, item in zip(rows, events, strict=True):
+        assert item.event_id == row["event_id"]
+        assert item.values == {key: row[key] for key in item.values}
+        assert not any(key.startswith("eh_") for key in item.values)
+
+
+def test_scoring_inputs_with_hotspot_active() -> None:
+    result, _ = run()
+    hotspot = HotspotFeatures(
+        churn_decayed=4.5,
+        authors=2,
+        coupling=1,
+        bugfix_ratio=0.5,
+        commits=2,
+        from_release="v1.4.0",
+        to_release="v1.5.0",
+        first_seen_fallback=True,
+        paths_available=True,
+    )
+    features = result.features.model_copy(
+        update={
+            "hotspot": result.features.hotspot.model_copy(update={"active": True}),
+            "events": [e.model_copy(update={"hotspot": hotspot}) for e in result.features.events],
+        }
+    )
+    active, events = scoring_inputs(features)
+    assert active == [Dimension.BLAST_RADIUS, Dimension.HOTSPOT, Dimension.PERSISTENCE]
+    assert events[0].values["eh_churn_decayed"] == 4.5
+    assert events[0].values["eh_coupling"] == 1.0
