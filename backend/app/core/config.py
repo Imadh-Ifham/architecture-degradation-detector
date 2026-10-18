@@ -169,6 +169,10 @@ class Settings(BaseSettings):
     scoring_hotspot_half_life_releases: float = 2.0
     scoring_cochange_threshold: int = 5
     scoring_max_files_per_commit: int = 50
+    scoring_eh_weight_churn_decayed: float = 0.25
+    scoring_eh_weight_authors: float = 0.25
+    scoring_eh_weight_coupling: float = 0.25
+    scoring_eh_weight_bugfix_ratio: float = 0.25
     scoring_history_include_globs: str = (
         "*.py,*.java,*.go,*.js,*.ts,*.cs,*.kt,*.rb,*.php,*.cpp,*.c,*.h"
     )
