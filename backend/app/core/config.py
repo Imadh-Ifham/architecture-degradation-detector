@@ -156,7 +156,7 @@ class Settings(BaseSettings):
     # it lives under the ignored artifacts directory.
     scoring_outputs_root: Path = BACKEND_ROOT / "artifacts" / "scoring"
     scoring_seed: int = 42
-    scoring_rank_only_confirmed: bool = True
+    scoring_rank_only_confirmed: bool = False
     scoring_graph_reverse_edges: bool = False
     scoring_resolution_prefix_confidence: float = 0.7
     scoring_br_weight_fan_in_ratio: float = 0.25

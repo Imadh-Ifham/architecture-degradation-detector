@@ -1,14 +1,4 @@
-"""Tests for the degradation scoring configuration.
-
-Author: Dahami
-Date: 2026-10-14
-Description:
-    Pins every `scoring_*` default, and every value in the [scoring] section
-    of the committed config.ini, to the value fixed in the C4 CLAUDE.md
-    (§4-§5), and checks C4Config mirrors those settings exactly. Settings are
-    built with `model_construct`, so a developer's .env cannot change the result.
-"""
-
+# Tests for the degradation scoring configuration.
 import configparser
 
 import pytest
@@ -17,11 +7,11 @@ from pydantic import TypeAdapter, ValidationError
 from app.components.degradation_scoring.config import SETTINGS_PREFIX, C4Config
 from app.core.config import BACKEND_ROOT, CONFIG_INI_PATH, CONFIG_INI_SECTIONS, Settings
 
-# Value -> CLAUDE.md section it comes from.
+# Value -> section it comes from.
 EXPECTED_DEFAULTS = {
     "scoring_outputs_root": BACKEND_ROOT / "artifacts" / "scoring",  # §6
     "scoring_seed": 42,  # §7 determinism
-    "scoring_rank_only_confirmed": True,  # §4.1
+    "scoring_rank_only_confirmed": False,  # §4.1, C4-ADR-007 (C3 emits PENDING until M7)
     "scoring_graph_reverse_edges": False,  # §4.3 "A -> B" = A depends on B
     "scoring_resolution_prefix_confidence": 0.7,  # §5.1
     "scoring_br_weight_fan_in_ratio": 0.25,  # §5.1 equal weights

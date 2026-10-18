@@ -7,7 +7,8 @@
     Date: 2026-10-18
 
     Runs the four gates from app/components/degradation_scoring/CLAUDE.md §7 on
-    the C4 paths only: ruff lint, ruff format check, mypy (strict flags from
+    the C4 paths only (the component, plus the C4-owned domain contract and
+    scripts and their tests): ruff lint, ruff format check, mypy (strict flags from
     pyproject.toml), and pytest with coverage (minimum 80 %). Every gate runs
     even if an earlier one fails, so one report shows all problems.
 
@@ -30,6 +31,10 @@ Set-Location $backend
 
 $sourcePath = "app/components/degradation_scoring"
 $testPath = "tests/components/degradation_scoring"
+# C4-owned files outside the component folder, and their tests (C4-T05).
+$extraSources = @("app/domain/severity_report.py", "scripts/scoring_export_schemas.py")
+$extraTests = @("tests/domain/test_severity_report.py", "tests/scripts/test_scoring_export_schemas.py")
+$allPaths = @($sourcePath, $testPath) + $extraSources + $extraTests
 # Stricter lint rules for C4 only; pyproject.toml keeps ruff's defaults for
 # everyone else. I = import order, UP = modern syntax, B = likely bugs,
 # SIM = simplifications, N = naming, RUF = ruff-specific checks.
@@ -44,11 +49,13 @@ $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $report = Join-Path $evidenceDir "quality-gate-$timestamp.txt"
 
 $gates = @(
-    @{ Name = "ruff check";        Args = @("run", "ruff", "check", "--extend-select", $extraLintRules, $sourcePath, $testPath) },
-    @{ Name = "ruff format";       Args = @("run", "ruff", "format", "--check", $sourcePath, $testPath) },
-    @{ Name = "mypy";              Args = @("run", "mypy", $sourcePath, $testPath) },
-    @{ Name = "pytest + coverage"; Args = @("run", "pytest", $testPath, "-q", "-p", "no:cacheprovider",
+    @{ Name = "ruff check";        Args = @("run", "ruff", "check", "--extend-select", $extraLintRules) + $allPaths },
+    @{ Name = "ruff format";       Args = @("run", "ruff", "format", "--check") + $allPaths },
+    @{ Name = "mypy";              Args = @("run", "mypy") + $allPaths },
+    @{ Name = "pytest + coverage"; Args = @("run", "pytest", $testPath) + $extraTests + @("-q", "-p", "no:cacheprovider",
                                             "--cov=app.components.degradation_scoring",
+                                            "--cov=app.domain.severity_report",
+                                            "--cov=scripts.scoring_export_schemas",
                                             "--cov-report=term-missing",
                                             "--cov-fail-under=$minimumCoverage") }
 )
