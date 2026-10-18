@@ -1,4 +1,4 @@
-# Tests for the features service (C4-T11): the package export and extract() on the fixtures.
+# Tests for the features service (C4-T11, T13): the package export and extract() on the fixtures.
 
 from typing import Any
 
@@ -25,7 +25,7 @@ def test_package_exports_only_the_service() -> None:
 
 
 def test_extract_returns_one_row_per_resolved_event_in_order() -> None:
-    rows = FeatureExtractionService(default_config()).extract(RESOLVED, GRAPH)
+    rows = FeatureExtractionService(default_config()).extract(RESOLVED, GRAPH).events
     expected = load_fixture("fixture_expected.json")["counts"]["ranked"]
 
     assert [row.event_id for row in rows] == [item.event.event_id for item in RESOLVED]
@@ -33,7 +33,7 @@ def test_extract_returns_one_row_per_resolved_event_in_order() -> None:
 
 
 def test_extract_matches_the_pure_function() -> None:
-    rows = FeatureExtractionService(default_config()).extract(RESOLVED, GRAPH)
+    rows = FeatureExtractionService(default_config()).extract(RESOLVED, GRAPH).events
     c = br.compute_centralities(GRAPH, alpha=0.85, exact_max_nodes=5000, sample_k=500, seed=42)
 
     for item, row in zip(RESOLVED, rows, strict=True):
@@ -42,7 +42,7 @@ def test_extract_matches_the_pure_function() -> None:
 
 def test_settings_reach_the_computation() -> None:
     config = default_config(betweenness_exact_max_nodes=10, betweenness_sample_k=5, seed=7)
-    rows = FeatureExtractionService(config).extract(RESOLVED, GRAPH)
+    rows = FeatureExtractionService(config).extract(RESOLVED, GRAPH).events
 
     assert all(row.blast_radius.betweenness_sampled for row in rows)
 
@@ -65,7 +65,19 @@ def test_centralities_are_computed_once_per_release(monkeypatch: pytest.MonkeyPa
 
 
 def test_no_events_means_no_work() -> None:
-    assert FeatureExtractionService(default_config()).extract([], GRAPH) == []
+    result = FeatureExtractionService(default_config()).extract([], GRAPH)
+
+    assert result.events == []
+    assert result.hotspot.inactive_reason == "no_events"
+
+
+def test_without_a_repository_hotspot_is_inactive() -> None:
+    result = FeatureExtractionService(default_config()).extract(RESOLVED, GRAPH)
+
+    assert all(row.hotspot is None for row in result.events)
+    assert not result.hotspot.active
+    assert result.hotspot.inactive_reason == "no_repository"
+    assert (result.hotspot.cochange_threshold, result.hotspot.max_files_per_commit) == (5, 50)
 
 
 def test_events_from_two_releases_are_refused() -> None:

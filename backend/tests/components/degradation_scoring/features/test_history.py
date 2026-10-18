@@ -68,6 +68,9 @@ class FailingSource:
     def commits(self, repo_path: str, from_tag: str, to_tag: str) -> Sequence[Mapping[str, object]]:
         raise AssertionError("history source called although the range is cached")
 
+    def tag_dates(self, repo_path: str) -> Mapping[str, str]:
+        raise AssertionError("not needed here")
+
 
 @pytest.mark.parametrize(
     "path",

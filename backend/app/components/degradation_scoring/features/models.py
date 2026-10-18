@@ -15,13 +15,53 @@ class BlastRadiusFeatures(BaseModel):
     betweenness_sampled: bool = False
 
 
+class HotspotFeatures(BaseModel):
+    # the four raw EH features of one event, its elements taken as one unit (CLAUDE.md §5.2)
+
+    model_config = ConfigDict(frozen=True)
+
+    churn_decayed: float = Field(ge=0)
+    authors: int = Field(ge=0)
+    coupling: int = Field(ge=0)
+    bugfix_ratio: float = Field(ge=0, le=1)
+    commits: int = Field(ge=0)
+    from_release: str
+    to_release: str
+    first_seen_fallback: bool
+    paths_available: bool
+
+
+class HotspotContext(BaseModel):
+    # run-level hotspot settings and state, for the manifest and report
+
+    model_config = ConfigDict(frozen=True)
+
+    active: bool
+    inactive_reason: str | None = None
+    half_life_days: float | None = None
+    decay_rate: float | None = None
+    cochange_threshold: int
+    max_files_per_commit: int
+    unmapped_line_share: float | None = None
+
+
 class EventFeatures(BaseModel):
-    # every criterion's features for one resolved event; EH, AV and PS join in T13-T16
+    # every criterion's features for one resolved event; AV and PS join in T15-T16
 
     model_config = ConfigDict(frozen=True)
 
     event_id: str
     blast_radius: BlastRadiusFeatures
+    hotspot: HotspotFeatures | None = None
+
+
+class FeatureSet(BaseModel):
+    # what the features subcomponent hands on: one row per event plus run-level context
+
+    model_config = ConfigDict(frozen=True)
+
+    events: list[EventFeatures]
+    hotspot: HotspotContext
 
 
 class FileChange(BaseModel):
@@ -46,8 +86,19 @@ class CommitRecord(BaseModel):
     files: list[FileChange]
 
 
+class MappedFile(BaseModel):
+    # one changed file of a commit with the elements that own it (one or more)
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    lines: int = Field(ge=0)
+    elements: list[str] = Field(min_length=1)
+
+
 class ElementCommit(BaseModel):
-    # a commit seen from the graph: lines changed per element it touched (added + deleted)
+    # a commit seen from the graph: lines changed per element it touched (added + deleted);
+    # files = the owned files, so a file shared by two elements can be counted once
 
     model_config = ConfigDict(frozen=True)
 
@@ -57,6 +108,7 @@ class ElementCommit(BaseModel):
     message: str
     files_changed: int = Field(ge=1)
     lines_by_element: dict[str, int]
+    files: list[MappedFile] = Field(default_factory=list)
 
 
 class ElementHistory(BaseModel):

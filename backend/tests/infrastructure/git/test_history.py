@@ -66,3 +66,21 @@ def test_single_commit_range(tiny: tuple[Path, dict[str, str]]) -> None:
 
     assert [row["hash"] for row in only] == [hashes["c4"]]
     assert rows(root, "v1.1.0", "v1.1.0") == []
+
+
+def test_mailmap_merges_a_second_address(tiny: tuple[Path, dict[str, str]]) -> None:
+    root, _ = tiny
+    c5 = rows(root)[4]
+
+    # committed as bob.work@example.com; .mailmap maps it to bob@example.com
+    assert c5["message"] == "search: new module"
+    assert c5["author_email"] == "bob@example.com"
+
+
+def test_tag_dates_are_the_tagged_commits_dates(tiny: tuple[Path, dict[str, str]]) -> None:
+    root, _ = tiny
+
+    assert PyDrillerHistorySource().tag_dates(str(root)) == {
+        "v1.0.0": "2026-01-01T12:00:00+00:00",
+        "v1.1.0": "2026-01-10T12:00:00+00:00",
+    }

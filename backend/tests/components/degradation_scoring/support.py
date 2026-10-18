@@ -66,6 +66,9 @@ class FakeHistorySource:
         self.requests.append((repo_path, from_tag, to_tag))
         return list(self._rows)
 
+    def tag_dates(self, repo_path: str) -> Mapping[str, str]:
+        return {}
+
 
 class FakeMiningCache:
     # MiningCache in a dict, keyed like the Postgres table.
@@ -147,6 +150,7 @@ def git_commit(
 def build_tiny_repo(root: Path) -> dict[str, str]:
     # A small history with fixed dates; returns commit hashes by label.
     # v1.0.0 = c0; then c2 (feature branch), c1, merge, c3, c4, c5 = v1.1.0; c6 after the tag.
+    # .mailmap (c0) maps bob.work@ (c5) to bob@.
     repo = init_repo(root)
     hashes: dict[str, str] = {}
 
@@ -162,7 +166,13 @@ def build_tiny_repo(root: Path) -> dict[str, str]:
         1,
         "alice@example.com",
         "initial",
-        {ORDER: _lines(10), PAY: _lines(5), UTIL: _lines(2), "README.md": "readme\n"},
+        {
+            ORDER: _lines(10),
+            PAY: _lines(5),
+            UTIL: _lines(2),
+            "README.md": "readme\n",
+            ".mailmap": "Bob <bob@example.com> <bob.work@example.com>\n",
+        },
     )
     repo.create_tag("v1.0.0")
     repo.git.checkout("-b", "feature")
@@ -195,7 +205,9 @@ def build_tiny_repo(root: Path) -> dict[str, str]:
         "docs",
         {"README.md": "readme v2\n", "vendor/lib/Dep.java": None},
     )
-    commit("c5", 10, "bob@example.com", "search: new module", {"src/search/Search.py": _lines(3)})
+    commit(
+        "c5", 10, "bob.work@example.com", "search: new module", {"src/search/Search.py": _lines(3)}
+    )
     repo.create_tag("v1.1.0")
     commit("c6", 12, "bob@example.com", "after release", {ORDER: _lines(1)})
     repo.close()

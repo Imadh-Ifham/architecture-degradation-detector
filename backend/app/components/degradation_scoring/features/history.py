@@ -4,7 +4,7 @@
 import hashlib
 import json
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -18,6 +18,7 @@ from app.components.degradation_scoring.features.models import (
     CommitRecord,
     ElementCommit,
     ElementHistory,
+    MappedFile,
 )
 from app.components.degradation_scoring.ports import CommitHistorySource, MiningCache
 
@@ -26,7 +27,7 @@ log = structlog.get_logger(__name__)
 Spec = pathspec.PathSpec[Any]
 
 # Bump when the meaning of mined rows changes, so old cache entries are not reused.
-MINING_RULES_VERSION = "1:range=(from,to]:merges=excluded"
+MINING_RULES_VERSION = "2:range=(from,to]:merges=excluded:mailmap"
 
 
 def _spec(patterns: Iterable[str]) -> Spec:
@@ -115,6 +116,7 @@ def map_to_elements(commits: Iterable[CommitRecord], graph: "nx.DiGraph[str]") -
     total_lines = unmapped_lines = 0
     for commit in commits:
         lines: dict[str, int] = defaultdict(int)
+        files: list[MappedFile] = []
         for change in commit.files:
             if change.path not in owners:
                 owners[change.path] = [
@@ -126,6 +128,10 @@ def map_to_elements(commits: Iterable[CommitRecord], graph: "nx.DiGraph[str]") -
                 unmapped_lines += changed
             for node in owners[change.path]:
                 lines[node] += changed
+            if owners[change.path]:
+                files.append(
+                    MappedFile(path=change.path, lines=changed, elements=owners[change.path])
+                )
         if lines:
             mapped.append(
                 ElementCommit(
@@ -135,6 +141,7 @@ def map_to_elements(commits: Iterable[CommitRecord], graph: "nx.DiGraph[str]") -
                     message=commit.message,
                     files_changed=len(commit.files),
                     lines_by_element=dict(sorted(lines.items())),
+                    files=files,
                 )
             )
 
@@ -158,3 +165,25 @@ def map_to_elements(commits: Iterable[CommitRecord], graph: "nx.DiGraph[str]") -
         unmapped_lines=unmapped_lines,
         unmapped_line_share=share,
     )
+
+
+class MemoryMiningCache:
+    # MiningCache for one process, used when no database cache is given (C4-ADR-001)
+
+    def __init__(self) -> None:
+        self._entries: dict[tuple[str, str, str, str], list[Mapping[str, object]]] = {}
+
+    def get(
+        self, repo_path: str, from_tag: str, to_tag: str, filter_hash: str
+    ) -> Sequence[Mapping[str, object]] | None:
+        return self._entries.get((repo_path, from_tag, to_tag, filter_hash))
+
+    def put(
+        self,
+        repo_path: str,
+        from_tag: str,
+        to_tag: str,
+        filter_hash: str,
+        rows: Sequence[Mapping[str, object]],
+    ) -> None:
+        self._entries[(repo_path, from_tag, to_tag, filter_hash)] = list(rows)

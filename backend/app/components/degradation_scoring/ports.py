@@ -21,12 +21,15 @@ class ArchitectureGraphSource(Protocol):
 
 
 class CommitHistorySource(Protocol):
-    # Plain commit rows in (from_tag, to_tag], merge commits left out (CLAUDE.md §5.2):
-    # {"hash", "author_email", "committed_at" (ISO 8601), "message",
-    #  "files": [{"path" (posix), "added", "deleted"}]}
+    # Plain commit rows in (from_tag, to_tag], merge commits left out, author e-mails after
+    # .mailmap (CLAUDE.md §5.2): {"hash", "author_email", "committed_at" (ISO 8601),
+    # "message", "files": [{"path" (posix), "added", "deleted"}]}
     def commits(
         self, repo_path: str, from_tag: str, to_tag: str
     ) -> Sequence[Mapping[str, object]]: ...
+
+    # Every tag with the date (ISO 8601) of the commit it points to.
+    def tag_dates(self, repo_path: str) -> Mapping[str, str]: ...
 
 
 class MiningCache(Protocol):

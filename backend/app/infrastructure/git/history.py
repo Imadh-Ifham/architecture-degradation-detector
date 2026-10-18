@@ -1,5 +1,6 @@
 # C4 CommitHistorySource over PyDriller: plain commit rows between two release tags.
-# Range is git's "from..to" = (from_tag, to_tag]; merge commits are left out (C4-T12).
+# Range is git's "from..to" = (from_tag, to_tag]; merge commits are left out; author e-mails
+# go through .mailmap (C4-T12, C4-T13).
 
 from typing import Any
 
@@ -18,9 +19,34 @@ class PyDrillerHistorySource:
                     f"{from_tag}..{to_tag}", no_merges=True, reverse=True
                 )
             ]
-            return [_row(git.get_commit(commit_hash)) for commit_hash in hashes]
+            canonical: dict[str, str] = {}
+            rows = []
+            for commit_hash in hashes:
+                row = _row(git.get_commit(commit_hash))
+                email = str(row["author_email"])
+                if email not in canonical:
+                    canonical[email] = _mailmap(git, email)
+                row["author_email"] = canonical[email]
+                rows.append(row)
+            return rows
         finally:
             git.clear()
+
+    def tag_dates(self, repo_path: str) -> dict[str, str]:
+        git = Git(repo_path)
+        try:
+            return {
+                str(tag.name): str(tag.commit.committed_datetime.isoformat())
+                for tag in git.repo.tags
+            }
+        finally:
+            git.clear()
+
+
+def _mailmap(git: Any, email: str) -> str:
+    # "git check-mailmap <email>" answers "Name <email>" or "<email>"; unmapped stays as is
+    answer = str(git.repo.git.check_mailmap(f"<{email}>"))
+    return answer[answer.rfind("<") + 1 : answer.rfind(">")] or email
 
 
 def _row(commit: Any) -> dict[str, object]:
