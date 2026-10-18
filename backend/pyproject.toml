@@ -84,6 +84,8 @@ torch = { index = "pytorch-cpu" }
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# C4's old prototype, kept unchanged as a regression reference (C4-T11)
+extend-exclude = ["tests/fixtures/degradation_scoring/legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -109,6 +111,8 @@ files = [
     "alembic/versions/0001_c3_ingestion.py",
     "scripts/c3.py",
 ]
+# C4's old prototype, kept unchanged as a regression reference (C4-T11)
+exclude = ["^tests/fixtures/degradation_scoring/legacy/"]
 
 # Team modules that C3 files import but that are not strict-clean.
 [[tool.mypy.overrides]]
