@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import structlog
 from pydantic import ValidationError
 
-from app.components.degradation_scoring.ingestion.models import EventIngestion
+from app.components.degradation_scoring.ingestion.models import EventIngestion, PayloadRecord
 from app.domain.degradation_event import ContextTag, DegradationEventV2, ReviewStatus, Scope
 from app.domain.severity_report import QuarantinedEvent, QuarantineReason, SkippedEvent, SkipReason
 
@@ -17,25 +17,49 @@ def ingest_events(payloads: Iterable[object], *, rank_only_confirmed: bool) -> E
     # When several skip rules apply, the first in this order is recorded,
     # rejected, intentional, superseded, system scope, not confirmed.
 
-    valid: list[DegradationEventV2] = []
+    valid: list[tuple[int, DegradationEventV2]] = []
     quarantined: list[QuarantinedEvent] = []
-    for payload in payloads:
+    records: dict[int, PayloadRecord] = {}
+    for index, payload in enumerate(payloads):
         try:
-            valid.append(DegradationEventV2.model_validate(payload))
+            valid.append((index, DegradationEventV2.model_validate(payload)))
         except ValidationError as exc:
-            quarantined.append(_malformed(payload, exc))
+            item = _malformed(payload, exc)
+            quarantined.append(item)
+            records[index] = PayloadRecord(
+                payload_index=index,
+                event_id=item.event_id,
+                outcome="quarantined",
+                reason=str(item.reason),
+                detail=item.detail,
+            )
 
-    superseded = {e.supersedes_event_id for e in valid if e.supersedes_event_id is not None}
+    superseded = {e.supersedes_event_id for _, e in valid if e.supersedes_event_id is not None}
     eligible: list[DegradationEventV2] = []
     skipped: list[SkippedEvent] = []
-    for event in valid:
+    for index, event in valid:
         reason = _skip_reason(event, superseded, rank_only_confirmed)
         if reason is None:
             eligible.append(event)
         else:
             skipped.append(SkippedEvent(event_id=event.event_id, reason=reason))
             log.info("event_skipped", reason=str(reason), event_id=event.event_id)
-    return EventIngestion(eligible=eligible, quarantined=quarantined, skipped=skipped)
+        records[index] = PayloadRecord(
+            payload_index=index,
+            event_id=event.event_id,
+            scope=str(event.scope),
+            anti_pattern_type=event.anti_pattern_type,
+            review_status=str(event.review_status),
+            context_tag=str(event.context.tag),
+            outcome="eligible" if reason is None else "skipped",
+            reason=None if reason is None else str(reason),
+        )
+    return EventIngestion(
+        eligible=eligible,
+        quarantined=quarantined,
+        skipped=skipped,
+        payloads=[records[index] for index in sorted(records)],
+    )
 
 
 def _malformed(payload: object, exc: ValidationError) -> QuarantinedEvent:

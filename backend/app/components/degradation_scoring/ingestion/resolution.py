@@ -7,7 +7,7 @@ from collections.abc import Sequence
 import networkx as nx
 import structlog
 
-from app.components.degradation_scoring.ingestion.models import ResolvedEvent
+from app.components.degradation_scoring.models import ResolvedEvent
 from app.domain.degradation_event import DegradationEventV2
 from app.domain.severity_report import (
     QuarantinedEvent,

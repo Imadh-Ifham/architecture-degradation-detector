@@ -94,6 +94,17 @@ def test_prefix_only_matches_whole_folders() -> None:
     assert quarantined[0].detail == "missing: src/services/notif"
 
 
+def test_folder_pattern_paths_resolve_by_folder_name() -> None:
+    # source_paths may be folder patterns, not only exact files (owner, before T13)
+    g: nx.DiGraph[str] = nx.DiGraph()
+    g.add_node("checkoutservice", source_paths=["src/checkoutservice/**"], aliases=[])
+
+    resolved, _, _ = resolve(element_event("src/checkoutservice"), graph=g)
+
+    assert resolved[0].nodes == ["checkoutservice"]
+    assert resolved[0].resolution.status is ResolutionStatus.PREFIX_FALLBACK
+
+
 def test_prefix_matching_several_nodes_is_ambiguous() -> None:
     _, quarantined, rate = resolve(element_event("src/services"))
 

@@ -84,6 +84,8 @@ torch = { index = "pytorch-cpu" }
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# C4's old prototype, kept unchanged as a regression reference (C4-T11)
+extend-exclude = ["tests/fixtures/degradation_scoring/legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -108,7 +110,17 @@ files = [
     "app/shared",
     "alembic/versions/0001_c3_ingestion.py",
     "scripts/c3.py",
+    # C4 adapters and migration
+    "app/infrastructure/git/history.py",
+    "app/infrastructure/postgres/models/c4_mining_cache.py",
+    "app/infrastructure/postgres/repositories/mining_cache_repository.py",
+    "alembic/versions/0002_c4_mining_cache.py",
+    "app/infrastructure/postgres/models/c4_scoring_run.py",
+    "app/infrastructure/postgres/repositories/scoring_run_repository.py",
+    "alembic/versions/0003_c4_scoring_run.py",
 ]
+# C4's old prototype, kept unchanged as a regression reference (C4-T11)
+exclude = ["^tests/fixtures/degradation_scoring/legacy/"]
 
 # Team modules that C3 files import but that are not strict-clean.
 [[tool.mypy.overrides]]

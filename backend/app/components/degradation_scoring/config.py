@@ -41,6 +41,8 @@ class C4Config(BaseModel):
     hotspot_half_life_releases: float
     cochange_threshold: int
     max_files_per_commit: int
+    history_include_globs: str
+    history_exclude_globs: str
     ps_weight_consecutive_releases: float
     ps_weight_growth_slope: float
     adr_semantic_fallback_enabled: bool

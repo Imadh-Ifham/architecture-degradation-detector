@@ -1,9 +1,11 @@
 # Shared test helpers for C4: default config, fixture loading and in-memory port fakes.
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+import git
 
 from app.components.degradation_scoring.config import C4Config
 from app.core.config import Settings
@@ -51,3 +53,189 @@ class FakeGraphSource:
     def fetch(self, system_id: str, release_id: str) -> object:
         self.requests.append((system_id, release_id))
         return self._documents[release_id]
+
+
+class FakeHistorySource:
+    # CommitHistorySource over in-memory rows; records every call.
+
+    def __init__(self, rows: Sequence[Mapping[str, object]]) -> None:
+        self._rows = list(rows)
+        self.requests: list[tuple[str, str, str]] = []
+
+    def commits(self, repo_path: str, from_tag: str, to_tag: str) -> Sequence[Mapping[str, object]]:
+        self.requests.append((repo_path, from_tag, to_tag))
+        return list(self._rows)
+
+    def tag_dates(self, repo_path: str) -> Mapping[str, str]:
+        return {}
+
+
+class FakeMiningCache:
+    # MiningCache in a dict, keyed like the Postgres table.
+
+    def __init__(self) -> None:
+        self.entries: dict[tuple[str, str, str, str], list[Mapping[str, object]]] = {}
+
+    def get(
+        self, repo_path: str, from_tag: str, to_tag: str, filter_hash: str
+    ) -> Sequence[Mapping[str, object]] | None:
+        return self.entries.get((repo_path, from_tag, to_tag, filter_hash))
+
+    def put(
+        self,
+        repo_path: str,
+        from_tag: str,
+        to_tag: str,
+        filter_hash: str,
+        rows: Sequence[Mapping[str, object]],
+    ) -> None:
+        self.entries[(repo_path, from_tag, to_tag, filter_hash)] = list(rows)
+
+
+def _lines(count: int, prefix: str = "line") -> str:
+    return "".join(f"{prefix} {i}\n" for i in range(count))
+
+
+ORDER = "src/order/OrderService.java"
+PAY = "src/pay/PayService.java"
+UTIL = "src/shared/Util.java"
+
+
+def init_repo(root: Path) -> git.Repo:
+    # empty repo on "main" with line endings and signing pinned, so tests run the same anywhere
+    repo = git.Repo.init(root, initial_branch="main")
+    with repo.config_writer() as config:
+        config.set_value("core", "autocrlf", "false")
+        config.set_value("commit", "gpgsign", "false")
+    return repo
+
+
+def git_commit(
+    repo: git.Repo,
+    day: int,
+    email: str,
+    message: str,
+    files: dict[str, str | None],
+    *,
+    merge: str | None = None,
+) -> str:
+    # writes (None = deletes) the files, then commits on 2026-01-<day> 12:00 UTC as email;
+    # with merge="branch" it makes a --no-ff merge commit instead; returns the new hash
+    root = Path(repo.working_dir)
+    for name, content in files.items():
+        if content is None:
+            repo.git.rm(name)
+            continue
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8", newline="\n")
+        repo.git.add(name)
+    when = f"2026-01-{day:02d}T12:00:00+00:00"
+    user = email.split("@")[0]
+    with repo.git.custom_environment(
+        GIT_AUTHOR_NAME=user,
+        GIT_AUTHOR_EMAIL=email,
+        GIT_AUTHOR_DATE=when,
+        GIT_COMMITTER_NAME=user,
+        GIT_COMMITTER_EMAIL=email,
+        GIT_COMMITTER_DATE=when,
+    ):
+        if merge:
+            repo.git.merge(merge, no_ff=True, m=message)
+        else:
+            repo.git.commit(m=message)
+    return repo.head.commit.hexsha
+
+
+def build_tiny_repo(root: Path) -> dict[str, str]:
+    # A small history with fixed dates; returns commit hashes by label.
+    # v1.0.0 = c0; then c2 (feature branch), c1, merge, c3, c4, c5 = v1.1.0; c6 after the tag.
+    # .mailmap (c0) maps bob.work@ (c5) to bob@.
+    repo = init_repo(root)
+    hashes: dict[str, str] = {}
+
+    def commit(
+        label: str, day: int, email: str, message: str, files: dict[str, str | None]
+    ) -> None:
+        merge = "feature" if label == "merge" else None
+        hashes[label] = git_commit(repo, day, email, message, files, merge=merge)
+
+    order_v2 = "changed\n" + _lines(10).split("\n", 1)[1] + _lines(3, "total")
+    commit(
+        "c0",
+        1,
+        "alice@example.com",
+        "initial",
+        {
+            ORDER: _lines(10),
+            PAY: _lines(5),
+            UTIL: _lines(2),
+            "README.md": "readme\n",
+            ".mailmap": "Bob <bob@example.com> <bob.work@example.com>\n",
+        },
+    )
+    repo.create_tag("v1.0.0")
+    repo.git.checkout("-b", "feature")
+    commit("c2", 3, "bob@example.com", "pay: add retry", {PAY: _lines(5) + _lines(2, "retry")})
+    repo.git.checkout("main")
+    commit(
+        "c1",
+        5,
+        "Alice@Example.com",
+        "order: rework totals",
+        {
+            ORDER: order_v2,
+            "vendor/lib/Dep.java": _lines(3),
+            "target/Out.java": _lines(3),
+            "src/cartservice/bin/Cart.cs": _lines(3),
+        },
+    )
+    commit("merge", 6, "alice@example.com", "merge feature", {})
+    commit(
+        "c3",
+        8,
+        "alice@example.com",
+        "fix: null check in util",
+        {UTIL: _lines(2) + _lines(4, "check"), ORDER: order_v2 + "guard\n"},
+    )
+    commit(
+        "c4",
+        9,
+        "bob@example.com",
+        "docs",
+        {"README.md": "readme v2\n", "vendor/lib/Dep.java": None},
+    )
+    commit(
+        "c5", 10, "bob.work@example.com", "search: new module", {"src/search/Search.py": _lines(3)}
+    )
+    repo.create_tag("v1.1.0")
+    commit("c6", 12, "bob@example.com", "after release", {ORDER: _lines(1)})
+    repo.close()
+    return hashes
+
+
+def adr_index_document() -> dict[str, Any]:
+    # the three fixture ADRs ("0001-x.md" -> "ADR-0001") plus the fixture links (stand-in for
+    # C2's adr_refs), in the AdrIndexSource document shape
+    adrs = [
+        {"id": f"ADR-{path.name[:4]}", "text": path.read_text(encoding="utf-8")}
+        for path in sorted((FIXTURES / "adr").glob("*.md"))
+    ]
+    return {"adrs": adrs, "links": load_fixture("adr/adr_links.v1.json")["links"]}
+
+
+class FakeRunRepository:
+    # ScoringRunRepository in memory; keeps every saved run's rows.
+
+    def __init__(self) -> None:
+        self.saved: list[
+            tuple[Mapping[str, object], list[Mapping[str, object]], list[Mapping[str, object]]]
+        ] = []
+
+    def save(
+        self,
+        run: Mapping[str, object],
+        ingestion: Sequence[Mapping[str, object]],
+        features: Sequence[Mapping[str, object]],
+    ) -> None:
+        self.saved.append((run, list(ingestion), list(features)))

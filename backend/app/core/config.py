@@ -169,6 +169,14 @@ class Settings(BaseSettings):
     scoring_hotspot_half_life_releases: float = 2.0
     scoring_cochange_threshold: int = 5
     scoring_max_files_per_commit: int = 50
+    scoring_history_include_globs: str = (
+        "*.py,*.java,*.go,*.js,*.ts,*.cs,*.kt,*.rb,*.php,*.cpp,*.c,*.h"
+    )
+    scoring_history_exclude_globs: str = (
+        "**/vendor/**,**/node_modules/**,**/generated/**,**/*_pb2.py,**/*.pb.go,"
+        "**/test*/fixtures/**,*.min.js,"
+        "**/target/**,**/build/**,**/dist/**,**/bin/**,**/obj/**"
+    )
     scoring_ps_weight_consecutive_releases: float = 0.7
     scoring_ps_weight_growth_slope: float = 0.3
     scoring_adr_semantic_fallback_enabled: bool = False
