@@ -81,6 +81,7 @@ files = [
     "alembic/versions/0001_c3_ingestion.py",
     "alembic/versions/0002_c3_analysis_run.py",
     "scripts/c3.py",
+    "scripts/mvp_eval.py",
 ]
 
 # Team modules that C3 files import but that are not strict-clean.

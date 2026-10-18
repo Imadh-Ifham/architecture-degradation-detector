@@ -91,6 +91,16 @@ def test_artifacts_are_stored_as_json(repo: Any, sessions: sessionmaker[Session]
     assert stored == ARTIFACTS
 
 
+def test_artifacts_load_back(repo: Any) -> None:
+    assert repo.load_artifacts(RUN_ID) is None
+    repo.start(started_run())
+    assert repo.load_artifacts(RUN_ID) == {}
+
+    repo.complete(completed_run(), outputs(), ARTIFACTS)
+
+    assert repo.load_artifacts(RUN_ID) == ARTIFACTS
+
+
 def test_failed_run_keeps_its_error(repo: Any) -> None:
     repo.start(started_run())
     repo.fail(failed_run())

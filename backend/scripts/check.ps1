@@ -19,7 +19,8 @@ $c3Shared = @(
     "alembic/versions/0001_c3_ingestion.py", "alembic/versions/0002_c3_analysis_run.py"
 )
 $c3Source = @(
-    "app/components/degradation_detection", "app/core/logging.py", "app/shared", "scripts/c3.py"
+    "app/components/degradation_detection", "app/core/logging.py", "app/shared", "scripts/c3.py",
+    "scripts/mvp_eval.py"
 ) + $c3Shared
 # Integration tests (PostgreSQL) are linted here but run only with -All.
 $c3Tests = @(

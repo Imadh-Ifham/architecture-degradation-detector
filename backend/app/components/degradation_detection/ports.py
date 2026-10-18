@@ -66,3 +66,8 @@ class AnalysisRunRepository(Protocol):
     def load(self, run_id: str) -> StoredRun | None:
         """A stored run and its outputs, or None if the run was never stored."""
         ...
+
+    def load_artifacts(self, run_id: str) -> dict[str, Any] | None:
+        """The JSON artifacts of a stored run by name, empty if it did not complete; None if
+        the run was never stored."""
+        ...

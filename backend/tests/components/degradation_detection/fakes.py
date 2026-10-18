@@ -69,6 +69,11 @@ class InMemoryAnalysisRunRepository:
             return None
         return StoredRun(run=self.runs[run_id], outputs=self.outputs.get(run_id, RunOutputs()))
 
+    def load_artifacts(self, run_id: str) -> dict[str, Any] | None:
+        if run_id not in self.runs:
+            return None
+        return dict(self.artifacts.get(run_id, {}))
+
     def _finish(self, run: AnalysisRun, status: RunStatus) -> None:
         stored = self.runs.get(run.run_id)
         if stored is None or stored.status is not RunStatus.RUNNING:

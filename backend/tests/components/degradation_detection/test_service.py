@@ -163,6 +163,13 @@ def test_run_stores_the_intermediate_artifacts(completed: Completed) -> None:
     assert len(artifacts["detections"]) == len(stub_run().timeline.entries)
 
 
+def test_run_artifacts_load_back(completed: Completed) -> None:
+    run_id = completed.result.stored.run.run_id
+
+    assert completed.runs.load_artifacts(run_id) == completed.runs.artifacts[run_id]
+    assert completed.runs.load_artifacts("RUN-unknown") is None
+
+
 def test_run_returns_the_files_to_write(completed: Completed) -> None:
     files = completed.result.files
     events = completed.result.stored.outputs.events

@@ -212,6 +212,20 @@ class PostgresAnalysisRunRepository:
             ),
         )
 
+    def load_artifacts(self, run_id: str) -> dict[str, Any] | None:
+        with self._sessions() as session:
+            stored = session.execute(
+                select(c3_analysis_run.c.run_id).where(c3_analysis_run.c.run_id == run_id)
+            ).one_or_none()
+            if stored is None:
+                return None
+            rows = session.execute(
+                select(c3_run_artifact.c.name, c3_run_artifact.c.payload).where(
+                    c3_run_artifact.c.run_id == run_id
+                )
+            ).all()
+        return {row.name: row.payload for row in rows}
+
     def _finish(self, session: Session, run: AnalysisRun) -> None:
         """Move a RUNNING run to its final state; only a RUNNING run may move."""
         if run.status is RunStatus.RUNNING:
