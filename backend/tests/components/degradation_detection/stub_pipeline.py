@@ -30,16 +30,27 @@ class StubRun:
     analysis: TrendAnalysis
 
 
+def stub_packages() -> list[RawPackage]:
+    """The stub's release packages (the hotfix that M1 rejects included), sorted by file name."""
+    return [
+        RawPackage(source=name, data=text.encode("utf-8"))
+        for name, text in sorted(StubService().generate().system_files.items())
+        if name.endswith(".json")
+    ]
+
+
+def ingested_stub(cfg: C3Config | None = None) -> InMemoryReleaseRepository:
+    """A fresh in-memory release store holding the ingested stub."""
+    repo = InMemoryReleaseRepository()
+    IngestService(repo, FixedClock(), cfg or C3Config()).ingest(stub_packages())
+    return repo
+
+
 @cache
 def stub_run() -> StubRun:
     cfg = C3Config()
     stub = StubService().generate()
-    ingest = IngestService(InMemoryReleaseRepository(), FixedClock(), cfg)
-    ingest.ingest(
-        RawPackage(source=name, data=text.encode("utf-8"))
-        for name, text in sorted(stub.system_files.items())
-        if name.endswith(".json")
-    )
+    ingest = IngestService(ingested_stub(cfg), FixedClock(), cfg)
     timeline = ingest.timeline(stub.ground_truth.system_id)
     detection = DetectionService(cfg)
     tracking = TrackingService(cfg).track(

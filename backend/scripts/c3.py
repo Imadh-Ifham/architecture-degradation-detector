@@ -2,14 +2,20 @@
 
 Commands are added by the task that first needs them; T-01 adds ``schemas export``, T-02
 ``config show``, T-03 ``stub``, T-04 ``ingest``, T-07 ``detect``, T-08 ``align``, T-10
-``series``, T-12 ``trends``. Logs are JSON lines on stderr; command output goes to stdout.
+``series``, T-12 ``trends``, T-13 ``run``, ``report`` and ``baseline``. Logs are JSON lines on
+stderr; command output goes to stdout.
 
-``ingest`` stores into and ``detect`` / ``align`` / ``series`` / ``trends`` read from PostgreSQL
+``run`` is the pipeline: it analyses every release of a system under one stored analysis run
+and writes ``out/<run_id>/``. ``detect`` / ``align`` / ``series`` / ``trends`` show one step at a
+time and store nothing.
+
+``ingest`` and ``run`` store into, and the other commands read from, PostgreSQL
 (``docker compose up -d``, then ``uv run alembic upgrade head``). The database modules are imported
 only when a command needs them, so every other command works without a ``.env``.
 """
 
 import json
+import subprocess
 import uuid
 from collections import Counter
 from enum import StrEnum
@@ -19,6 +25,8 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel
 
+from app.components.degradation_detection import DegradationDetectionService
+from app.components.degradation_detection.baselines import StaticBaselineService
 from app.components.degradation_detection.config import (
     DEFAULT_CATALOG_PATH,
     DEFAULT_CONFIG_PATH,
@@ -36,7 +44,7 @@ from app.components.degradation_detection.ingestion.models import (
     RawPackage,
 )
 from app.components.degradation_detection.models import DetectionCatalog, Timeline
-from app.components.degradation_detection.ports import ReleaseRepository
+from app.components.degradation_detection.ports import AnalysisRunRepository, ReleaseRepository
 from app.components.degradation_detection.stub import StubService
 from app.components.degradation_detection.stub.models import DEFAULT_SEED
 from app.components.degradation_detection.tracking import TrackingService
@@ -165,6 +173,36 @@ def release_repository() -> ReleaseRepository:
     return PostgresReleaseRepository(SessionLocal)
 
 
+def run_repository() -> AnalysisRunRepository:
+    """The PostgreSQL analysis-run store. Tests replace this function with an in-memory fake."""
+    from app.infrastructure.postgres.database import SessionLocal
+    from app.infrastructure.postgres.repositories.c3_analysis_run_repository import (
+        PostgresAnalysisRunRepository,
+    )
+
+    return PostgresAnalysisRunRepository(SessionLocal)
+
+
+def code_version() -> str:
+    """The git commit of this checkout, with ``-dirty`` if tracked files have local changes;
+    ``unknown`` outside a git checkout. Stored on every analysis run."""
+    try:
+        sha, changes = (
+            subprocess.run(
+                ["git", *args],
+                cwd=BACKEND_ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10,
+            ).stdout.strip()
+            for args in (["rev-parse", "--short", "HEAD"], ["status", "--porcelain", "-uno"])
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return f"{sha}-dirty" if changes else sha
+
+
 def _read_packages(path: Path, max_bytes: int) -> list[RawPackage]:
     """Every ``*.json`` file of a directory (not recursive), or the one file given.
 
@@ -252,7 +290,7 @@ def detect(
 
 
 def _track_or_exit(system: str, cfg: C3Config) -> tuple[Timeline, TrackingResult, DetectionCatalog]:
-    """M2 on every release of the timeline, then M3 (T-13 replaces this with ``c3 run``)."""
+    """M2 on every release of the timeline, then M3, without storing a run (``c3 run`` does)."""
     timeline = _timeline_or_exit(system, cfg)
     detection = DetectionService(cfg)
     detections = [detection.detect(entry.release) for entry in timeline.entries]
@@ -353,7 +391,7 @@ def trends(
     analysis = TrendService(cfg).analyze(
         timeline, result.series, result.lineages, result.tracks, described
     )
-    run = run_id or f"RUN-{uuid.uuid4().hex[:16]}"  # T-13: the analysis_run id
+    run = run_id or f"RUN-{uuid.uuid4().hex[:16]}"  # a preview: no analysis run is stored
     export = EventService(cfg).emit(analysis.candidates, timeline, run)
 
     untested = Counter(u.reason for u in analysis.untested)
@@ -386,6 +424,91 @@ def trends(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(export.text, encoding="utf-8", newline="\n")
     typer.echo(f"{len(export.events)} events (run {run}); wrote {path}")
+
+
+def _write_outputs(out: Path, files: dict[str, bytes]) -> None:
+    for name, data in files.items():
+        path = out / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    typer.echo(f"wrote {len(files)} files to {out}")
+
+
+@app.command("run")
+def run(
+    system: Annotated[str, typer.Option(help="System id, as ingested.")],
+    ingest_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--ingest",
+            exists=True,
+            help="Ingest these packages first (a file or a directory); unchanged ones are skipped.",
+        ),
+    ] = None,
+    config: ConfigFile = DEFAULT_CONFIG_PATH,
+    catalog: CatalogFile = DEFAULT_CATALOG_PATH,
+) -> None:
+    """Analyse every release of a system under one stored analysis run, and write events.json,
+    series.csv, report.md and plots/ to out/<run_id>/."""
+    cfg = _load_config_or_exit(config, catalog)
+    releases = release_repository()
+    if ingest_path is not None:
+        packages = _read_packages(ingest_path, cfg.ingest.max_package_bytes)
+        typer.echo(_summary_line(IngestService(releases, SystemClock(), cfg).ingest(packages)))
+
+    service = DegradationDetectionService(releases, run_repository(), SystemClock(), cfg)
+    try:
+        result = service.run(system, code_version=code_version())
+    except LookupError as exc:
+        typer.echo(f"{exc}; run `c3 ingest` first")
+        raise typer.Exit(code=1) from exc
+
+    stored = result.stored
+    found = stored.outputs
+    worsening = sum(1 for t in found.trends if t.is_significant and t.is_worsening)
+    typer.echo(
+        f"run {stored.run.run_id} {stored.run.status.value}: {len(stored.run.releases)} releases, "
+        f"{len(found.instances)} instances, {len(found.trends)} series tested "
+        f"({worsening} significant worsening), {len(found.untested)} not tested, "
+        f"{len(found.events)} events, {len(found.static_flags)} static-threshold flags"
+    )
+    _write_outputs(OUT_DIR / stored.run.run_id, result.files)
+
+
+@app.command("report")
+def report(
+    run_id: Annotated[str, typer.Option("--run-id", help="A stored analysis run.")],
+) -> None:
+    """Re-render report.md and the event plots of a stored run into out/<run_id>/."""
+    # Rendering reads only the stored run: the config it ran with is part of it.
+    service = DegradationDetectionService(
+        release_repository(), run_repository(), SystemClock(), C3Config()
+    )
+    try:
+        files = service.report(run_id)
+    except LookupError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+    _write_outputs(OUT_DIR / run_id, files)
+
+
+@app.command("baseline")
+def baseline(
+    system: Annotated[str, typer.Option(help="System id, as ingested.")],
+    config: ConfigFile = DEFAULT_CONFIG_PATH,
+    catalog: CatalogFile = DEFAULT_CATALOG_PATH,
+) -> None:
+    """Print what a static-threshold tool would flag at the last release (comparison only)."""
+    cfg = _load_config_or_exit(config, catalog)
+    last = _timeline_or_exit(system, cfg).entries[-1].release
+    flags = StaticBaselineService(cfg).flag(DetectionService(cfg).detect(last))
+
+    typer.echo(f"{'release':<10} {'element_id':<24} {'metric':<10} {'value':>10}   threshold")
+    for f in flags:
+        typer.echo(
+            f"{f.release_id:<10} {f.element_id:<24} {f.metric:<10} {f.value:>10g} > {f.threshold:g}"
+        )
+    typer.echo(f"{len(flags)} static-threshold flags at {last.release_id}")
 
 
 if __name__ == "__main__":

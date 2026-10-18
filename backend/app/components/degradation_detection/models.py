@@ -14,6 +14,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.analysis_run import StoredRun
 from app.domain.canonical_release import CanonicalRelease, IntentEntry
 from app.domain.degradation_event import Lifecycle, Scope, TestMethod, TimeAxis, Worsening
 
@@ -368,3 +369,14 @@ class EventCandidate(InternalModel):
     low_confidence_releases: tuple[str, ...] = ()  # DOWNWEIGHTED releases in the window [D-07]
     trends: tuple[TrendResult, ...] = Field(min_length=1)
     trend_strength: float = Field(ge=0, le=1)  # max |tau|: evidence strength, not severity
+
+
+# --- the whole run (component service) -----------------------------------------------------
+
+
+class RunResult(InternalModel):
+    """One analysis run, as stored, and the files to write under ``out/<run_id>/``:
+    ``events.json`` for C4, ``series.csv``, ``report.md`` and ``plots/<event_id>.png``."""
+
+    stored: StoredRun
+    files: dict[str, bytes]

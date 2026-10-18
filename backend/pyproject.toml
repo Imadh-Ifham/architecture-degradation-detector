@@ -67,15 +67,19 @@ strict = true
 files = [
     "app/components/degradation_detection",
     "app/core/logging.py",
+    "app/domain/analysis_run.py",
     "app/domain/audit_entry.py",
     "app/domain/boundary.py",
     "app/domain/canonical_release.py",
     "app/domain/degradation_event.py",
     "app/domain/release_package.py",
+    "app/infrastructure/postgres/models/c3_analysis_run.py",
     "app/infrastructure/postgres/models/c3_release.py",
+    "app/infrastructure/postgres/repositories/c3_analysis_run_repository.py",
     "app/infrastructure/postgres/repositories/c3_release_repository.py",
     "app/shared",
     "alembic/versions/0001_c3_ingestion.py",
+    "alembic/versions/0002_c3_analysis_run.py",
     "scripts/c3.py",
 ]
 
