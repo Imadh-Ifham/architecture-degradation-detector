@@ -1,0 +1,13 @@
+element,churn_decayed,authors,coupling,bugfix_ratio,commits
+adservice,0.0,0,0,0.0,0
+cartservice,16.901,1,0,1.0,1
+checkoutservice,6.811,2,0,1.0,2
+currencyservice,7.78,1,0,1.0,1
+emailservice,14.648,1,0,1.0,1
+frontend,20.599,2,0,1.0,2
+loadgenerator,0.0,0,0,0.0,0
+paymentservice,10.731,1,0,1.0,1
+productcatalogservice,14.375,4,0,1.0,4
+recommendationservice,15.079,1,0,1.0,1
+shippingservice,79.058,3,0,1.0,3
+shoppingassistantservice,0.335,1,0,1.0,1

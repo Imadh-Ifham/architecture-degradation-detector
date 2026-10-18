@@ -86,9 +86,16 @@ def test_putting_again_replaces_the_entry(cache: Any, sessions: sessionmaker[Ses
     cache.put(*KEY, ROWS)
     cache.put(*KEY, [*ROWS, {**ROWS[0], "hash": "b2"}])
 
+    # only this test's key: the development database may hold real cache entries
+    table = c4_mining_cache.c
     with sessions() as session:
         count, commits = session.execute(
-            select(func.count(), func.max(c4_mining_cache.c.commit_count))
+            select(func.count(), func.max(table.commit_count)).where(
+                table.repo_path == KEY[0],
+                table.from_tag == KEY[1],
+                table.to_tag == KEY[2],
+                table.filter_hash == KEY[3],
+            )
         ).one()
     assert (count, commits) == (1, 2)
     assert [row["hash"] for row in cache.get(*KEY)] == ["a1", "b2"]

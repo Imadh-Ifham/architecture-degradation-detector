@@ -1,0 +1,58 @@
+{
+  "task": "C4-T14",
+  "data_provenance": "live-history+manual-mapping",
+  "mapping_file": "tests/fixtures/degradation_scoring/mappings/online_boutique.source_paths.v1.json",
+  "mapping_provenance": "manual-mapping",
+  "repository": "https://github.com/GoogleCloudPlatform/microservices-demo",
+  "repository_head": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389",
+  "code_commit": "23044ac0f90212e81cb3c1f15a02252ab436572c",
+  "window": {
+    "from_tag": "v0.10.0",
+    "to_tag": "v0.10.7"
+  },
+  "releases": [
+    "v0.10.0",
+    "v0.10.1",
+    "v0.10.2",
+    "v0.10.3",
+    "v0.10.4",
+    "v0.10.5",
+    "v0.10.6",
+    "v0.10.7"
+  ],
+  "half_life_days": 214.1267824074074,
+  "decay_rate_per_day": 0.003237087732636508,
+  "cochange_threshold": 5,
+  "max_files_per_commit": 50,
+  "filter_hash": "sha256:fa462492f8976e1be2c62291811fb27bb237b516e1d7c6d740180ecae06d0008",
+  "include_globs": [
+    "*.py",
+    "*.java",
+    "*.go",
+    "*.js",
+    "*.ts",
+    "*.cs",
+    "*.kt",
+    "*.rb",
+    "*.php",
+    "*.cpp",
+    "*.c",
+    "*.h"
+  ],
+  "exclude_globs": [
+    "**/vendor/**",
+    "**/node_modules/**",
+    "**/generated/**",
+    "**/*_pb2.py",
+    "**/*.pb.go",
+    "**/test*/fixtures/**",
+    "*.min.js",
+    "**/target/**",
+    "**/build/**",
+    "**/dist/**",
+    "**/bin/**",
+    "**/obj/**"
+  ],
+  "shared_files": [],
+  "unmapped_files": []
+}

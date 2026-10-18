@@ -45,13 +45,27 @@ class HotspotContext(BaseModel):
     unmapped_line_share: float | None = None
 
 
+class PersistenceFeatures(BaseModel):
+    # the two raw PS features of one event (CLAUDE.md §5.4); growth_slope is relative growth
+    # per release of the fastest-worsening metric, positive = worsening (C4-ADR-010)
+
+    model_config = ConfigDict(frozen=True)
+
+    consecutive_releases: int = Field(ge=0)
+    growth_slope: float
+    growth_slope_available: bool
+    growth_metric: str | None = None
+    presence_fallback: bool
+
+
 class EventFeatures(BaseModel):
-    # every criterion's features for one resolved event; AV and PS join in T15-T16
+    # every criterion's features for one resolved event; AV joins in T16
 
     model_config = ConfigDict(frozen=True)
 
     event_id: str
     blast_radius: BlastRadiusFeatures
+    persistence: PersistenceFeatures
     hotspot: HotspotFeatures | None = None
 
 

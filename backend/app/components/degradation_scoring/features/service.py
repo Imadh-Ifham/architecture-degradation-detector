@@ -1,5 +1,5 @@
 # Features: computes the severity criteria of each resolved event.
-# Blast radius (T11) and hotspot (T13); ADR weight and persistence join in T15-T16.
+# Blast radius (T11), hotspot (T13) and persistence (T15); ADR weight joins in T16.
 
 from collections.abc import Sequence
 from pathlib import Path
@@ -15,6 +15,7 @@ from app.components.degradation_scoring.features.models import (
     FeatureSet,
     HotspotContext,
 )
+from app.components.degradation_scoring.features.persistence import persistence
 from app.components.degradation_scoring.models import ResolvedEvent
 from app.components.degradation_scoring.ports import CommitHistorySource, MiningCache
 
@@ -72,6 +73,7 @@ class FeatureExtractionService:
                 EventFeatures(
                     event_id=item.event.event_id,
                     blast_radius=blast_radius(graph, item.nodes, centralities),
+                    persistence=persistence(item.event),
                     hotspot=hotspots.get(item.event.event_id),
                 )
                 for item in events

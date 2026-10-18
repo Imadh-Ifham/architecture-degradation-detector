@@ -6,6 +6,7 @@ import pytest
 
 from app.components.degradation_scoring import features
 from app.components.degradation_scoring.features import blast_radius as br
+from app.components.degradation_scoring.features.persistence import persistence
 from app.components.degradation_scoring.features.service import FeatureExtractionService
 from app.components.degradation_scoring.ingestion.graph import build_graph
 from app.components.degradation_scoring.ingestion.service import IngestionService
@@ -93,3 +94,10 @@ def test_events_from_two_releases_are_refused() -> None:
 
     with pytest.raises(ValueError, match="several"):
         FeatureExtractionService(default_config()).extract([RESOLVED[0], other], GRAPH)
+
+
+def test_persistence_is_computed_for_every_event() -> None:
+    rows = FeatureExtractionService(default_config()).extract(RESOLVED, GRAPH).events
+
+    for item, row in zip(RESOLVED, rows, strict=True):
+        assert row.persistence == persistence(item.event)

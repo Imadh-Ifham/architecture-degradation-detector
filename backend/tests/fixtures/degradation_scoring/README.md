@@ -10,6 +10,7 @@ exist. Checked by `tests/components/degradation_scoring/test_fixtures.py`.
 | `events/fixture_events.v1.json` | 17 C3 payloads: 14 valid `DegradationEventV2` events and 3 malformed ones (last three). One of each outcome C4 must handle; see the table below. |
 | `fixture_expected.json` | The designed outcome of every payload (ranked / skipped / quarantined, resolution, fallback values and C3 V2.1.0 values), plus total counts. Ingestion and feature tests assert against it. |
 | `adr/0001…0003-*.md` | Three MADR decision records with front matter: accepted + system, superseded + component, proposed + local, i.e. three different AV weights (§5.3). |
+| `mappings/online_boutique.source_paths.v1.json` | **Manual mapping** (not a fixture of C2 output): each Online Boutique service folder as `src/<service>/**`, used by `scripts/c4_hotspot_profile.py` (T14) until C2's source_paths pass-through exists (C4-ADR-011). `data_provenance: manual-mapping`. |
 | `legacy/prototype.py` | The old C4 feasibility prototype, kept **unchanged** as a regression reference: `features/test_blast_radius_prototype.py` rebuilds its 13-module graph and reproduces its blast-radius numbers for its 6 events. Only its blast radius was computed; its other dimensions are hardcoded stubs. It runs on load (prints, writes two report files), so the test runs it in a temporary folder. Excluded from ruff and mypy in `pyproject.toml`. |
 
 The provisional AHP matrix is not a fixture: it lives with the code at
