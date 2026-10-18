@@ -39,3 +39,15 @@ class FakeEventSource:
     def fetch(self, system_id: str, release_id: str) -> Sequence[object]:
         self.requests.append((system_id, release_id))
         return list(self._payloads)
+
+
+class FakeGraphSource:
+    # ArchitectureGraphSource over in-memory documents keyed by release; records requests.
+
+    def __init__(self, documents: dict[str, object]) -> None:
+        self._documents = documents
+        self.requests: list[tuple[str, str]] = []
+
+    def fetch(self, system_id: str, release_id: str) -> object:
+        self.requests.append((system_id, release_id))
+        return self._documents[release_id]

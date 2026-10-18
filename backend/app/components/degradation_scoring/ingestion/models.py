@@ -9,7 +9,7 @@ from app.domain.severity_report import QuarantinedEvent, SkippedEvent
 
 
 class EventIngestion(BaseModel):
-    # payloads sorted into eligible, quarantined and skipped 
+    # payloads sorted into eligible, quarantined and skipped
 
     model_config = ConfigDict(frozen=True)
 

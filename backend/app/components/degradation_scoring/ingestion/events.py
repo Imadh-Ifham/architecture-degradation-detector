@@ -14,9 +14,9 @@ log = structlog.get_logger(__name__)
 
 def ingest_events(payloads: Iterable[object], *, rank_only_confirmed: bool) -> EventIngestion:
     # Quarantine malformed payloads, skip ineligible events, keep the rest in input order.
-    # When several skip rules apply, the first in this order is recorded, 
+    # When several skip rules apply, the first in this order is recorded,
     # rejected, intentional, superseded, system scope, not confirmed.
-    
+
     valid: list[DegradationEventV2] = []
     quarantined: list[QuarantinedEvent] = []
     for payload in payloads:
