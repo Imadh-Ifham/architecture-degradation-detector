@@ -212,3 +212,13 @@ def build_tiny_repo(root: Path) -> dict[str, str]:
     commit("c6", 12, "bob@example.com", "after release", {ORDER: _lines(1)})
     repo.close()
     return hashes
+
+
+def adr_index_document() -> dict[str, Any]:
+    # the three fixture ADRs ("0001-x.md" -> "ADR-0001") plus the fixture links (stand-in for
+    # C2's adr_refs), in the AdrIndexSource document shape
+    adrs = [
+        {"id": f"ADR-{path.name[:4]}", "text": path.read_text(encoding="utf-8")}
+        for path in sorted((FIXTURES / "adr").glob("*.md"))
+    ]
+    return {"adrs": adrs, "links": load_fixture("adr/adr_links.v1.json")["links"]}

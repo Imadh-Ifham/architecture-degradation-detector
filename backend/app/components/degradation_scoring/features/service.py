@@ -1,5 +1,5 @@
 # Features: computes the severity criteria of each resolved event.
-# Blast radius (T11), hotspot (T13) and persistence (T15); ADR weight joins in T16.
+# Blast radius (T11), hotspot (T13), persistence (T15) and ADR-violation weight (T16).
 
 from collections.abc import Sequence
 from pathlib import Path
@@ -7,6 +7,7 @@ from pathlib import Path
 import networkx as nx
 
 from app.components.degradation_scoring.config import C4Config
+from app.components.degradation_scoring.features.adr_weight import adr_context, event_adr_weight
 from app.components.degradation_scoring.features.blast_radius import CentralityCache, blast_radius
 from app.components.degradation_scoring.features.history import FileFilter, MemoryMiningCache
 from app.components.degradation_scoring.features.hotspot import compute_hotspots
@@ -16,7 +17,7 @@ from app.components.degradation_scoring.features.models import (
     HotspotContext,
 )
 from app.components.degradation_scoring.features.persistence import persistence
-from app.components.degradation_scoring.models import ResolvedEvent
+from app.components.degradation_scoring.models import AdrIndex, ResolvedEvent
 from app.components.degradation_scoring.ports import CommitHistorySource, MiningCache
 
 
@@ -48,11 +49,13 @@ class FeatureExtractionService:
         events: Sequence[ResolvedEvent],
         graph: "nx.DiGraph[str]",
         repo_path: Path | None = None,
+        adr_index: AdrIndex | None = None,
     ) -> FeatureSet:
         # one call = one (system, release) and the graph of that release; without repo_path
-        # the hotspot criterion is inactive
+        # the hotspot criterion is inactive, without adr_index the ADR-violation criterion
+        adr = adr_context(adr_index)
         if not events:
-            return FeatureSet(events=[], hotspot=self._inactive("no_events"))
+            return FeatureSet(events=[], hotspot=self._inactive("no_events"), adr=adr)
         keys = {(item.event.system_id, item.event.window.end_release) for item in events}
         if len(keys) > 1:
             raise ValueError(f"events span several (system, release) pairs: {sorted(keys)}")
@@ -75,10 +78,16 @@ class FeatureExtractionService:
                     blast_radius=blast_radius(graph, item.nodes, centralities),
                     persistence=persistence(item.event),
                     hotspot=hotspots.get(item.event.event_id),
+                    adr_violation=(
+                        event_adr_weight(item.nodes, adr_index)
+                        if adr.active and adr_index is not None
+                        else None
+                    ),
                 )
                 for item in events
             ],
             hotspot=context,
+            adr=adr,
         )
 
     def _inactive(self, reason: str) -> HotspotContext:

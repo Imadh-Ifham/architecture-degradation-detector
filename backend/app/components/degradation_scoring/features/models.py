@@ -58,8 +58,30 @@ class PersistenceFeatures(BaseModel):
     presence_fallback: bool
 
 
+class AdrWeightFeatures(BaseModel):
+    # the AV feature of one event (CLAUDE.md §5.3): the most serious linked ADR's weight
+
+    model_config = ConfigDict(frozen=True)
+
+    av: float = Field(ge=0, le=1)
+    adr_id: str | None = None
+    linked_adrs: list[str] = Field(default_factory=list)
+
+
+class AdrContext(BaseModel):
+    # run-level AV state for the manifest: active or why not, and the weight table used
+
+    model_config = ConfigDict(frozen=True)
+
+    active: bool
+    inactive_reason: str | None = None
+    status_weights: dict[str, float]
+    scope_weights: dict[str, float]
+    explicitness: float
+
+
 class EventFeatures(BaseModel):
-    # every criterion's features for one resolved event; AV joins in T16
+    # every criterion's features for one resolved event; hotspot and AV are None when off
 
     model_config = ConfigDict(frozen=True)
 
@@ -67,6 +89,7 @@ class EventFeatures(BaseModel):
     blast_radius: BlastRadiusFeatures
     persistence: PersistenceFeatures
     hotspot: HotspotFeatures | None = None
+    adr_violation: AdrWeightFeatures | None = None
 
 
 class FeatureSet(BaseModel):
@@ -76,6 +99,7 @@ class FeatureSet(BaseModel):
 
     events: list[EventFeatures]
     hotspot: HotspotContext
+    adr: AdrContext
 
 
 class FileChange(BaseModel):

@@ -4,7 +4,7 @@ from collections import Counter
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.components.degradation_scoring.models import ResolvedEvent
+from app.components.degradation_scoring.models import AdrIndex, ResolvedEvent
 from app.domain.degradation_event import DegradationEventV2
 from app.domain.severity_report import QuarantinedEvent, SkippedEvent
 
@@ -31,3 +31,4 @@ class IngestionResult(EventIngestion):
 
     resolved: list[ResolvedEvent] = Field(default_factory=list)
     resolution_rate: float = Field(ge=0, le=1)
+    adr_index: AdrIndex | None = None

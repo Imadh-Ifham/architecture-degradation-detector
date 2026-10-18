@@ -36,7 +36,8 @@ $extraSources = @("app/domain/severity_report.py", "scripts/scoring_export_schem
                   "app/infrastructure/git/history.py",
                   "app/infrastructure/postgres/models/c4_mining_cache.py",
                   "app/infrastructure/postgres/repositories/mining_cache_repository.py",
-                  "alembic/versions/0002_c4_mining_cache.py")
+                  "alembic/versions/0002_c4_mining_cache.py",
+                  "scripts/c4_hotspot_profile.py")
 $extraTests = @("tests/domain/test_severity_report.py", "tests/scripts/test_scoring_export_schemas.py",
                 "tests/infrastructure/git/test_history.py",
                 "tests/infrastructure/postgres/test_mining_cache_repository.py")

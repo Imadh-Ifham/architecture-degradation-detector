@@ -1,7 +1,7 @@
 # Protocols for everything C4 needs from outside the component (INSTRUCTIONS §7.1).
 # Implementations live under app/infrastructure/ or an entry point; tests use in-memory fakes.
 # Each Protocol arrives with the first task that needs it. Still to come:
-#   AdrIndexSource (T16), ScoringRunRepository (T20), TextGenerator + GenerationCache (T22),
+#   ScoringRunRepository (T20), TextGenerator + GenerationCache (T22),
 #   TextEmbedder (T23), EntailmentJudge (T25), RefactoringDetector (T29).
 # Sources return raw documents; C4 validates them, so every source behaves the same.
 
@@ -46,3 +46,10 @@ class MiningCache(Protocol):
         filter_hash: str,
         rows: Sequence[Mapping[str, object]],
     ) -> None: ...
+
+
+class AdrIndexSource(Protocol):
+    # The raw ADR index of one (system, release), or None when there is none (AV inactive):
+    # {"adrs": [{"id", "text" (markdown)}], "links": {element_id: [adr_id]}}, links = C2's
+    # adr_refs (CLAUDE.md §5.3)
+    def fetch(self, system_id: str, release_id: str) -> object | None: ...
