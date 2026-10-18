@@ -24,6 +24,14 @@ EXPECTED_DEFAULTS = {
     "scoring_hotspot_half_life_releases": 2.0,  # §5.2
     "scoring_cochange_threshold": 5,  # §5.2 theta
     "scoring_max_files_per_commit": 50,  # §5.2
+    "scoring_history_include_globs": (
+        "*.py,*.java,*.go,*.js,*.ts,*.cs,*.kt,*.rb,*.php,*.cpp,*.c,*.h"
+    ),  # §5.2, T12
+    "scoring_history_exclude_globs": (  # §5.2, T12 (owner)
+        "**/vendor/**,**/node_modules/**,**/generated/**,**/*_pb2.py,**/*.pb.go,"
+        "**/test*/fixtures/**,*.min.js,"
+        "**/target/**,**/build/**,**/dist/**,**/bin/**,**/obj/**"
+    ),
     "scoring_ps_weight_consecutive_releases": 0.7,  # §5.4
     "scoring_ps_weight_growth_slope": 0.3,  # §5.4
     "scoring_adr_semantic_fallback_enabled": False,  # §5.3 post-PP1

@@ -110,6 +110,11 @@ files = [
     "app/shared",
     "alembic/versions/0001_c3_ingestion.py",
     "scripts/c3.py",
+    # C4 adapters and migration
+    "app/infrastructure/git/history.py",
+    "app/infrastructure/postgres/models/c4_mining_cache.py",
+    "app/infrastructure/postgres/repositories/mining_cache_repository.py",
+    "alembic/versions/0002_c4_mining_cache.py",
 ]
 # C4's old prototype, kept unchanged as a regression reference (C4-T11)
 exclude = ["^tests/fixtures/degradation_scoring/legacy/"]

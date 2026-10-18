@@ -77,10 +77,10 @@ Status: ✅ done · ◐ partly done · — not started. Updated at the end of ev
 | Req | Module(s) | Test(s) | Task | Status |
 |---|---|---|---|---|
 | FR-01 | `ingestion/events.py` | `ingestion/test_events.py` | T08 | ✅ |
-| FR-02 | `ingestion/graph.py` | `ingestion/test_graph.py` | T09 | — |
-| FR-03 | `ingestion/resolution.py` | `ingestion/test_resolution.py` | T10 | — |
-| FR-04 | `features/blast_radius.py` | `features/test_blast_radius.py` | T11 | — |
-| FR-05 | `features/hotspot.py`, `infrastructure/git/history.py`, mining-cache repository | `features/test_hotspot.py`, `tests/infrastructure/...` | T12, T13 | — |
+| FR-02 | `ingestion/graph.py` | `ingestion/test_graph.py` | T09 | ✅ |
+| FR-03 | `ingestion/resolution.py` | `ingestion/test_resolution.py` | T10 | ✅ |
+| FR-04 | `features/blast_radius.py`, `features/service.py` | `features/test_blast_radius.py`, `features/test_blast_radius_prototype.py`, `features/test_service.py` | T11 | ✅ raw features; combined BR score in T17 |
+| FR-05 | `features/history.py`, `features/hotspot.py`, `infrastructure/git/history.py`, `infrastructure/postgres/repositories/mining_cache_repository.py` | `features/test_history.py`, `features/test_hotspot.py`, `tests/infrastructure/git/test_history.py`, `tests/infrastructure/postgres/test_mining_cache_repository.py` | T12, T13 | ◐ history + cache (T12); features pending (T13) |
 | FR-06 | `ingestion/adr.py`, `features/adr_weight.py` | `features/test_adr_weight.py` | T16 | — |
 | FR-07 | `features/persistence.py` | `features/test_persistence.py` | T15 | — |
 | FR-08 | `scoring_engine/normalizer.py` | `scoring_engine/test_normalizer.py` | T17 | — |

@@ -9,6 +9,7 @@ from app.infrastructure.postgres.database import Base
 # Table modules must be imported so their tables are in Base.metadata; otherwise autogenerate
 # proposes dropping them.
 import app.infrastructure.postgres.models.c3_release  # noqa: F401
+import app.infrastructure.postgres.models.c4_mining_cache  # noqa: F401
 
 
 config = context.config
