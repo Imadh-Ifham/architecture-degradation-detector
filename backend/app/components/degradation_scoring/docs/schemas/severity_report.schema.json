@@ -404,6 +404,14 @@
       ],
       "title": "SkippedEvent",
       "type": "object"
+    },
+    "WeightsProvenance": {
+      "enum": [
+        "provisional-author-elicited",
+        "supervisor-elicited"
+      ],
+      "title": "WeightsProvenance",
+      "type": "string"
     }
   },
   "properties": {
@@ -464,7 +472,7 @@
       "type": "string"
     },
     "schema_version": {
-      "default": "1.0.0",
+      "default": "1.1.0",
       "pattern": "^1\\.\\d+\\.\\d+$",
       "title": "Schema Version",
       "type": "string"
@@ -481,6 +489,9 @@
       "title": "System Id",
       "type": "string"
     },
+    "weights_provenance": {
+      "$ref": "#/$defs/WeightsProvenance"
+    },
     "weights_version": {
       "minLength": 1,
       "title": "Weights Version",
@@ -494,6 +505,7 @@
     "data_provenance",
     "active_dimensions",
     "weights_version",
+    "weights_provenance",
     "ahp_cr",
     "normalization",
     "resolution_rate"

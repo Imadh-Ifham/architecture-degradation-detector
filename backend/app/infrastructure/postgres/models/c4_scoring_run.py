@@ -1,7 +1,7 @@
-# C4 run record for inspection : one run, what happened to each input
-# payload (layer 1), each ranked event's raw features (layer 2). One plain column per value;
-# layer 3 adds c4_event_scores keyed by (run_id, event_id). Created by
-# alembic/versions/0003_c4_scoring_run.py; keep the two in step.
+# C4 run record for inspection: one run, what happened to each input payload (layer 1), each
+# ranked event's raw features (layer 2) and its scores (layer 3). One plain column per value.
+# Created by alembic/versions/0003_c4_scoring_run.py (c4_event_scores: 0004_c4_event_scores);
+# keep them in step.
 
 from sqlalchemy import (
     Boolean,
@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Double,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     Table,
     Text,
@@ -110,4 +111,36 @@ c4_event_features = Table(
     Column("av_linked_adrs", ARRAY(Text)),
 )
 
-C4_RUN_TABLES = [c4_scoring_run, c4_event_ingestion, c4_event_features]
+
+def _criterion_columns(prefix: str) -> list[Column[float]]:
+    # normalised value NULL when the criterion is off; weight and contribution 0 then
+    return [
+        Column(f"{prefix}_normalized", Double),
+        Column(f"{prefix}_weight", Double, nullable=False),
+        Column(f"{prefix}_contribution", Double, nullable=False),
+    ]
+
+
+c4_event_scores = Table(
+    "c4_event_scores",
+    metadata,
+    Column("run_id", Text, primary_key=True),
+    Column("event_id", Text, primary_key=True),
+    Column("rank", Integer, nullable=False),
+    Column("severity", Double, nullable=False),
+    Column("distance_ideal", Double, nullable=False),
+    Column("distance_anti_ideal", Double, nullable=False),
+    *_criterion_columns("br"),
+    *_criterion_columns("eh"),
+    *_criterion_columns("av"),
+    *_criterion_columns("ps"),
+    ForeignKeyConstraint(
+        ["run_id", "event_id"],
+        ["c4_event_features.run_id", "c4_event_features.event_id"],
+        ondelete="CASCADE",
+    ),
+    CheckConstraint("rank >= 1", name="ck_c4_event_scores_rank"),
+    CheckConstraint("severity BETWEEN 0 AND 1", name="ck_c4_event_scores_severity"),
+)
+
+C4_RUN_TABLES = [c4_scoring_run, c4_event_ingestion, c4_event_features, c4_event_scores]

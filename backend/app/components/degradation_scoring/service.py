@@ -1,6 +1,6 @@
 # Degradation scoring service: the only way into C4; orchestrates the subcomponents in order
-# (ingestion -> features -> scoring -> explanation -> reporting). Layers 1-2 so far (T16b);
-# T20 extends the same class with scoring, explanation and the report.
+# (ingestion -> features -> scoring -> explanation -> reporting). Layers 1-3 so far (T16b,
+# T19); T20 adds the report, explanation comes in Phase 4.
 
 import datetime as dt
 from collections.abc import Iterable
@@ -20,12 +20,13 @@ from app.components.degradation_scoring.ports import (
     MiningCache,
     ScoringRunRepository,
 )
-from app.components.degradation_scoring.scoring_engine.models import RawEvent
+from app.components.degradation_scoring.scoring_engine import ScoringService
+from app.components.degradation_scoring.scoring_engine.models import RawEvent, ScoringResult
 from app.domain.severity_report import Dimension
 
 
-class FeaturesRun(BaseModel):
-    # the result of layers 1-2 for one (system, release)
+class ScoringRun(BaseModel):
+    # the result of layers 1-3 for one (system, release)
 
     model_config = ConfigDict(frozen=True)
 
@@ -34,6 +35,7 @@ class FeaturesRun(BaseModel):
     release_id: str
     ingestion: IngestionResult
     features: FeatureSet
+    scoring: ScoringResult
 
 
 class DegradationScoringService:
@@ -50,6 +52,7 @@ class DegradationScoringService:
         self._config = config
         self._ingestion = IngestionService(config)
         self._features = FeatureExtractionService(config, history_source, mining_cache)
+        self._scoring = ScoringService(config)
         self._runs = run_repository
 
     def run_features(
@@ -62,26 +65,34 @@ class DegradationScoringService:
         adr_document: object | None = None,
         repo_path: Path | None = None,
         code_commit: str | None = None,
-    ) -> FeaturesRun:
-        # layers 1-2: ingest + resolve, then features; stored for inspection (C4-T16b)
+    ) -> ScoringRun:
+        # layers 1-3: ingest + resolve, features, then normalise + weights + TOPSIS;
+        # stored for inspection (C4-T16b, C4-T19)
         graph = build_graph(graph_document, reverse=self._config.graph_reverse_edges)
         ingestion = self._ingestion.ingest(list(payloads), graph, adr_document)
         features = self._features.extract(ingestion.resolved, graph, repo_path, ingestion.adr_index)
         first = ingestion.resolved[0].event if ingestion.resolved else None
-        run = FeaturesRun(
+        system_id = str(graph.graph.get("system_id") or (first.system_id if first else ""))
+        release_id = str(
+            graph.graph.get("release_id") or (first.window.end_release if first else "")
+        )
+        active, raw_events = scoring_inputs(features)
+        run = ScoringRun(
             run_id=run_id,
-            system_id=str(graph.graph.get("system_id") or (first.system_id if first else "")),
-            release_id=str(
-                graph.graph.get("release_id") or (first.window.end_release if first else "")
-            ),
+            system_id=system_id,
+            release_id=release_id,
             ingestion=ingestion,
             features=features,
+            scoring=self._scoring.rank(
+                raw_events, active, system_id=system_id, release_id=release_id
+            ),
         )
         if self._runs is not None:
             self._runs.save(
                 run_row(run, data_provenance, code_commit, repo_path),
                 ingestion_rows(run),
                 feature_rows(run),
+                score_rows(run),
             )
         return run
 
@@ -126,7 +137,7 @@ def _raw_event(row: EventFeatures) -> RawEvent:
 
 
 def run_row(
-    run: FeaturesRun, data_provenance: str, code_commit: str | None, repo_path: Path | None
+    run: ScoringRun, data_provenance: str, code_commit: str | None, repo_path: Path | None
 ) -> dict[str, Any]:
     hotspot, adr, ingestion = run.features.hotspot, run.features.adr, run.ingestion
     outcomes = [record.outcome for record in ingestion.payloads]
@@ -156,15 +167,33 @@ def run_row(
             "adr_status_weights": adr.status_weights,
             "adr_scope_weights": adr.scope_weights,
             "adr_explicitness": adr.explicitness,
+            "scoring": _scoring_details(run.scoring),
         },
     }
 
 
-def ingestion_rows(run: FeaturesRun) -> list[dict[str, Any]]:
+def _scoring_details(scoring: ScoringResult) -> dict[str, Any]:
+    weights, normalised = scoring.weights, scoring.normalised
+    return {
+        "topsis_mode": scoring.topsis_mode,
+        "weights_version": weights.version,
+        "weights_provenance": weights.provenance.value,
+        "ahp_cr": weights.consistency_ratio,
+        "ahp_lambda_max": weights.lambda_max,
+        "elicited_weights": {d.value: w for d, w in weights.elicited.items()},
+        "normalization": normalised.mode.value,
+        "calibration_frozen": normalised.frozen,
+        "normalization_bounds": {
+            key: bounds.model_dump() for key, bounds in normalised.calibration.bounds.items()
+        },
+    }
+
+
+def ingestion_rows(run: ScoringRun) -> list[dict[str, Any]]:
     return [{"run_id": run.run_id, **record.model_dump()} for record in run.ingestion.payloads]
 
 
-def feature_rows(run: FeaturesRun) -> list[dict[str, Any]]:
+def feature_rows(run: ScoringRun) -> list[dict[str, Any]]:
     return [_feature_row(run.run_id, row) for row in run.features.events]
 
 
@@ -196,3 +225,35 @@ def _feature_row(run_id: str, row: EventFeatures) -> dict[str, Any]:
         "av_adr_id": av.adr_id if av else None,
         "av_linked_adrs": av.linked_adrs if av else None,
     }
+
+
+# column prefix of each criterion in c4_event_features / c4_event_scores
+PREFIXES = {
+    Dimension.BLAST_RADIUS: "br",
+    Dimension.HOTSPOT: "eh",
+    Dimension.ADR_VIOLATION: "av",
+    Dimension.PERSISTENCE: "ps",
+}
+
+
+def score_rows(run: ScoringRun) -> list[dict[str, Any]]:
+    # one row per ranked event; normalised value NULL, weight and contribution 0 when a
+    # criterion is off (as in the report)
+    scoring = run.scoring
+    criteria = {event.event_id: event.criteria for event in scoring.normalised.events}
+    rows = []
+    for ranked in scoring.ranking:
+        row: dict[str, Any] = {
+            "run_id": run.run_id,
+            "event_id": ranked.event_id,
+            "rank": ranked.rank,
+            "severity": ranked.severity,
+            "distance_ideal": ranked.distance_ideal,
+            "distance_anti_ideal": ranked.distance_anti_ideal,
+        }
+        for dimension, prefix in PREFIXES.items():
+            row[f"{prefix}_normalized"] = criteria[ranked.event_id].get(dimension)
+            row[f"{prefix}_weight"] = scoring.weights.weights[dimension]
+            row[f"{prefix}_contribution"] = ranked.contributions[dimension]
+        rows.append(row)
+    return rows

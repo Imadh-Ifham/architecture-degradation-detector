@@ -57,11 +57,13 @@ class AdrIndexSource(Protocol):
 
 class ScoringRunRepository(Protocol):
     # Saves one run for inspection (C4-T16b, CLAUDE.md §6) as plain rows (infrastructure may
-    # not import components): the run, one row per input payload, one row per ranked event.
-    # Column names = the c4_scoring_run / c4_event_ingestion / c4_event_features columns.
+    # not import components): the run, one row per input payload, one features row and one
+    # scores row per ranked event. Column names = the c4_scoring_run / c4_event_ingestion /
+    # c4_event_features / c4_event_scores columns.
     def save(
         self,
         run: Mapping[str, object],
         ingestion: Sequence[Mapping[str, object]],
         features: Sequence[Mapping[str, object]],
+        scores: Sequence[Mapping[str, object]],
     ) -> None: ...

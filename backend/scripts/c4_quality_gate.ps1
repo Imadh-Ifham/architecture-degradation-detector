@@ -41,6 +41,7 @@ $extraSources = @("app/domain/severity_report.py", "scripts/scoring_export_schem
                   "app/infrastructure/postgres/models/c4_scoring_run.py",
                   "app/infrastructure/postgres/repositories/scoring_run_repository.py",
                   "alembic/versions/0003_c4_scoring_run.py",
+                  "alembic/versions/0004_c4_event_scores.py",
                   "scripts/c4_run_features.py")
 $extraTests = @("tests/domain/test_severity_report.py", "tests/scripts/test_scoring_export_schemas.py",
                 "tests/infrastructure/git/test_history.py",

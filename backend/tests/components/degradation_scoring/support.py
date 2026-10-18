@@ -10,6 +10,8 @@ import git
 from app.components.degradation_scoring.config import C4Config
 from app.core.config import Settings
 
+Rows = list[Mapping[str, object]]
+
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "degradation_scoring"
 
 
@@ -228,14 +230,13 @@ class FakeRunRepository:
     # ScoringRunRepository in memory; keeps every saved run's rows.
 
     def __init__(self) -> None:
-        self.saved: list[
-            tuple[Mapping[str, object], list[Mapping[str, object]], list[Mapping[str, object]]]
-        ] = []
+        self.saved: list[tuple[Mapping[str, object], Rows, Rows, Rows]] = []
 
     def save(
         self,
         run: Mapping[str, object],
         ingestion: Sequence[Mapping[str, object]],
         features: Sequence[Mapping[str, object]],
+        scores: Sequence[Mapping[str, object]],
     ) -> None:
-        self.saved.append((run, list(ingestion), list(features)))
+        self.saved.append((run, list(ingestion), list(features), list(scores)))
