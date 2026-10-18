@@ -20,7 +20,7 @@ Description:
 import configparser
 from pathlib import Path
 from tempfile import gettempdir
-from typing import Any
+from typing import Any, Literal
 
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
@@ -36,7 +36,14 @@ CONFIG_INI_PATH = Path(__file__).resolve().parents[2] / "config.ini"
 
 #: Sections of `config.ini` that map onto settings. A section name is a
 #: namespace in the file only; the field names stay flat.
-CONFIG_INI_SECTIONS = ("app", "git", "inventory", "manifest_analysis", "validation")
+CONFIG_INI_SECTIONS = (
+    "app",
+    "git",
+    "inventory",
+    "manifest_analysis",
+    "validation",
+    "scoring",
+)
 
 
 class ConfigIniSettingsSource(PydanticBaseSettingsSource):
@@ -139,6 +146,51 @@ class Settings(BaseSettings):
     # Manifest analysis limits.
     manifest_max_bytes: int = 1_048_576
     manifest_max_documents: int = 64
+
+    # Degradation scoring (C4); see the [scoring] section of config.ini. The
+    # defaults are the values fixed in
+    # app/components/degradation_scoring/CLAUDE.md §4-§5. Names keep the
+    # `scoring_` prefix because config.ini flattens every section into one
+    # namespace and names like `seed` or `method` would collide.
+    # Run outputs (report, manifest, quarantine). Output rather than input, so
+    # it lives under the ignored artifacts directory.
+    scoring_outputs_root: Path = BACKEND_ROOT / "artifacts" / "scoring"
+    scoring_seed: int = 42
+    scoring_rank_only_confirmed: bool = True
+    scoring_graph_reverse_edges: bool = False
+    scoring_resolution_prefix_confidence: float = 0.7
+    scoring_br_weight_fan_in_ratio: float = 0.25
+    scoring_br_weight_pagerank: float = 0.25
+    scoring_br_weight_betweenness: float = 0.25
+    scoring_br_weight_depth: float = 0.25
+    scoring_pagerank_alpha: float = 0.85
+    scoring_betweenness_exact_max_nodes: int = 5000
+    scoring_betweenness_sample_k: int = 500
+    scoring_hotspot_half_life_releases: float = 2.0
+    scoring_cochange_threshold: int = 5
+    scoring_max_files_per_commit: int = 50
+    scoring_ps_weight_consecutive_releases: float = 0.7
+    scoring_ps_weight_growth_slope: float = 0.3
+    scoring_adr_semantic_fallback_enabled: bool = False
+    scoring_adr_semantic_similarity_threshold: float = 0.6
+    scoring_winsor_lower_percentile: float = 5.0
+    scoring_winsor_upper_percentile: float = 95.0
+    scoring_small_n_threshold: int = 10
+    scoring_ahp_max_consistency_ratio: float = 0.10
+    scoring_weights_version: str = "ahp_v1"
+    scoring_method: Literal["topsis", "lambdamart"] = "topsis"
+    scoring_topsis_mode: Literal["fixed_reference", "classic"] = "fixed_reference"
+    scoring_explain_top_n: int = 10
+    scoring_retriever_top_k: int = 8
+    scoring_explanation_max_words: int = 120
+    scoring_llm_temperature: float = 0.0
+    scoring_nli_entailment_threshold: float = 0.5
+    scoring_nli_contradiction_threshold: float = 0.5
+    scoring_ground_truth_horizon_releases: int = 2
+    scoring_ground_truth_min_ops: int = 2
+    scoring_bootstrap_resamples: int = 1000
+    scoring_bootstrap_confidence: float = 0.95
+    scoring_random_baseline_permutations: int = 100
 
     model_config = SettingsConfigDict(
         env_file=".env",
