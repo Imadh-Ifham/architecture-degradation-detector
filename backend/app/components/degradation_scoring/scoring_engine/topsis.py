@@ -1,4 +1,4 @@
-# TOPSIS: severity = closeness of an event to the ideal event (CLAUDE.md §5.7).
+# TOPSIS: severity = closeness of an event to the ideal event.
 # fixed_reference (default, C4-ADR-002): ideal = 1 and anti-ideal = 0 on every criterion, so an
 # event's score never depends on the other events; classic: the best / worst event of the run.
 

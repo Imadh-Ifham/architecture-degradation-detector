@@ -1,5 +1,5 @@
 # AHP: criterion weights from a reciprocal pairwise matrix (principal eigenvector), Saaty's
-# consistency ratio, and proportional renormalisation over the active criteria (§5.6, §5.3).
+# consistency ratio, and proportional renormalisation over the active criteria.
 
 from collections.abc import Mapping, Sequence
 from fractions import Fraction
