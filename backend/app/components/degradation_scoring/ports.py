@@ -1,7 +1,7 @@
 # Protocols for everything C4 needs from outside the component (INSTRUCTIONS §7.1).
 # Implementations live under app/infrastructure/ or an entry point; tests use in-memory fakes.
 # Each Protocol arrives with the first task that needs it. Still to come:
-#   ScoringRunRepository (T20), TextGenerator + GenerationCache (T22),
+#   TextGenerator + GenerationCache (T22),
 #   TextEmbedder (T23), EntailmentJudge (T25), RefactoringDetector (T29).
 # Sources return raw documents; C4 validates them, so every source behaves the same.
 
@@ -53,3 +53,15 @@ class AdrIndexSource(Protocol):
     # {"adrs": [{"id", "text" (markdown)}], "links": {element_id: [adr_id]}}, links = C2's
     # adr_refs (CLAUDE.md §5.3)
     def fetch(self, system_id: str, release_id: str) -> object | None: ...
+
+
+class ScoringRunRepository(Protocol):
+    # Saves one run for inspection (C4-T16b, CLAUDE.md §6) as plain rows (infrastructure may
+    # not import components): the run, one row per input payload, one row per ranked event.
+    # Column names = the c4_scoring_run / c4_event_ingestion / c4_event_features columns.
+    def save(
+        self,
+        run: Mapping[str, object],
+        ingestion: Sequence[Mapping[str, object]],
+        features: Sequence[Mapping[str, object]],
+    ) -> None: ...

@@ -222,3 +222,20 @@ def adr_index_document() -> dict[str, Any]:
         for path in sorted((FIXTURES / "adr").glob("*.md"))
     ]
     return {"adrs": adrs, "links": load_fixture("adr/adr_links.v1.json")["links"]}
+
+
+class FakeRunRepository:
+    # ScoringRunRepository in memory; keeps every saved run's rows.
+
+    def __init__(self) -> None:
+        self.saved: list[
+            tuple[Mapping[str, object], list[Mapping[str, object]], list[Mapping[str, object]]]
+        ] = []
+
+    def save(
+        self,
+        run: Mapping[str, object],
+        ingestion: Sequence[Mapping[str, object]],
+        features: Sequence[Mapping[str, object]],
+    ) -> None:
+        self.saved.append((run, list(ingestion), list(features)))

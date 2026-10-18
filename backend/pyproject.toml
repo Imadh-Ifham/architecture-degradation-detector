@@ -115,6 +115,9 @@ files = [
     "app/infrastructure/postgres/models/c4_mining_cache.py",
     "app/infrastructure/postgres/repositories/mining_cache_repository.py",
     "alembic/versions/0002_c4_mining_cache.py",
+    "app/infrastructure/postgres/models/c4_scoring_run.py",
+    "app/infrastructure/postgres/repositories/scoring_run_repository.py",
+    "alembic/versions/0003_c4_scoring_run.py",
 ]
 # C4's old prototype, kept unchanged as a regression reference (C4-T11)
 exclude = ["^tests/fixtures/degradation_scoring/legacy/"]
