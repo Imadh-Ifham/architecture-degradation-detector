@@ -141,6 +141,15 @@ def test_report_without_adr_dimension_is_valid() -> None:
     assert adr.weight == 0
 
 
+def test_rejected_events_are_listed_as_skipped() -> None:
+    payload = report()
+    payload["skipped"].append({"event_id": "evt_0311", "reason": "rejected"})
+
+    skipped = SeverityReportV1.model_validate(payload).skipped
+
+    assert skipped[-1].reason is SkipReason.REJECTED
+
+
 def test_report_with_nothing_ranked_is_valid() -> None:
     payload = report()
     payload["records"] = []

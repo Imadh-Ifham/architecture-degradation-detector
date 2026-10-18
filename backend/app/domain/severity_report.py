@@ -61,6 +61,7 @@ class QuarantineReason(StrEnum):
 class SkipReason(StrEnum):
     # Why a valid event was deliberately left out of the ranking (C4-ADR-007).
     NOT_CONFIRMED = "not_confirmed"
+    REJECTED = "rejected"
     INTENTIONAL = "intentional"
     SYSTEM_SCOPE_NOT_RANKABLE = "system_scope_not_rankable"
     SUPERSEDED = "superseded"

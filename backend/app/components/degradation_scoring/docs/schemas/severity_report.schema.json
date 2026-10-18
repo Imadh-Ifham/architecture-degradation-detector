@@ -379,6 +379,7 @@
     "SkipReason": {
       "enum": [
         "not_confirmed",
+        "rejected",
         "intentional",
         "system_scope_not_rankable",
         "superseded"
