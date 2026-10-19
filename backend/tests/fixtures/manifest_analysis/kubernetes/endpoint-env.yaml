@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: shop
+spec:
+  template:
+    metadata:
+      labels: {app: frontend}
+    spec:
+      containers:
+        - name: frontend
+          image: example/frontend:1.0.0
+          env:
+            - name: CHECKOUT_SERVICE_ADDR
+              value: "checkout:5050"
+            - name: CHECKOUT_STATUS_URL
+              value: "http://checkout:5050/health"
+            - name: DB_PASSWORD
+              value: hunter2
+            - name: LOG_LEVEL
+              value: info

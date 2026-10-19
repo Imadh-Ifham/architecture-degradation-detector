@@ -92,6 +92,7 @@ Analyzer: `KubernetesAnalyzer` against `kubernetes/multi-document.yaml` (plus fo
 | `test_kubernetes_records_volume_claim_as_a_mount` | A volume claim becomes a resolved `MOUNTS_VOLUME` (`configured_filesystem`) plus a resolved reference. |
 | `test_kubernetes_never_exposes_config_map_or_secret_values` | Only **key names** are stored, `values_extracted` is `false`, secret type is retained, and none of the raw/base64/plaintext secret values appear in serialised output. |
 | `test_kubernetes_redacts_sensitive_container_environment` | Environment entries distinguish literal values from `from_secret` / `from_config_map` sources — including a reference to an undeclared secret. |
+| `test_kubernetes_turns_environment_addresses_into_configured_endpoints` | A literal environment value shaped like `host:port` or a URL becomes an `environment` endpoint and a `REFERS_TO_SERVICE` relationship with `configured_endpoint` origin; non-endpoint values and sensitive values stay out. |
 | `test_kubernetes_reads_containers_nested_in_a_cronjob` | Container discovery is not hard-coded to Deployments; it reaches containers nested under a CronJob. |
 | `test_kubernetes_reports_an_unsupported_kind` | An unsupported kind (Ingress) is reported as a diagnostic and produces **no** resource. |
 | `test_kubernetes_document_without_a_kind_is_reported` | A document missing `kind` degrades to `PARTIAL` with a clear diagnostic instead of failing the file. |
