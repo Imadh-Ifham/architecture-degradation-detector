@@ -26,6 +26,7 @@ import ast
 import inspect
 import json
 import re
+import shutil
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -35,7 +36,10 @@ import pytest
 from app.components.architecture_validation.architect_review import (
     ArchitectReviewService,
 )
-from app.components.architecture_validation.classification import ClassificationService
+from app.components.architecture_validation.classification import (
+    ClassificationService,
+    Route,
+)
 from app.components.architecture_validation.decision_knowledge import (
     DecisionKnowledgeService,
     DecisionStageOutcome,
@@ -226,7 +230,8 @@ class StubVerification:
 
 
 class StubClassification:
-    def classify(self, fact, resolution, verdict, verification) -> ClassifiedFact:
+    def classify(self, fact, resolution, verdict, verification,
+                 verification_mode=None) -> ClassifiedFact:
         reasoned = verdict is not None
         return ClassifiedFact(
             fact_id=fact.fact_id,
@@ -564,20 +569,6 @@ def build_unimplemented(release="v0.10.0"):
     )
 
 
-PER_FACT_STAGES = (
-    "decision_knowledge",
-    "evidence_retrieval",
-    "validation_reasoning",
-    "independent_verification",
-    "classification",
-)
-"""The stages the orchestrator runs once per fact, in order.
-
-Named here because the stall only propagates inside this group: the stages
-either side of it are skipped for reasons of their own.
-"""
-
-
 class TestStagesNotBuiltYet:
     """An eight-stage component has to be runnable before stage eight exists."""
 
@@ -674,6 +665,11 @@ class TestStagesNotBuiltYet:
         meant asserting nothing. What survives is the half that was always the
         point: a stage that did not run says so, and reports no finding about
         the architecture while it is at it.
+
+        M6 moved the stall out of that group altogether, so *where* it falls
+        is read from the run rather than named here - it is the first stage in
+        order that is not built, whichever group that happens to be in. Naming
+        it was the part that expired twice.
         """
 
         result = build_unimplemented().run(
@@ -683,7 +679,11 @@ class TestStagesNotBuiltYet:
             stage for stage in result.stages if stage.status is StageStatus.PENDING
         )
 
-        assert stalled.name in PER_FACT_STAGES
+        assert stalled.name == next(
+            stage.name
+            for stage in result.stages
+            if stage.name not in IMPLEMENTED_STAGES
+        )
         assert stalled.note == "not implemented yet"
         assert not any(stalled.counts.values()), (
             f"{stalled.name} did not run and is reporting {stalled.counts}"
@@ -1849,14 +1849,15 @@ class TestTheM4Gate:
         assert self.stage(second).counts["from_cache"] == 15
         assert ai.call_count == calls_after_first
 
-    def test_five_of_eight_stages_are_implemented(self):
+    def test_six_of_eight_stages_are_implemented(self):
         """How far the component has got, asserted so that promoting a stage
         is a deliberate edit that shows up in a diff rather than a number
         that drifts."""
 
-        assert len(IMPLEMENTED_STAGES) == 5
+        assert len(IMPLEMENTED_STAGES) == 6
         assert "validation_reasoning" in IMPLEMENTED_STAGES
         assert "independent_verification" in IMPLEMENTED_STAGES
+        assert "classification" in IMPLEMENTED_STAGES
 
 
 def _superseded_record():
@@ -2168,6 +2169,20 @@ class TestTheM5Gate:
             "outcome": outcome,
         }
 
+    def checked(self, package, outcome=VerificationOutcome.AGREE):
+        """The verification M5 would have produced over the same package."""
+
+        return Verification(
+            fact_id=package.fact_id,
+            outcome=outcome,
+            mechanism="critical-reframing",
+            reasoning="the cited rule does say what the verdict claims",
+            model_id="fake/verifier-1",
+            prompt_version="critical_reframing@1",
+            cached=False,
+            evidence_hash=package.evidence_hash,
+        )
+
     def stage(self, result, name="independent_verification"):
         return next(stage for stage in result.stages if stage.name == name)
 
@@ -2383,27 +2398,33 @@ class TestTheM5Gate:
 
     # ---- row 16: the one that is blocked ----
 
-    def test_row_16_is_blocked_on_m6(self):
-        """*A missing verification lowers confidence and routes to review.*
+    def test_row_16_a_missing_verification_lowers_confidence_and_reviews(self):
+        """The row this one held open while M6 was unwritten.
 
-        It cannot be asserted yet and it is marked rather than dropped.
-        `ClassificationService.classify` raises `NotImplementedError` - M6 is 0
-        of 8 - so there is nothing for the assertion to run against.
+        It was asserting that `classify` raises `NotImplementedError`,
+        inverted on purpose so that it failed the day the service was built
+        and sent whoever built it here. That day has arrived, and this is the
+        assertion it was holding the place for.
 
-        This test exists so the gap is visible in the suite rather than only
-        in a document. It asserts the *reason*, so the day `classify` is
-        written this fails and whoever writes it is sent here. The row itself
-        belongs to M6's gate, because `None` being a fourth state and not a
-        falsy `AGREE` is a property of the code that reads it.
+        `None` is a fourth state and not a falsy `AGREE`: an audited verdict
+        and an unaudited one must not come out of here at the same number.
         """
 
         package = self.packages("v0.10.0")[0]
         fact, resolution = next(self.governed("v0.10.0"))
+        verdict = self.primary(package)
 
-        with pytest.raises(NotImplementedError):
-            ClassificationService().classify(
-                fact, resolution, self.primary(package), None
-            )
+        audited = ClassificationService().classify(
+            fact, resolution, verdict, self.checked(package), VerificationMode.PERFORMED
+        )
+        unaudited = ClassificationService().classify(
+            fact, resolution, verdict, None, VerificationMode.UNAVAILABLE
+        )
+
+        assert unaudited.confidence < audited.confidence
+        assert unaudited.route == Route.REVIEW
+        assert audited.route == Route.PUBLISH
+        assert unaudited.score_trace.ceiling_applied == "unverified_unavailable"
 
     # ---- row 17: the counts, including the number this unit exists for ----
 
@@ -2719,3 +2740,115 @@ class TestTheTwoArmsOnARun:
         assert blind.verification_arm == VerificationArm.BLIND
         assert blind.verification_mode == VerificationMode.PERFORMED
         assert blind.verification_arm != blind.verification_mode
+
+
+class TestTheM6GateOnARun:
+    """M6's own rows: the stage counts, and the one number a whole release is
+    gated on downstream.
+
+    Asserted over `build_unimplemented()`, which is the real classification
+    service behind an unreachable reasoner and an unreachable verifier. That
+    is the rung-5 configuration - every governed fact decided by the
+    deterministic table, none of them audited - and it is the case where an
+    honest confidence number matters most, because nothing in it came from a
+    model at all.
+    """
+
+    def run(self, release="v0.10.0"):
+        return build_unimplemented().run(
+            repository_id="online-boutique", release_id=release
+        )
+
+    def stage(self, result):
+        return next(s for s in result.stages if s.name == "classification")
+
+    def test_the_stage_reports_what_it_published_and_what_it_held_back(self):
+        counts = self.stage(self.run()).counts
+
+        assert counts["facts"] > 0
+        assert counts["published"] + counts["review"] == counts["facts"]
+        assert counts["capped"] == counts["facts"]
+
+    def test_the_unrelated_rate_is_reported_even_when_it_is_zero(self):
+        """It measures the resolver rather than the architecture, so the rate
+        belongs on the run. A zero reported is worth more than a zero
+        assumed - and on this corpus it should be zero."""
+
+        assert self.stage(self.run()).counts["unrelated_resolutions"] == 0
+
+    def test_a_verdict_with_no_model_behind_it_is_capped_and_sent_to_a_person(self):
+        """The ladder's last rung, through the whole pipeline. Every governed
+        fact is still decided and none of them is published unchecked."""
+
+        counts = self.stage(self.run()).counts
+
+        assert counts["published"] == 0
+        assert counts["review"] == counts["facts"]
+
+    def test_the_release_confidence_is_the_mean_of_the_facts(self):
+        """Checkable by hand from the output, which is the whole point of
+        publishing the per-fact arithmetic."""
+
+        result = self.run()
+        facts = result.facts
+
+        assert result.validation_confidence == pytest.approx(
+            sum(fact.confidence for fact in facts) / len(facts), abs=1e-4
+        )
+
+    def test_the_release_confidence_is_capped_by_the_ladder_rung_it_ran_on(self):
+        """0.60 and not 0.85: nothing in this run was produced by a model, and
+        the number says so without anybody having to read the badge."""
+
+        result = self.run()
+
+        assert result.validation_confidence == 0.60
+        assert all(
+            fact.score_trace.ceiling_applied == "verdict_without_a_model"
+            for fact in result.facts
+        )
+
+    def test_a_release_with_no_facts_scores_zero_and_says_how_many(self, tmp_path):
+        """The distinction the gate downstream cannot make on its own:
+        *nothing was validated* and *everything validated badly* are both 0.0,
+        and only the count beside it separates them.
+
+        It runs against a **copy** of the decision store, and that is not
+        tidiness. An empty architecture mines no rules, so the knowledge model
+        concludes that every rule it already holds has been withdrawn and
+        appends a supersession for each one - which closes their validity
+        intervals at this release, in an append-only log. Pointed at the
+        committed corpus it rewrote it, and nineteen unrelated tests in three
+        other files then failed. See the build note in 07's PLAN.md.
+        """
+
+        store = tmp_path / "decisions"
+        shutil.copytree(FIXTURES / "decisions", store)
+        empty = RecoveredArchitecture(
+            repository_id="online-boutique",
+            release_id="v0.10.0",
+            style=ArchitectureStyle.MICROSERVICES,
+            style_source=StyleSource.C1,
+            elements=(),
+            relationships=(),
+            provenance=RecoveryProvenance("snapshot_file_reader", "1.0.0", "test"),
+        )
+        service = ArchitectureValidationService(
+            architecture_reader=_Fixed(empty),
+            normalization=ObservationNormalizationService(),
+            knowledge=DecisionKnowledgeService(
+                WorkspaceReader(), JsonlDecisionStore(store)
+            ),
+            evidence=EvidenceRetrievalService(WorkspaceReader()),
+            reasoning=unreachable_reasoner(),
+            verification=unreachable_verifier(),
+            classification=ClassificationService(),
+            review=ArchitectReviewService(),
+            publishing=GraphPublishingService(),
+        )
+
+        result = service.run(repository_id="online-boutique", release_id="v0.10.0")
+
+        assert result.validation_confidence == 0.0
+        assert result.facts == ()
+        assert self.stage(result).status is StageStatus.SKIPPED

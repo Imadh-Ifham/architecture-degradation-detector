@@ -94,7 +94,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Turns a verdict and its verification into a bucket, a confidence and a route.",
         research_module="M6",
         uses_model=False,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="architect_review",

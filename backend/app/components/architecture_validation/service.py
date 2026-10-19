@@ -32,7 +32,7 @@ from time import perf_counter
 from app.domain.recovered_architecture import RecoveredArchitecture
 
 from .architect_review import ArchitectReviewService
-from .classification import ClassificationService
+from .classification import ClassificationService, Route, per_fact_mode
 from .decision_knowledge import (
     DEFAULT_MODE,
     DecisionKnowledgeService,
@@ -318,6 +318,32 @@ def _verification_mode(
     return VerificationMode.UNAVAILABLE
 
 
+def _release_confidence(classified: list[ClassifiedFact]) -> float:
+    """How much of this release's validation can be relied on, as one number.
+
+    The unweighted mean of the per-fact confidence over **every** fact,
+    including the uncovered ones at 0.0. A release the component could say
+    little about scores low, and that is the honest answer rather than a
+    scoring artefact: a mean over the facts that happened to come out well
+    would put a release where fourteen of fifteen facts went to review at the
+    top.
+
+    Unweighted because every weighting that could be applied here would be
+    invented. A mean over numbers whose own arithmetic is published can be
+    checked by hand from the output; anything cleverer would be the one value
+    in the chain nobody downstream could re-derive.
+
+    An empty release is 0.0, and the stage's `facts` count is what separates
+    *nothing was validated* from *everything validated badly*. The next
+    component excludes a release below 0.50 from its whole analysis, so the
+    difference has to be visible beside the number.
+    """
+
+    if not classified:
+        return 0.0
+    return round(sum(fact.confidence for fact in classified) / len(classified), 4)
+
+
 def _reasoning_counts(verdicts: list[PrimaryVerdict]) -> dict:
     """What the reasoning stage did, in the numbers a reader has to have.
 
@@ -471,6 +497,7 @@ class ArchitectureValidationService:
             facts=tuple(classified),
             published_ref=published_ref,
             model_calls=sum(fact.model_calls for fact in classified),
+            validation_confidence=_release_confidence(classified),
             style_resolved=style[0],
             style_source=style[1],
             verification_arm=_arm_reported(arm, verification_mode),
@@ -557,7 +584,13 @@ class ArchitectureValidationService:
         classification = _Stage("classification")
 
         group = (knowledge, evidence, reasoning, verification, classification)
-        counts = {"resolved": 0, "uncovered": 0, "ambiguous": 0, "reasoned": 0}
+        counts = {
+            "resolved": 0,
+            "uncovered": 0,
+            "ambiguous": 0,
+            "reasoned": 0,
+            "unrelated_resolutions": 0,
+        }
         classified: list[ClassifiedFact] = []
         verdicts: list[PrimaryVerdict] = []
         judged: list[tuple[PrimaryVerdict, Verification | None, object]] = []
@@ -589,6 +622,10 @@ class ArchitectureValidationService:
                         fact,
                         resolution,
                         None,
+                        None,
+                        # Verification did not apply to this fact: it never
+                        # reached a model, so there is no argument to audit
+                        # and no cap to name for the absence of one.
                         None,
                     )
                     if not ran:
@@ -654,9 +691,17 @@ class ArchitectureValidationService:
                     resolution,
                     verdict,
                     checked,
+                    per_fact_mode(verify, arm is VerificationArm.BLIND, checked),
                 )
                 if not ran:
                     break
+                if verdict.verdict is Verdict.UNRELATED:
+                    # A governing decision was found and the model says it does
+                    # not bear on this pair, which is a measurement of the
+                    # resolver rather than of the architecture. The rate
+                    # belongs on the run; one occurrence buried in a fact says
+                    # nothing.
+                    counts["unrelated_resolutions"] += 1
                 classified.append(result)
 
         unmatched = self._knowledge.rules_without_facts(
@@ -682,7 +727,16 @@ class ArchitectureValidationService:
         evidence.counts = {"packages": counts["resolved"]}
         reasoning.counts = _reasoning_counts(verdicts)
         verification.counts = _verification_counts(judged, verify, arm)
-        classification.counts = {"facts": len(classified)}
+        classification.counts = {
+            "facts": len(classified),
+            # Published beside the confidence they are the mean of. A mean
+            # over fifteen facts and a mean over one look identical without
+            # the count, and the next component gates a whole release on it.
+            "published": len([f for f in classified if f.route == Route.PUBLISH]),
+            "review": len([f for f in classified if f.route == Route.REVIEW]),
+            "capped": len([f for f in classified if f.score_trace.ceiling_applied]),
+            "unrelated_resolutions": counts["unrelated_resolutions"],
+        }
 
         if not facts:
             # Not one of these five was called. Reporting them as completed

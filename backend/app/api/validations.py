@@ -201,6 +201,15 @@ class ValidationRunResponse(BaseModel):
         "than assumed, so a run that should have made none can be shown to "
         "have made none."
     )
+    validation_confidence: float = Field(
+        default=0.0,
+        description=(
+            "The mean per-fact confidence across this release. Read it with "
+            "the classification stage's 'facts' count beside it: 0.0 over no "
+            "facts and 0.0 over fifteen weak ones are different situations."
+        ),
+        examples=[0.78],
+    )
     published_ref: str | None = Field(
         default=None,
         description="Where the validated graph was published, once the "
@@ -728,6 +737,7 @@ def run_validation(
         release_id=run.release_id,
         status=run.status,
         model_calls=run.model_calls,
+        validation_confidence=run.validation_confidence,
         published_ref=run.published_ref,
         style_resolved=run.style_resolved,
         style_source=run.style_source,

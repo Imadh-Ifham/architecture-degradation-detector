@@ -1035,6 +1035,17 @@ class ValidationRunResult:
     facts: tuple[ClassifiedFact, ...] = ()
     published_ref: str | None = None
     model_calls: int = 0
+    validation_confidence: float = 0.0
+    """The mean per-fact confidence over this release, and the figure the next
+    component gates on.
+
+    A release-level aggregate rather than a verdict about the release: it is
+    the mean of numbers whose own arithmetic each fact publishes, so it can be
+    checked by hand from the output. Read it with the classification stage's
+    `facts` count beside it - 0.0 over no facts and 0.0 over fifteen bad ones
+    are different situations and the number alone cannot tell them apart.
+    """
+
     style_resolved: str | None = None
     style_source: str | None = None
     verification_arm: str | None = None
