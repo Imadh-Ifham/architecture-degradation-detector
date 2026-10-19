@@ -14,9 +14,27 @@ Description:
     `to_node_link()` emits the node-link structure directly, with the edge list
     under the key "links". That key is written here by hand rather than taken
     from a library default: NetworkX 3.6 changed its default from "links" to
-    "edges", and a mismatch between producer and consumer does not raise - it
-    silently yields a graph with no edges at all. Consumers should read it with
+    "edges". Consumers must read it with
     `nx.node_link_graph(document, edges="links")`.
+
+    **How a mismatch fails was measured rather than assumed, and it is not
+    what this docstring used to say.** It claimed the mismatch does not raise
+    and silently yields a graph with no edges. On the installed NetworkX
+    (3.7) that is false: reading a "links" document as "edges" raises
+    `KeyError`, the reverse raises, and so does a consumer who passes nothing
+    and takes the default. The silent empty graph belongs to the 3.4-to-3.6
+    transition and is no longer the failure here - which is better news, since
+    an immediate error in the consumer's own call is worth more than a
+    plausible empty answer computed over for weeks. The keyword stays
+    mandatory either way, because the library's default is "edges" and this
+    document is written under "links".
+
+    Schema 1.1.0 adds six fields the consuming component asked for after
+    loading the committed 1.0.0 fixture into its own ingestion: when the
+    release happened, which git field said so, an ordering key that does not
+    depend on dates at all, a reference to the model this was computed from,
+    and per-element size. Every one is additive; the single removal is
+    `validation_confidence`'s default, which is explained on the field.
 """
 
 from dataclasses import dataclass, field
@@ -24,7 +42,7 @@ from datetime import datetime
 from enum import StrEnum
 
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 GENERATOR_NAME = "architecture_validation"
 GENERATOR_VERSION = "0.1.0"
 
@@ -61,6 +79,45 @@ class RunMode(StrEnum):
     RECONSTRUCTION = "reconstruction"
 
 
+class ReleaseDateSource(StrEnum):
+    """Which field a release date was read from.
+
+    Published beside the date rather than kept in a log, because the three
+    differ in ways that change an ordering. An annotated tag's own date is
+    when the release was cut. A commit's author date is when the work was
+    written and survives history being rewritten. A caller-supplied date is
+    whatever a person said.
+
+    The committer date is deliberately absent. It is rewritten by every
+    rebase, cherry-pick and amend, so on a tidied history it reads as the day
+    somebody last replayed the commit - which looks exactly like a release
+    that happened today.
+    """
+
+    TAGGER = "tagger"
+    AUTHOR = "author"
+    CALLER = "caller"
+
+
+class SizeUnitConflict(ValueError):
+    """Two elements of one release measure size in different units.
+
+    Refused rather than published. The consumer's size trend compares one
+    release against the next, and a series that is `loc` in one place and
+    `bytes` in another is a graph of nothing - with no error anywhere, because
+    both are numbers.
+    """
+
+    def __init__(self, units: tuple[str, ...], release_id: str) -> None:
+        super().__init__(
+            f"Release '{release_id}' measures element size in more than one "
+            f"unit: {', '.join(units)}. A size trend across mixed units "
+            "compares nothing, so the release is not published."
+        )
+        self.units = units
+        self.release_id = release_id
+
+
 @dataclass(frozen=True)
 class ValidationRollup:
     """Per-element counts, so a consumer can weight an element without
@@ -82,18 +139,36 @@ class ValidationRollup:
 
 @dataclass(frozen=True)
 class ValidatedNode:
-    """One architectural element, with its validation rollup."""
+    """One architectural element, with its validation rollup.
+
+    `canonical` is this component's own normalised identity, and it is what a
+    consumer should follow an element by across releases. `id` is recovery's
+    identifier: it is stable across the releases on record, but the derivation
+    belongs to another component and is not a hash of the name or of the path,
+    so resting a history on it would be resting on a coincidence.
+
+    `size` is passed through from recovery and never computed here. This
+    component does not read source code, so a size it produced would be the
+    one number in the output with no provenance. `None` means recovery did not
+    supply one, and stays `None` rather than becoming zero.
+    """
 
     id: str
     name: str
     kind: str
     rollup: ValidationRollup
+    canonical: str = ""
+    size: float | None = None
+    size_unit: str | None = None
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "canonical": self.canonical or self.name,
             "name": self.name,
             "kind": self.kind,
+            "size": self.size,
+            "size_unit": self.size_unit,
             "validation_rollup": self.rollup.to_dict(),
         }
 
@@ -109,6 +184,12 @@ class ValidatedEdge:
     `model_calls` is published so a reader can see which verdicts cost a model
     call and which were settled by deterministic code - zero is the expected
     value for an uncovered or ambiguous relationship.
+
+    `produced_by`, `verification_outcome` and `arbiter_agreement` travel for
+    the same reason. An edge decided without a model and an edge nothing
+    audited are both capped before they reach a consumer, so one that ignores
+    them is not wrong - but a degradation study that averages a rule-only
+    verdict with a three-judge one is averaging two different things.
     """
 
     fact_id: str
@@ -121,6 +202,9 @@ class ValidatedEdge:
     evidence_refs: tuple[str, ...]
     source_tier: str | None
     model_calls: int
+    produced_by: str = ""
+    verification_outcome: str | None = None
+    arbiter_agreement: str | None = None
     attributes: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -135,6 +219,9 @@ class ValidatedEdge:
             "evidence_refs": list(self.evidence_refs),
             "source_tier": self.source_tier,
             "model_calls": self.model_calls,
+            "produced_by": self.produced_by,
+            "verification_outcome": self.verification_outcome,
+            "arbiter_agreement": self.arbiter_agreement,
             "attributes": dict(self.attributes),
         }
 
@@ -172,6 +259,22 @@ class ValidatedArchitectureGraph:
     """One release of one repository, validated.
 
     This is the whole handover. Nothing else crosses the boundary.
+
+    `validation_confidence` has no default, deliberately and at a consumer's
+    request. It gates a release downstream - below a threshold the release is
+    excluded from the whole analysis - so a document built without setting it
+    would publish `0.0` and silently drop the release with no error anywhere.
+    A required field turns that into a `TypeError` at the point of the
+    mistake.
+
+    `released_at` may be `None` and travels as `None`. When no tag date and no
+    caller supplied one, nothing is invented: a plausible wrong date orders a
+    timeline wrongly and cannot be told apart from a right one.
+
+    `release_order_key` is the ordering this component already computes, and
+    it does not depend on dates at all. Both are published because they fail
+    differently - when a date order and a version order disagree, that is a
+    back-ported release rather than a bug, and one field alone cannot see it.
     """
 
     repository_id: str
@@ -180,7 +283,41 @@ class ValidatedArchitectureGraph:
     nodes: tuple[ValidatedNode, ...]
     edges: tuple[ValidatedEdge, ...]
     stamp: ValidationRunStamp
-    validation_confidence: float = 0.0
+    validation_confidence: float
+    architecture_style_source: str = ""
+    released_at: datetime | None = None
+    released_at_source: str | None = None
+    release_order_key: tuple[int, ...] = ()
+    c1_model_ref: str = ""
+    summary: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Refuse a document that cannot be read as the contract claims.
+
+        Both checks are here rather than in the publisher because a graph in
+        either state must not be constructible at all - not out of the
+        publisher, not out of a replay, not hand-built in a test.
+        """
+
+        if not 0.0 <= self.validation_confidence <= 1.0:
+            raise ValueError(
+                f"validation_confidence is {self.validation_confidence}, and "
+                "the contract bounds it to 0..1. A consumer gates a release "
+                "on this number, so a value outside the range fails in their "
+                "code rather than here."
+            )
+
+        units = tuple(
+            sorted({node.size_unit for node in self.nodes if node.size_unit})
+        )
+        if len(units) > 1:
+            raise SizeUnitConflict(units, self.release_id)
+
+    @property
+    def size_unit(self) -> str | None:
+        """The one unit this release measures size in, if it measures any."""
+
+        return next((node.size_unit for node in self.nodes if node.size_unit), None)
 
     def to_node_link(self) -> dict:
         """Emit the node-link document consumers read.
@@ -199,9 +336,17 @@ class ValidatedArchitectureGraph:
                 },
                 "repository_id": self.repository_id,
                 "release_id": self.release_id,
+                "released_at": (
+                    self.released_at.isoformat() if self.released_at else None
+                ),
+                "released_at_source": self.released_at_source,
+                "release_order_key": list(self.release_order_key),
+                "c1_model_ref": self.c1_model_ref,
                 "architecture_style": self.architecture_style,
+                "architecture_style_source": self.architecture_style_source,
                 "validation_confidence": self.validation_confidence,
                 "run": self.stamp.to_dict(),
+                "summary": dict(self.summary),
             },
             "nodes": [node.to_dict() for node in self.nodes],
             NODE_LINK_EDGE_KEY: [edge.to_dict() for edge in self.edges],

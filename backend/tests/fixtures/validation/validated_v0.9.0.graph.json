@@ -2,33 +2,75 @@
   "directed": true,
   "multigraph": false,
   "graph": {
-    "schema_version": "1.0.0",
-    "generator": {"name": "architecture_validation", "version": "0.1.0"},
+    "schema_version": "1.1.0",
+    "generator": {
+      "name": "architecture_validation",
+      "version": "0.1.0"
+    },
     "repository_id": "online-boutique",
     "release_id": "v0.9.0",
+    "released_at": "2025-04-01T00:00:00+00:00",
+    "released_at_source": "tagger",
+    "release_order_key": [
+      0,
+      0,
+      9,
+      0,
+      0,
+      4,
+      0,
+      1,
+      0
+    ],
+    "c1_model_ref": "98e60f5ee0b643cc00bceb71e6efb89617740432",
     "architecture_style": "microservices",
+    "architecture_style_source": "inferred_by_c2",
     "validation_confidence": 0.78,
     "run": {
       "run_id": "run-0001",
       "generated_at": "2026-10-14T00:00:00",
       "mode": "reconstruction",
-      "reasoner_model": null,
-      "verifier_model": null,
-      "prompt_versions": []
+      "reasoner_model": "openai/gpt-oss-20b",
+      "verifier_model": "qwen/qwen3-32b",
+      "prompt_versions": [
+        "critical_reframing@1",
+        "primary_verdict@1"
+      ]
+    },
+    "summary": {
+      "facts": 1,
+      "published": 1,
+      "review": 0
     }
   },
   "nodes": [
     {
       "id": "svc:checkoutservice",
+      "canonical": "checkout",
       "name": "checkoutservice",
       "kind": "service",
-      "validation_rollup": {"confirmed": 1, "contradicted": 0, "uncovered": 0, "needs_review": 0}
+      "size": 1420.0,
+      "size_unit": "loc",
+      "validation_rollup": {
+        "confirmed": 1,
+        "contradicted": 0,
+        "uncovered": 0,
+        "needs_review": 0
+      }
     },
     {
       "id": "svc:paymentservice",
+      "canonical": "payment",
       "name": "paymentservice",
       "kind": "service",
-      "validation_rollup": {"confirmed": 1, "contradicted": 0, "uncovered": 0, "needs_review": 0}
+      "size": 860.0,
+      "size_unit": "loc",
+      "validation_rollup": {
+        "confirmed": 1,
+        "contradicted": 0,
+        "uncovered": 0,
+        "needs_review": 0
+      }
     }
   ],
   "links": [
@@ -40,10 +82,17 @@
       "bucket": "confirmed",
       "confidence": 0.78,
       "governing_decision": "np-checkoutservice",
-      "evidence_refs": ["ev:np-checkoutservice:1"],
+      "evidence_refs": [
+        "ev:np-checkoutservice:1"
+      ],
       "source_tier": "tier_2_executable_config",
       "model_calls": 2,
-      "attributes": {"interaction": "grpc"}
+      "produced_by": "model",
+      "verification_outcome": "agree",
+      "arbiter_agreement": "agreed",
+      "attributes": {
+        "interaction": "grpc"
+      }
     }
   ]
 }

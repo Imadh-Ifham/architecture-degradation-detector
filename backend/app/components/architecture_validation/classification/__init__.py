@@ -12,7 +12,7 @@ Description:
     here.
 """
 
-from .models import Route
+from ..models import Route
 from .service import ClassificationService, per_fact_mode
 
 __all__ = ["ClassificationService", "Route", "per_fact_mode"]
