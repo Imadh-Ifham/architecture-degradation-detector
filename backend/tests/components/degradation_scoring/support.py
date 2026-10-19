@@ -8,7 +8,24 @@ from typing import Any
 import git
 
 from app.components.degradation_scoring.config import C4Config
+from app.components.degradation_scoring.reporting.models import EventNotes, ReportView
 from app.core.config import Settings
+from app.domain.degradation_event import ContextTag, ReviewStatus, Scope
+from app.domain.severity_report import (
+    DataProvenance,
+    Dimension,
+    DimensionScore,
+    NormalizationMode,
+    QuarantinedEvent,
+    QuarantineReason,
+    Resolution,
+    ResolutionStatus,
+    SeverityRecord,
+    SeverityReportV1,
+    SkippedEvent,
+    SkipReason,
+    WeightsProvenance,
+)
 
 Rows = list[Mapping[str, object]]
 
@@ -240,3 +257,85 @@ class FakeRunRepository:
         scores: Sequence[Mapping[str, object]],
     ) -> None:
         self.saved.append((run, list(ingestion), list(features), list(scores)))
+
+
+def sample_report(**overrides: Any) -> SeverityReportV1:
+    # a small valid report by hand: two ranked events (BR + PS on, EH + AV off), one
+    # quarantined and one skipped
+    def record(event_id: str, rank: int, severity: float, br: float) -> SeverityRecord:
+        def score(value: float, weight: float) -> DimensionScore:
+            return DimensionScore(raw=value, normalized=value, weight=weight)
+
+        off = DimensionScore(raw=0.0, normalized=0.0, weight=0.0, active=False)
+        return SeverityRecord(
+            event_id=event_id,
+            anti_pattern_type="CyclicDependency",
+            scope=Scope.INSTANCE,
+            review_status=ReviewStatus.PENDING,
+            context_tag=ContextTag.GENUINE,
+            rank=rank,
+            severity=severity,
+            dimensions={
+                Dimension.BLAST_RADIUS: score(br, 0.75),
+                Dimension.HOTSPOT: off,
+                Dimension.ADR_VIOLATION: off,
+                Dimension.PERSISTENCE: score(0.5, 0.25),
+            },
+            contributions={
+                Dimension.BLAST_RADIUS: 0.8,
+                Dimension.HOTSPOT: 0.0,
+                Dimension.ADR_VIOLATION: 0.0,
+                Dimension.PERSISTENCE: 0.2,
+            },
+            resolution=Resolution(status=ResolutionStatus.EXACT, confidence=1.0),
+        )
+
+    values: dict[str, Any] = {
+        "run_id": "unit-run",
+        "system_id": "unit-system",
+        "release_id": "v1.0.0",
+        "data_provenance": DataProvenance.FIXTURE,
+        "active_dimensions": [Dimension.BLAST_RADIUS, Dimension.PERSISTENCE],
+        "weights_version": "ahp_v1",
+        "weights_provenance": WeightsProvenance.PROVISIONAL_AUTHOR_ELICITED,
+        "ahp_cr": 0.0114,
+        "normalization": NormalizationMode.MINMAX_SMALL_N,
+        "resolution_rate": 0.5,
+        "records": [record("E-1", 1, 0.7, 0.9), record("E-2", 2, 0.4, 0.3)],
+        "quarantined": [
+            QuarantinedEvent(
+                event_id="E-3", reason=QuarantineReason.UNRESOLVED_ELEMENT, detail="missing: x"
+            )
+        ],
+        "skipped": [SkippedEvent(event_id="E-4", reason=SkipReason.INTENTIONAL)],
+    }
+    return SeverityReportV1(**(values | overrides))
+
+
+def sample_view(**overrides: Any) -> ReportView:
+    # the HTML extras matching sample_report()
+    values: dict[str, Any] = {
+        "payloads": 4,
+        "topsis_mode": "fixed_reference",
+        "weights_elicited_by": "Tester",
+        "ahp_lambda_max": 4.031,
+        "elicited_weights": {
+            Dimension.BLAST_RADIUS: 0.45,
+            Dimension.HOTSPOT: 0.3,
+            Dimension.ADR_VIOLATION: 0.1,
+            Dimension.PERSISTENCE: 0.15,
+        },
+        "weights": {
+            Dimension.BLAST_RADIUS: 0.75,
+            Dimension.HOTSPOT: 0.0,
+            Dimension.ADR_VIOLATION: 0.0,
+            Dimension.PERSISTENCE: 0.25,
+        },
+        "hotspot_inactive_reason": "no_repository",
+        "adr_inactive_reason": "no_adr_index",
+        "notes": {
+            "E-1": EventNotes(nodes=["a", "b"], flags=["fallback: presence", "hotspot off"]),
+            "E-2": EventNotes(nodes=["c"], flags=["ADR off"], growth_metric="fan_in"),
+        },
+    }
+    return ReportView(**(values | overrides))
