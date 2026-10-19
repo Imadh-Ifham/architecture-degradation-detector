@@ -31,7 +31,6 @@ Description:
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-
 SCHEMA_VERSION = "1.0.0"
 
 
@@ -163,6 +162,13 @@ class ArchitectureElement:
     source_paths: tuple[str, ...] = ()
     size: float | None = None
     size_unit: str | None = None
+    attributes: dict = field(default_factory=dict)
+    """What recovery knows about this element that this shape has no field for.
+
+    `logical_id` and `identity_basis` arrive here: recovery decides a
+    component's identity across releases, and dropping its answer would leave
+    validation guessing at something already settled upstream.
+    """
 
     def to_dict(self) -> dict:
         return {
@@ -173,6 +179,7 @@ class ArchitectureElement:
             "source_paths": list(self.source_paths),
             "size": self.size,
             "size_unit": self.size_unit,
+            "attributes": dict(self.attributes),
         }
 
 
@@ -226,12 +233,32 @@ class RecoveryProvenance:
     commit means the same thing everywhere.
     """
 
+    source_snapshot_id: str = ""
+    """The recovery snapshot this architecture was read from, when there is one.
+
+    A release can have more than one: recovery identifies a snapshot by the
+    commit *and* its own analysis configuration, so re-analysing a release
+    under changed settings produces a second one. Recording which was read is
+    what lets a verdict name the exact input it was computed from.
+    """
+
+    source_status: str = ""
+    """Recovery's own account of how complete the scan was.
+
+    `incomplete` means a stage of recovery did not run, so an element missing
+    here may be an element it never saw. Carried rather than dropped, because
+    the alternative is a partial scan reading as a release where things were
+    removed.
+    """
+
     def to_dict(self) -> dict:
         return {
             "reader": self.reader,
             "source_schema_version": self.source_schema_version,
             "source_reference": self.source_reference,
             "source_commit": self.source_commit,
+            "source_snapshot_id": self.source_snapshot_id,
+            "source_status": self.source_status,
         }
 
 

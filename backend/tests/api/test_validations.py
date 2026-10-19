@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.validations import get_validation_service
+from app.api.validations import get_architecture_reader, get_validation_service
 from app.components.architecture_validation import (
     PIPELINE,
     ArchitectureValidationService,
@@ -58,12 +58,12 @@ from app.infrastructure.ai import (
     load_prompt,
 )
 from app.infrastructure.ai.providers.fake import FakeProvider
-from app.infrastructure.validated_graph import ValidatedGraphFileStore
 from app.infrastructure.decision_log import JsonlDecisionStore
 from app.infrastructure.git.workspace_artifact_reader import ArtifactUnavailableError
 from app.infrastructure.recovery_gateway.snapshot_file_reader import (
     SnapshotFileReader,
 )
+from app.infrastructure.validated_graph import ValidatedGraphFileStore
 from app.main import app
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "validation"
@@ -165,6 +165,12 @@ def client():
         publishing=GraphPublishingService(ValidatedGraphFileStore(ARTIFACTS)),
     )
     app.dependency_overrides[get_validation_service] = lambda: service
+    # The decision-sources route reads the architecture through its own
+    # dependency rather than through the service, so pinning the service
+    # alone would leave that route on whatever the environment configures.
+    app.dependency_overrides[get_architecture_reader] = lambda: SnapshotFileReader(
+        SNAPSHOTS
+    )
 
     with TestClient(app) as test_client:
         yield test_client
@@ -538,6 +544,9 @@ class TestARepositoryNobodyIngested:
             publishing=GraphPublishingService(ValidatedGraphFileStore(ARTIFACTS)),
         )
         app.dependency_overrides[get_validation_service] = lambda: service
+        app.dependency_overrides[get_architecture_reader] = lambda: SnapshotFileReader(
+            SNAPSHOTS
+        )
 
         with TestClient(app) as test_client:
             yield test_client

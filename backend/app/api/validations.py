@@ -32,6 +32,9 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.components.architecture_recovery.repository_ingestion.service import (
+    SOURCE_DIRECTORY_NAME,
+)
 from app.components.architecture_validation import (
     PIPELINE,
     ArchitectureValidationService,
@@ -40,13 +43,14 @@ from app.components.architecture_validation.architect_review import (
     ArchitectReviewService,
     QueueUnavailable,
 )
-from app.components.architecture_recovery.repository_ingestion.service import (
-    SOURCE_DIRECTORY_NAME,
+from app.components.architecture_validation.architect_review.models import (
+    ReviewDecision,
 )
 from app.components.architecture_validation.classification import ClassificationService
 from app.components.architecture_validation.decision_knowledge import (
     DEFAULT_MODE,
     DecisionKnowledgeService,
+    DecisionSourceError,
     NoDecisionsAvailable,
     SourceRequest,
 )
@@ -80,38 +84,27 @@ from app.infrastructure.ai import (
     load_prompt,
 )
 from app.infrastructure.ai.providers.openai_compatible import OpenAICompatibleProvider
-from app.components.architecture_validation.architect_review.models import (
-    ReviewDecision,
-)
-from app.infrastructure.validated_graph import ValidatedGraphFileStore
-from app.infrastructure.git.release_dates import ReleaseDateReader
 from app.infrastructure.decision_log import JsonlDecisionStore
+from app.infrastructure.git.release_dates import ReleaseDateReader
 from app.infrastructure.git.workspace_artifact_reader import (
     ArtifactUnavailableError,
     WorkspaceArtifactReader,
 )
 from app.infrastructure.recovery_gateway import (
+    GraphContractError,
+    GraphStoreReader,
     InventoryContractError,
     InventoryFileArchitectureReader,
     SnapshotContractError,
     SnapshotFileReader,
+    WorkspaceIndex,
+    WorkspaceUnavailable,
 )
-
+from app.infrastructure.validated_graph import ValidatedGraphFileStore
 
 router = APIRouter(prefix="/validations", tags=["Validation"])
 
 PRIMARY_VERDICT_PROMPT = "primary_verdict.v1.md"
-REVIEW_REPOSITORY_ID = "online-boutique"
-REVIEW_RELEASE_ID = "v0.10.0"
-"""Which release the review queue is bound to.
-
-One repository and one release, because there is one subject system and the
-queue is bound at wiring time so an item cannot be written against the wrong
-release by a caller that forgot. A second subject system makes these a
-parameter of the routes; inventing that now would be a parameter with one
-possible value.
-"""
-
 CRITICAL_REFRAMING_PROMPT = "critical_reframing.v1.md"
 BLIND_VERDICT_PROMPT = "blind_verdict.v1.md"
 
@@ -408,6 +401,10 @@ def get_architecture_reader():
     reader's name is stamped on the run's provenance either way.
     """
 
+    if settings.architecture_source == "graph":
+        return GraphStoreReader(
+            get_architecture_graph_store(), settings.repositories_root
+        )
     if settings.architecture_source == "snapshot":
         return SnapshotFileReader(settings.snapshot_root)
     if settings.architecture_source == "inventory":
@@ -415,8 +412,28 @@ def get_architecture_reader():
 
     raise ValueError(
         f"architecture_source is '{settings.architecture_source}'; "
-        "expected 'snapshot' or 'inventory'."
+        "expected 'graph', 'snapshot' or 'inventory'."
     )
+
+
+@lru_cache(maxsize=1)
+def get_architecture_graph_store():
+    """Recovery's historical graph, as the live reader asks it.
+
+    Imported inside the function so that a machine with no graph database
+    configured can still start, and still run against a recording. The driver
+    is built when the live reader is the one wired in and never otherwise.
+    """
+
+    from app.infrastructure.neo4j.architecture_snapshot_store import (
+        Neo4jArchitectureSnapshotStore,
+    )
+    from app.infrastructure.neo4j.database import driver
+
+    # The driver's own `session`, which is a context manager per operation.
+    # The request-scoped dependency beside it yields one already open, and
+    # the store opens its own.
+    return Neo4jArchitectureSnapshotStore(driver.session)
 
 
 @lru_cache
@@ -584,19 +601,67 @@ def get_release_dates() -> ReleaseDateReader:
     return ReleaseDateReader(settings.repositories_root, SOURCE_DIRECTORY_NAME)
 
 
-@lru_cache(maxsize=1)
-def get_review_queue():
-    """The review queue, or `None` when there is no database behind it.
+def review_binding(
+    repository_id: str | None = None, release_id: str | None = None
+) -> tuple[str, str] | None:
+    """Which repository and release the review queue is for.
+
+    Read from the ingestion workspace rather than written down here. The ids
+    belong to whatever has been ingested on this machine, and a literal in
+    this file is a subject system compiled into the product - which works
+    until the second repository arrives and then mislabels every row it
+    writes.
+
+    A caller may name either id; what they do not name is resolved from the
+    most recently ingested revision that matches what they did. `None` when
+    nothing has been ingested, which is the same answer as a queue with no
+    database behind it: there is nothing to queue against yet.
+    """
+
+    try:
+        record = WorkspaceIndex(settings.repositories_root).resolve(
+            repository_id, release_id
+        ) if repository_id else _newest_ingested(release_id)
+    except WorkspaceUnavailable:
+        return None
+
+    return (record.repository_key, record.release_id) if record else None
+
+
+def _newest_ingested(release_id: str | None):
+    """The most recent ingest, optionally of one named release."""
+
+    records = WorkspaceIndex(settings.repositories_root).records()
+
+    return next(
+        (
+            record
+            for record in records
+            if release_id is None or release_id in (record.release_id, record.release_tag)
+        ),
+        None,
+    )
+
+
+@lru_cache
+def get_review_queue(repository_id: str = "", release_id: str = ""):
+    """The review queue, or `None` when there is nothing to bind it to.
 
     `None` means *not configured*, which the review stage reports as a note
     rather than a warning: a run on a laptop with nothing installed queues
     nothing and says the facts are in the published document regardless. A
     configured queue that refused is a fault and is named as one.
 
-    The repository is bound to one repository and release, which is wiring
-    rather than data on the item - so a caller that forgot cannot write an
-    item against the wrong release.
+    The queue is still bound to one repository and one release, which is
+    wiring rather than data on the item - so a caller that forgot cannot
+    write an item against the wrong release. What changed is where the pair
+    comes from: the workspace, not a constant.
     """
+
+    binding = review_binding(repository_id or None, release_id or None)
+
+    if binding is None:
+        return None
 
     try:
         from sqlalchemy import create_engine
@@ -612,9 +677,7 @@ def get_review_queue():
     except Exception:  # noqa: BLE001 - an absent database is a normal state
         return None
 
-    return PostgresReviewQueueRepository(
-        sessionmaker(bind=engine), REVIEW_REPOSITORY_ID, REVIEW_RELEASE_ID
-    )
+    return PostgresReviewQueueRepository(sessionmaker(bind=engine), *binding)
 
 
 @router.get(
@@ -713,6 +776,8 @@ def describe_decision_sources(
         architecture = reader.read(repository_id, release_id)
     except (
         ArtifactUnavailableError,
+        DecisionSourceError,
+        GraphContractError,
         InventoryContractError,
         SnapshotContractError,
         IncoherentArchitecture,
@@ -730,11 +795,16 @@ def describe_decision_sources(
                 manifest_paths=architecture.manifest_paths,
             )
         )
-    except ArtifactUnavailableError as error:
+    except (ArtifactUnavailableError, DecisionSourceError) as error:
         # The sources read the repository, so this route needs the checkout as
         # well as the recording. Answered rather than raised: a user asking
         # which mode to pick before ingesting anything has made a mistake with
         # an obvious fix, and the sentence that says so is the whole answer.
+        #
+        # A source that cannot read a file it found is the same kind of
+        # answer. One unparseable document in a repository must not turn
+        # "what could this be validated against?" into a crash: the question
+        # is asked before anything runs, and the refusal belongs to the run.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
@@ -770,6 +840,16 @@ def _resolve_release_date(
 
     if request.released_at is not None:
         return request.released_at, ReleaseDateSource.CALLER
+
+    reader = get_architecture_reader()
+    if isinstance(reader, GraphStoreReader):
+        # Recovery resolved this already, from the tag then the commit then
+        # the moment it ran, and it says which of the three answered. Reading
+        # git a second time here could only produce a second opinion about a
+        # field a consumer gates on.
+        recovered = reader.released_at(request.repository_id, request.release_id)
+        if recovered is not None:
+            return recovered
 
     found = get_release_dates().read(request.repository_id, request.release_id)
     if found is None:
@@ -838,6 +918,8 @@ def run_validation(
         ) from error
     except (
         ArtifactUnavailableError,
+        DecisionSourceError,
+        GraphContractError,
         InventoryContractError,
         SnapshotContractError,
         IncoherentArchitecture,
@@ -943,9 +1025,15 @@ class ReviewOutcomeResponse(BaseModel):
     response_description="Every undecided item, oldest first.",
 )
 def list_reviews(
+    repository_id: str | None = None,
+    release_id: str | None = None,
     service: ArchitectureValidationService = Depends(get_validation_service),
 ):
     """Return the queue, oldest first.
+
+    `repository_id` and `release_id` select which queue, and both default to
+    the most recently ingested revision. One subject system therefore needs
+    neither, and a second one does not need a code change.
 
     Oldest first and not newest: a queue read newest-first buries the item
     that has been waiting longest, which is the one a reviewer most needs.
@@ -956,7 +1044,7 @@ def list_reviews(
     repository rather than of the component.
     """
 
-    queue = get_review_queue()
+    queue = get_review_queue(repository_id or "", release_id or "")
     if queue is None:
         return []
     return [ReviewItemResponse(**_review_item(item)) for item in queue.pending()]
@@ -972,6 +1060,7 @@ def list_reviews(
 def decide_review(
     item_id: str,
     request: ReviewDecisionRequest,
+    repository_id: str | None = None,
     service: ArchitectureValidationService = Depends(get_validation_service),
 ):
     """Record the decision, and ratify the candidate when it is accepted.
@@ -994,8 +1083,22 @@ def decide_review(
         note=request.note,
     )
 
+    binding = review_binding(repository_id)
+
+    if binding is None:
+        # Nothing ingested, so there is no decision log to ratify into. A 404
+        # would say the item does not exist, which is a different thing from
+        # having nowhere to write the answer.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No ingested repository to record a decision against. Ingest "
+                "the repository, or name one with ?repository_id=."
+            ),
+        )
+
     try:
-        outcome = service.record_review(decision, REVIEW_REPOSITORY_ID)
+        outcome = service.record_review(decision, binding[0])
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except QueueUnavailable as error:
@@ -1033,3 +1136,40 @@ def _review_item(item) -> dict:
         "status": str(item.status),
         "created_at": item.created_at,
     }
+
+
+@router.get(
+    "/graph",
+    summary="The published graph for one release",
+    response_description=(
+        "The validated architecture as the node-link document the next "
+        "component reads, exactly as it was published."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "That release has not been validated, which is a "
+            "state rather than a fault: it has its own screen."
+        }
+    },
+)
+def read_published_graph(repository_id: str, release_id: str):
+    """Return the document the most recent completed run published.
+
+    Read from the file rather than rebuilt from the run record, so the screen
+    and the next component are looking at the same bytes. A release nobody has
+    validated is a 404 with a sentence, not an empty graph: an empty graph and
+    a graph of a system with nothing in it are different claims.
+    """
+
+    document = get_graph_file_store().read(repository_id, release_id)
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No validated graph for '{release_id}'. Run a validation for "
+                "that release first."
+            ),
+        )
+
+    return document
