@@ -1,7 +1,7 @@
 """C4 T19: per-event scores (layer 3) for the run record.
 
-Revision ID: 0004_c4_event_scores
-Revises: 0003_c4_scoring_run
+Revision ID: 0006_c4_event_scores
+Revises: 0005_c2_review_item
 Create Date: 2026-10-18
 
 Mirrors c4_event_scores in app/infrastructure/postgres/models/c4_scoring_run.py; keep the two
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0004_c4_event_scores"
-down_revision: str | Sequence[str] | None = "0003_c4_scoring_run"
+revision: str = "0006_c4_event_scores"
+down_revision: str | Sequence[str] | None = "0005_c2_review_item"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

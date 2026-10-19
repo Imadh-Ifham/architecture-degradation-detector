@@ -1,6 +1,6 @@
 # C4 run record for inspection: one run, what happened to each input payload (layer 1), each
 # ranked event's raw features (layer 2) and its scores (layer 3). One plain column per value.
-# Created by alembic/versions/0003_c4_scoring_run.py (c4_event_scores: 0004_c4_event_scores);
+# Created by alembic/versions/0003_c4_scoring_run.py (c4_event_scores: 0006_c4_event_scores);
 # keep them in step.
 
 from sqlalchemy import (

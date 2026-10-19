@@ -32,7 +32,7 @@ nothing to do with the events themselves.
 4. **`ScoringService.rank()` is the one entry method** (CLAUDE.md §3: one public entry method
    per service): normalise → AHP weights → TOPSIS. The earlier `normalise()`/`weights()` steps
    are private.
-5. **Run record:** `c4_event_scores` (migration `0004`, keyed by `(run_id, event_id)`, cascades
+5. **Run record:** `c4_event_scores` (migration `0006`, keyed by `(run_id, event_id)`, cascades
    from `c4_event_features`): rank, severity, both distances and, per criterion, the normalised
    value (NULL when off), weight and contribution (0 when off). Run-level scoring facts (mode,
    weights version and provenance, AHP CR and λmax, normalisation mode and bounds) go in
