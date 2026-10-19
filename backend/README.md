@@ -2,7 +2,7 @@
 
 Backend for the _Detection of Architectural Degradation during the Maintenance Phase_ research system.
 
-> **Status:** in progress. Architecture recovery currently performs repository ingestion, repository inventory and manifest analysis; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
+> **Status:** in progress. Architecture recovery currently performs repository ingestion, repository inventory, manifest analysis, component discovery, dependency resolution and source code analysis; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
 
 ## Structure
 
@@ -16,7 +16,9 @@ backend/
     │   │   ├── repository_ingestion/             # Clone/remove a repository in a local workspace
     │   │   ├── repository_inventory/             # Inventory a working tree into repository_inventory.json
     │   │   ├── manifest_analysis/                # Parse manifests into manifest_analysis.json
-    │   │   └── component_discovery/              # Identify components into component_discovery.json
+    │   │   ├── component_discovery/              # Identify components into component_discovery.json
+    │   │   ├── dependency_resolution/            # Resolve relationships into dependency_resolution.json
+    │   │   └── source_code_analysis/             # Extract source-level calls into source_code_analysis.json
     │   ├── architecture_validation/
     │   ├── architecture_degradation_detection/
     │   └── degradation_scoring/
@@ -34,7 +36,7 @@ The remaining research components are intentionally empty. Their internal subcom
 | `GET` | `/` | API root: returns the service message and environment. |
 | `GET` | `/health/postgres` | Checks PostgreSQL connectivity. |
 | `GET` | `/health/neo4j` | Checks Neo4j connectivity. |
-| `POST` | `/repositories` | Clones `{url, branch}`, then inventories, analyzes and discovers components in the clone. |
+| `POST` | `/repositories` | Clones `{url, branch}`, then inventories, analyzes, discovers components, resolves dependencies and analyzes source code in the clone. |
 | `GET` | `/repositories` | Lists ingested repositories. |
 | `DELETE` | `/repositories/{id}` | Removes an ingested repository from the machine. |
 
@@ -109,7 +111,7 @@ automatically after a successful inventory and its summary is included in the
 | Format | Analyzer | Extracted |
 | ------ | -------- | --------- |
 | Docker Compose | `compose` | services, images, build context, published/exposed ports, networks, volumes, environment, `depends_on`, secrets (names only) |
-| Kubernetes | `kubernetes` | workloads, containers, images, ports, Service selectors, ConfigMap/Secret references (names only), volume claims |
+| Kubernetes | `kubernetes` | workloads, containers, images, ports, Service selectors, configured environment endpoints, ConfigMap/Secret references (names only), volume claims |
 | Dockerfile | `dockerfile` | build stages, base images, exposed ports, runtime configuration, build inputs |
 | OpenAPI / Swagger / AsyncAPI | `openapi` | API title and version, servers, paths, methods, operation ids |
 | Protobuf | `protobuf` | package, services, RPCs, message types, imports |
@@ -200,5 +202,81 @@ Artifact associations are kept distinct: `deployed_as`, `defined_by`,
 `built_from`, `implemented_by` and `contract_defined_by`. Every association and
 every component carries the evidence that produced it, and a component's
 confidence is the weakest link that holds it together.
+
+### Dependency resolution
+
+The `dependency_resolution` subcomponent correlates configured endpoints,
+deployment declarations and Kubernetes resource mappings with the components and
+artifacts established upstream. It writes `dependency_resolution.json` beside the
+other artifacts and runs automatically after component discovery; its compact
+summary is included in the `POST /repositories` response.
+
+| Relationship type | Evidence |
+| ----------------- | -------- |
+| `configured_endpoint` | a configuration value names a known application component |
+| `infrastructure_dependency` | a configured endpoint resolves to a component whose container image identifies a database, cache or message broker |
+| `declared_dependency` | a Compose `depends_on` or `links` declaration |
+| `resource_selection` | a Kubernetes Service selects a workload of a different component |
+
+**Declarations are not communication.** A Compose `depends_on` entry, a Kubernetes
+Service selector and an API contract each mean something different, and the
+relationship type preserves that difference. No relationship claims verified
+runtime traffic.
+
+Resolution is conservative:
+
+- a configured host resolves only through an exact deployment alias, a qualified
+  Kubernetes name, or a normalised component name; the evidence records which;
+- a host matching several components stays `ambiguous`, and one matching none
+  stays `unresolved`, with its original endpoint preserved;
+- exact duplicate evidence is aggregated, but different relationship types
+  between the same pair are kept separate;
+- source-code call evidence (SCIP or AST) is a reserved evidence source for a
+  later stage. API contracts alone never create an edge.
+
+See the Online Boutique validation report in
+[`dependency_resolution/VALIDATION.md`](./app/components/architecture_recovery/dependency_resolution/VALIDATION.md).
+
+### Source code analysis
+
+The `source_code_analysis` subcomponent extracts source-level evidence of
+inter-service calls and writes `source_code_analysis.json` beside the other
+artifacts. It runs automatically after dependency resolution and adds a compact
+summary to the `POST /repositories` response.
+
+| Finding type | Source evidence |
+| ------------ | --------------- |
+| `grpc_service_call` | generated gRPC client construction and invocation |
+| `http_service_call` | HTTP client invocation |
+| `cache_client_usage` | Redis/cache client construction or operation |
+| `database_client_usage` | database client construction or configuration |
+
+Component identities come from component discovery. HTTP targets are resolved
+through a literal host, a configured environment key already mapped by dependency
+resolution, or the component's only configured endpoint. Cache and database
+client usage resolves only when dependency resolution already identified a
+matching infrastructure target.
+
+Evidence strength is explicit: `observed_invocation` means a client construction
+and an invocation were both found; `client_construction` means only the client
+was constructed or configured; `symbol_reference` is reserved for weaker
+symbol-only evidence. Static analysis never claims that a call executes at
+runtime.
+
+The stage is deliberately conservative:
+
+- generated code, tests, vendored/build output and standalone client/example
+  files are skipped before scanning;
+- imports, shared generated code and Protobuf definitions never create edges;
+- self-references are ignored;
+- multiple call sites between the same pair are aggregated into one finding per
+  finding type;
+- unresolved and ambiguous targets are preserved instead of inventing a target;
+- findings that corroborate a dependency-resolution relationship link to that
+  relationship id rather than replacing the manifest evidence.
+
+Supported languages are Go, Python, C#, JavaScript/TypeScript and Java. See the
+Online Boutique validation report in
+[`source_code_analysis/VALIDATION.md`](./app/components/architecture_recovery/source_code_analysis/VALIDATION.md).
 
 See the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the intended future architecture.

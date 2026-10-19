@@ -37,6 +37,25 @@ class RelationshipKind(StrEnum):
     DEPENDS_ON = "depends-on"
 
 
+class Route(StrEnum):
+    """Who looks at a classified fact next.
+
+    A second axis from the bucket, not a stronger version of it. The bucket is
+    what this component concluded; the route is what happens to the
+    conclusion. Merged into one field, an architect clearing a review queue
+    would be editing conclusions.
+
+    Here rather than in the subcomponent that assigns it, because two of them
+    read it: classification decides a fact's route and architect review acts
+    on it. The field it describes is on `ClassifiedFact`, which is shared, so
+    the vocabulary is shared too - and a subcomponent reaching into a sibling
+    for the word `review` is the coupling the import rules exist to stop.
+    """
+
+    PUBLISH = "publish"
+    REVIEW = "review"
+
+
 class SourceTier(StrEnum):
     """Where a statement of intent was found.
 
@@ -131,6 +150,52 @@ class VerificationOutcome(StrEnum):
     UNCERTAIN = "uncertain"
 
 
+class VerificationMode(StrEnum):
+    """Whether a run verified its verdicts, and if not, why not.
+
+    Three values because they are the three honest things a run can say, and
+    the last two are the ones that must not collapse into each other.
+    `NOT_REQUESTED` is the architect's own decision and reflects on nothing;
+    `UNAVAILABLE` is a fault in the environment and may be the most important
+    line in the result. One `skipped` covering both would lose the only half
+    that is actionable.
+
+    It sits on the run rather than on each fact because it describes the whole
+    of it: one answer decided whether a second model was asked about any of
+    these verdicts, and the summary a person reads above the counts is a
+    statement about the run.
+
+    Distinct from `VerificationOutcome`, which is what the verifier *said*.
+    This is whether it was asked.
+    """
+
+    PERFORMED = "performed"
+    NOT_REQUESTED = "not_requested"
+    UNAVAILABLE = "unavailable"
+
+
+class VerificationArm(StrEnum):
+    """What the verifier was allowed to see.
+
+    A second axis from `VerificationMode`, not a widening of it: that field
+    says whether verification ran, this one says what it was shown.
+    Collapsing them would make *nobody asked for it* and *it ran blind* the
+    same string.
+
+    `INFORMED` is the default and the demonstration mode - the verifier is
+    shown the verdict and asked what is wrong with the argument, which is the
+    only output here an architect can act on. `BLIND` shows it the evidence
+    and not the answer, which buys an unanchored opinion and no objections.
+    `BOTH` is three model calls a fact and is a measurement mode: the
+    difference between the two agreement rates is the anchoring effect,
+    measured rather than conceded.
+    """
+
+    INFORMED = "informed"
+    BLIND = "blind"
+    BOTH = "both"
+
+
 class VerdictSource(StrEnum):
     """What produced a verdict.
 
@@ -185,6 +250,15 @@ class GuardFailure(StrEnum):
     NO_CITATION = "no_citation"
     CONTEXT_ONLY_CITATION = "context_only_citation"
     SUPERSEDED_AS_GOVERNING = "superseded_as_governing"
+    INCOHERENT_OUTCOME = "incoherent_outcome"
+    """The verifier's conclusion and its own objections disagree.
+
+    Three faults listed and then `agree`, or `disagree` with nothing to point
+    at. The response is schema-valid, every reference in it resolves, and it
+    contradicts itself - which is common on a small model asked for a list
+    and a judgement in one answer, and is why the rate of it is worth
+    publishing rather than logging.
+    """
     """The two that are about a citation being real but unusable.
 
     `CONTEXT_ONLY_CITATION` is a conclusion resting on a one-hop neighbour -
@@ -635,6 +709,138 @@ class PrimaryVerdict:
         )
 
 
+class ObjectionKind(StrEnum):
+    """The four faults the verifier is asked to look for.
+
+    Closed and small for the same reason the relationship vocabulary is: free
+    text cannot be counted, so *which kind of reasoning error does a free
+    model make* would stay unanswerable over a corpus. `Objection.statement`
+    is free text, so the evidence for a fifth kind would be visible in the
+    results before the vocabulary were widened.
+
+    The first two are about one item in the package; the last two are about
+    the argument as a whole. That split is what decides whether a reference
+    is required.
+    """
+
+    CITATION_DOES_NOT_SUPPORT = "citation_does_not_support"
+    OVERLOOKED_EVIDENCE = "overlooked_evidence"
+    CLAIM_EXCEEDS_EVIDENCE = "claim_exceeds_evidence"
+    UNSTATED_ASSUMPTION = "unstated_assumption"
+
+
+OBJECTIONS_ABOUT_ONE_ITEM = (
+    ObjectionKind.CITATION_DOES_NOT_SUPPORT,
+    ObjectionKind.OVERLOOKED_EVIDENCE,
+)
+"""The two kinds that have an item to name.
+
+A citation that does not say what was claimed, and an item that argues the
+other way and was not cited, are both statements about one reference. A claim
+exceeding its evidence and an assumption that came from nowhere are
+statements about the whole argument, and a reference required for those would
+be attached to an arbitrary item while reading as precise.
+"""
+
+
+@dataclass(frozen=True)
+class Objection:
+    """One fault the verifier found in the argument for a verdict.
+
+    A reference is required for the two kinds that are about one item and may
+    be absent for the two that are not. Both halves are enforced here rather
+    than asked for in a prompt, because inventing a reference to satisfy a
+    type is the one lie this subcomponent cannot afford: the objection would
+    point at the wrong item and look specific while doing it.
+
+    Raising rather than repairing puts an ordering requirement on the caller.
+    A model response is checked by the guards *before* it becomes objections,
+    so a missing reference is a recorded guard failure and one retry rather
+    than an exception out of a parser.
+    """
+
+    kind: ObjectionKind
+    ref: str | None
+    statement: str
+
+    def __post_init__(self) -> None:
+        if self.kind in OBJECTIONS_ABOUT_ONE_ITEM and not self.ref:
+            raise ValueError(
+                f"An objection of kind {self.kind} is about one evidence item, "
+                "so it has to name the item."
+            )
+
+    def to_dict(self) -> dict:
+        """The form a stored or published objection takes.
+
+        Here rather than beside whoever writes it out, because an objection
+        that cannot serialise itself gets a serialiser written next to the
+        first consumer and a second one next to the next, and the two
+        disagree about whether an absent reference is `null` or missing.
+        """
+
+        return {"kind": self.kind, "ref": self.ref, "statement": self.statement}
+
+
+@dataclass(frozen=True)
+class BlindVerdict:
+    """The verifier's own verdict, reached without being shown the primary's.
+
+    **A separate type from `PrimaryVerdict` on purpose, and the reason is the
+    one thing this arm must never do.** Its content is a verdict in the same
+    five-word vocabulary, so it would fit `PrimaryVerdict` exactly - and then
+    nothing in the type system would stop an unanchored second opinion being
+    published as the component's conclusion about a dependency. It is evidence
+    *about the models*, never about the architecture.
+
+    It carries no arbiter fields for the same reason. The deterministic table
+    is compared against the verdict that was published, once, in M4. Comparing
+    it against this one as well would produce a second agreement rate that
+    looks like the first and means something different.
+
+    `mechanism` is recorded so results from different weeks stay comparable
+    when the mechanism itself becomes the thing under study.
+    """
+
+    fact_id: str
+    verdict: Verdict
+    reasoning: str
+    cited_evidence_refs: tuple[str, ...]
+    evidence_hash: str
+    model_id: str
+    prompt_version: str
+    cached: bool
+    mechanism: str = ""
+    provider: str = ""
+    schema_mode: str = ""
+    retried: bool = False
+    guard_failures: tuple[GuardFailure, ...] = ()
+
+    def agrees_with(self, verdict: "PrimaryVerdict") -> bool:
+        """Whether this blind verdict reached the same conclusion.
+
+        A comparison of two words, not a model's opinion about agreement.
+        Asking a model whether two verdicts agree would add a third thing that
+        can be wrong to a measurement whose whole point is that only one
+        variable moved.
+
+        Raises when the two did not come from the same evidence. The anchoring
+        delta is only interpretable if both arms answered the identical
+        question, and two verdicts over two packages compare perfectly well
+        while meaning nothing - so this refuses rather than returning a
+        number somebody would publish.
+        """
+
+        if self.evidence_hash != verdict.evidence_hash:
+            raise ValueError(
+                f"Cannot compare arms for fact '{self.fact_id}': the blind "
+                f"verdict saw evidence {self.evidence_hash[:12]} and the "
+                f"primary saw {verdict.evidence_hash[:12]}. An agreement rate "
+                f"across two different packages measures nothing."
+            )
+        return self.verdict is verdict.verdict
+
+
 @dataclass(frozen=True)
 class Verification:
     """The verifier's response to a primary verdict.
@@ -651,6 +857,59 @@ class Verification:
     model_id: str
     prompt_version: str
     cached: bool
+
+    objections: tuple[Objection, ...] = ()
+    """What the verifier found wrong, in the closed four-kind vocabulary.
+
+    Empty on agreement and non-empty on disagreement - a correspondence that
+    is checked in plain Python rather than trusted, because a small model
+    asked for a list of faults and a judgement in one response will sometimes
+    write three objections and then conclude `agree`.
+
+    This is also the only part of this output a person can act on. `AGREE`
+    tells an architect nothing; *the cited line permits one element and this
+    verdict is about another* tells them where to look.
+    """
+
+    evidence_hash: str = ""
+    """The package this verification was produced from.
+
+    Asserted equal to the verdict's. Without it nothing in the output would
+    say whether both passes saw the same evidence, and a verification of a
+    *different* package is not a verification - it is a second opinion on a
+    different question, and it would look exactly the same.
+    """
+
+    challenged_model_id: str = ""
+    """The model whose answer this verification was about.
+
+    Recorded here rather than left to a join, because the run stamp carries
+    the *configured* reasoner and this carries the one that actually answered
+    - and those differ exactly when it matters. A verdict that fell to the
+    ladder's second model, or to the deterministic table with a model id of
+    "none", was produced by something other than the configured reasoner, and
+    a mechanism comparison that assumed otherwise would be comparing arms
+    that were never run against the same thing.
+
+    With `mechanism` beside it, one row says which mechanism challenged which
+    model, which is what makes the four-arm comparison a configuration change
+    rather than a harness per arm.
+    """
+
+    provider: str = ""
+    schema_mode: str = ""
+    retried: bool = False
+    guard_failures: tuple[GuardFailure, ...] = ()
+    """What answered, under what enforcement, and what was rejected first.
+
+    The same four fields the verdict carries, for the same reason: two runs
+    under different enforcement are not the same experiment, and provenance
+    is the one thing that cannot be added to a result afterwards.
+
+    `guard_failures` is kept even when the retry succeeded. An incoherent
+    answer and an invented reference have different fixes, and the rate of
+    each is a result about the model rather than an incident in a log.
+    """
 
 
 @dataclass(frozen=True)
@@ -693,6 +952,45 @@ class ClassifiedFact:
     source_tier: SourceTier | None
     evidence_refs: tuple[str, ...]
     model_calls: int
+    source_element_id: str = ""
+    target_element_id: str = ""
+    relationship: str = ""
+    attributes: dict = field(default_factory=dict)
+    """Which relationship this verdict is about, in recovery's own ids.
+
+    Carried here because the published graph puts every verdict on the edge it
+    describes, and the publisher is handed classified facts and nothing else.
+    Without these it would have to be given the observed facts as well and
+    join the two lists by `fact_id` - and a join between two lists that are
+    supposed to describe the same thing is exactly what publishing the verdict
+    on the edge exists to avoid.
+    """
+
+    verdict: "PrimaryVerdict | None" = None
+    verification: "Verification | None" = None
+    """Both model outputs, kept rather than reduced to a word.
+
+    The reasoning sentence and the objections are the only parts of the output
+    a model actually produced, and a result that cannot show them is an
+    assertion rather than evidence. They are also what the relational model
+    exists for: *did the two models fail on the same facts* is a join between
+    the two, and it is impossible once either is reduced to its verdict.
+
+    They do not reach the consuming component. The published edge carries the
+    three badge fields below and nothing else - which is a decision about what
+    crosses a boundary, not about what is worth storing.
+    """
+
+    produced_by: str = ""
+    verification_outcome: str | None = None
+    arbiter_agreement: str | None = None
+    """Which of the three judges produced this, and what the other two said.
+
+    A fact that reaches a consumer without them can still be read, but a study
+    that averages a rule-only verdict with a three-judge one is averaging two
+    different things. They are set here rather than left on the verdict
+    because the verdict does not cross the component boundary and this does.
+    """
 
 
 @dataclass(frozen=True)
@@ -795,8 +1093,75 @@ class ValidationRunResult:
     facts: tuple[ClassifiedFact, ...] = ()
     published_ref: str | None = None
     model_calls: int = 0
+    validation_confidence: float = 0.0
+    """The mean per-fact confidence over this release, and the figure the next
+    component gates on.
+
+    A release-level aggregate rather than a verdict about the release: it is
+    the mean of numbers whose own arithmetic each fact publishes, so it can be
+    checked by hand from the output. Read it with the classification stage's
+    `facts` count beside it - 0.0 over no facts and 0.0 over fifteen bad ones
+    are different situations and the number alone cannot tell them apart.
+    """
+
     style_resolved: str | None = None
     style_source: str | None = None
+    verification_arm: str | None = None
+    """What the verifier was shown on this run: `informed`, `blind` or `both`.
+
+    Null when verification did not run, for the same reason
+    `verification_mode` is: a question that did not arise has no answer. The
+    two fields are separate axes - whether the check happened, and what it was
+    given - and a reader needs both to know what an agreement rate is worth.
+    """
+
+    verification_mode: str | None = None
+    """Whether this run asked a second model, and if not, why not.
+
+    One of `VerificationMode`'s three values, and `None` when no fact reached
+    verification at all - an uncovered release has nothing to verify, and
+    saying `performed` or `unavailable` about it would both be false. The same
+    shape as `style_resolved`: null means the question did not arise.
+
+    On the run because it changes how every number under it should be read,
+    which is why the summary card states it in words above the counts.
+    """
+
+    generated_at: datetime | None = None
+    """When this run produced its answer, which is not when the release was cut.
+
+    Both are published and they are routinely weeks apart. A consumer ordering
+    releases by this one would be ordering them by when somebody happened to
+    run the validator.
+    """
+
+    released_at: datetime | None = None
+    released_at_source: str | None = None
+    """When the release this run validated was actually cut, and from where.
+
+    A parameter of the run rather than something read here: reading git
+    history is the same category of thing as reading source code, which this
+    component also does not do. `None` is published as `None` - a plausible
+    wrong date orders a timeline wrongly and cannot be told apart from a right
+    one.
+
+    `released_at_source` is one of `tagger`, `author` or `caller`, and it is
+    published so that a suspicious ordering downstream is traceable to the
+    field that produced it. The committer date is deliberately never one of
+    them: it is rewritten by every rebase and reads as today.
+    """
+
+    reasoner_model: str | None = None
+    verifier_model: str | None = None
+    prompt_versions: tuple[str, ...] = ()
+    """Which models answered and under which prompts, as the run observed it.
+
+    Not the configured models. The two differ exactly when it matters: a run
+    that fell down the ladder was answered by something other than the
+    configured reasoner, and a result that cannot say what produced it is an
+    anecdote rather than a measurement.
+    """
+
     decision_mode: str | None = None
     """Where this run's decisions came from.
 

@@ -71,13 +71,15 @@ The physical skeleton established now:
 
 **Purpose:** Reconstruct the architecture of a system **as it actually is** — the ground truth used by every later stage.
 
-**Planned subcomponents:**
+**Subcomponents — the first six are built; the rest are planned:**
 
 - **Repository ingestion** — clone a target repository at a given branch into a local workspace, and remove it again.
 - **Repository inventory** — inventory the working tree into a versioned JSON document (files, classifications, candidate components, relationships) that later stages consume.
 - **Manifest analysis** — parse the manifests the inventory found (Compose, Kubernetes, Dockerfile, OpenAPI, Protobuf) into declared resources, endpoints and relationships, keeping declared dependencies, configured endpoints and API definitions distinct.
 - **Component discovery** — identify the logical components (services, applications, modules) and associate the artifacts that implement, define, build, deploy and contract each one, keeping artifacts distinct from components and recording evidence, uncertainty and unresolved cases.
-- **Static extraction** — derive structural information from source code and build artifacts.
+- **Dependency resolution** — correlate configured endpoints, deployment declarations and resource mappings with the discovered components, recording resolved relationships, ambiguity, unresolved targets and provenance while keeping declared wiring distinct from verified communication.
+- **Source code analysis** — extract scoped source-level gRPC, HTTP and cache/database client evidence, resolve targets through component discovery and dependency resolution, and preserve evidence strength, ambiguity and unresolved findings without claiming runtime execution.
+- **Static extraction** — derive deeper structural information from source code and build artifacts.
 - **Deployment analysis** — derive deployment topology and environment structure from deployment descriptors and configuration.
 - **Interface analysis** — identify interfaces, contracts, and communication boundaries between parts of the system.
 - **Runtime extraction** — derive behavior and actual interaction information from runtime evidence.

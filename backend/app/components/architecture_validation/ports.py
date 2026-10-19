@@ -7,9 +7,15 @@ Description:
     Protocol. Implementations live under `app/infrastructure/`; nothing in this
     package imports from there, and the wiring happens once in the API layer.
 
-    Six protocols is the complete list of ways validation touches anything
-    outside itself. A seventh is worth questioning before it is written - it
+    Eight protocols is the complete list of ways validation touches anything
+    outside itself. A ninth is worth questioning before it is written - it
     usually means a subcomponent has started doing another component's job.
+
+    The last two arrived together, with publishing, and they are the only two
+    writes in the component that are allowed to fail. A release date is
+    deliberately **not** among them: reading git history is the same category
+    of thing as reading source code, which this component also does not do, so
+    the date arrives as a parameter of a run rather than through a port.
 
     Protocols rather than base classes, so an implementation never has to
     import this module either. Both sides stay independent and either can be
@@ -17,12 +23,15 @@ Description:
 """
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from app.domain.recovered_architecture import RecoveredArchitecture
 from app.domain.validated_architecture import ValidatedArchitectureGraph
 
 from .models import AIResult, EvidencePackage, ReviewItem
+
+if TYPE_CHECKING:
+    from .architect_review.models import ReviewDecision
 
 
 class RecoveredArchitectureReader(Protocol):
@@ -85,26 +94,80 @@ class DecisionKnowledgeStore(Protocol):
 
 
 class ReviewQueueRepository(Protocol):
-    """Facts held back for an architect to confirm or reject."""
+    """Facts held back for an architect to confirm or reject.
+
+    `enqueue` is idempotent on the item's id, which is content-addressed from
+    the repository, the release and the fact: a run that queued an item and
+    then failed later is re-run from the start, and the same fact must not
+    arrive twice. An item somebody has already decided keeps its decision -
+    a settled question must not depend on how many times the pipeline ran
+    afterwards.
+
+    Nothing downstream reads this. A queue that is empty, stale or unreachable
+    cannot change a verdict, a confidence or a published document.
+    """
 
     def enqueue(self, item: ReviewItem) -> str:
-        """Store the item and return its id."""
+        """Store the item if it is not already there, and return its id."""
+        ...
+
+    def get(self, item_id: str) -> ReviewItem | None:
+        """Return one item, or `None` when no such item exists."""
         ...
 
     def pending(self) -> list[ReviewItem]:
-        """Return every unresolved item, oldest first."""
+        """Return every undecided item, oldest first."""
         ...
 
-    def resolve(self, item_id: str, accepted: bool, resolved_by: str) -> None:
+    def resolve(self, decision: "ReviewDecision") -> None:
         """Record an architect's decision on one item."""
         ...
 
 
 class ValidatedGraphPublisher(Protocol):
-    """Where the validated graph goes once it is built."""
+    """Where the validated graph goes once it is built.
+
+    The one write in this component that may not fail. Everything downstream
+    reads this document, and the two stores below are both rebuilt from it, so
+    a run that could not write it has produced nothing.
+    """
 
     def publish(self, document: ValidatedArchitectureGraph) -> str:
         """Publish the document and return a reference to it."""
+        ...
+
+
+class ValidationRunRecorder(Protocol):
+    """The relational record of one completed run.
+
+    Separate from the projection below because the two fail differently and
+    are reported separately. A row written and a graph write refused is two
+    outcomes, and the stage note has to say which.
+
+    May fail. The published document is already on disk by the time this is
+    called and every row is derivable from it, so an unreachable database
+    makes a record late rather than lost.
+    """
+
+    def record(
+        self, run: object, document: ValidatedArchitectureGraph
+    ) -> None:
+        """Store the run, its stages and its facts. Idempotent per run id."""
+        ...
+
+
+class GraphProjection(Protocol):
+    """The validated graph, projected into the graph store.
+
+    Idempotent per run: a re-run replaces its own edges rather than adding a
+    second set beside them. Two runs' edges on one release double every count
+    read off the graph, with no error and a graph that still draws.
+
+    May fail, for the same reason as the recorder.
+    """
+
+    def project(self, document: ValidatedArchitectureGraph) -> None:
+        """Merge this release's subgraph and sweep the previous run's edges."""
         ...
 
 

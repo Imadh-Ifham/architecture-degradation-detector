@@ -86,7 +86,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Re-examines a verdict as a challenge to it, using a different model.",
         research_module="M5",
         uses_model=True,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="classification",
@@ -94,7 +94,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Turns a verdict and its verification into a bucket, a confidence and a route.",
         research_module="M6",
         uses_model=False,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="architect_review",
@@ -102,7 +102,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Queues what the system will not decide alone, and records what a person decided.",
         research_module="M7",
         uses_model=False,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="graph_publishing",
@@ -110,7 +110,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Publishes the validated architecture as a graph the next component reads.",
         research_module="M8",
         uses_model=False,
-        implemented=False,
+        implemented=True,
     ),
 )
 

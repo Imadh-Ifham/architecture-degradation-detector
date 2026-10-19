@@ -133,6 +133,11 @@ class Settings(BaseSettings):
     # repository. Output rather than input, so it lives under the ignored
     # artifacts directory; the demonstration's corpus is a committed fixture.
     decision_log_root: Path = BACKEND_ROOT / "artifacts" / "validation" / "decisions"
+    # Where a completed validation run publishes the one artifact the next
+    # component reads. One file per run, kept, plus a `latest` pointer moved by
+    # atomic rename - under the ignored artifacts directory, because it is
+    # output and because the committed copy is a single golden fixture.
+    validated_graph_root: Path = BACKEND_ROOT / "artifacts" / "validated"
     clone_timeout_seconds: int = 300
 
     # Repository inventory limits.

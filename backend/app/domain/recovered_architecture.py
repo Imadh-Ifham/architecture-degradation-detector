@@ -145,13 +145,24 @@ class DerivationMethod(StrEnum):
 
 @dataclass(frozen=True)
 class ArchitectureElement:
-    """One element of the architecture at a release."""
+    """One element of the architecture at a release.
+
+    `size` and `size_unit` are recovery's measurement of the element, passed
+    through untouched. Validation does not read source code, so a size
+    produced here would be the one number in the output with no provenance.
+
+    They travel as a pair or not at all. A number whose unit is unknown cannot
+    be compared against the next release, which is the only thing a size is
+    for.
+    """
 
     id: str
     name: str
     kind: ElementKind
     quality: EvidenceQuality
     source_paths: tuple[str, ...] = ()
+    size: float | None = None
+    size_unit: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -160,6 +171,8 @@ class ArchitectureElement:
             "kind": self.kind,
             "quality": self.quality,
             "source_paths": list(self.source_paths),
+            "size": self.size,
+            "size_unit": self.size_unit,
         }
 
 
@@ -204,12 +217,21 @@ class RecoveryProvenance:
     reader: str
     source_schema_version: str
     source_reference: str
+    source_commit: str = ""
+    """The commit recovery scanned, when it reported one.
+
+    `source_reference` is a path on the machine that ran the scan, which
+    identifies the input perfectly there and nowhere else. A consumer pointing
+    a finding back at the model it came from needs something portable, and a
+    commit means the same thing everywhere.
+    """
 
     def to_dict(self) -> dict:
         return {
             "reader": self.reader,
             "source_schema_version": self.source_schema_version,
             "source_reference": self.source_reference,
+            "source_commit": self.source_commit,
         }
 
 

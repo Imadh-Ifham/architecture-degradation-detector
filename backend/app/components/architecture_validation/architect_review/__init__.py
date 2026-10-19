@@ -10,6 +10,6 @@ Description:
     Re-exports the service class only. No logic lives here.
 """
 
-from .service import ArchitectReviewService
+from .service import ArchitectReviewService, QueueUnavailable
 
-__all__ = ["ArchitectReviewService"]
+__all__ = ["ArchitectReviewService", "QueueUnavailable"]

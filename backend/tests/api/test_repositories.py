@@ -5,12 +5,17 @@ from fastapi.testclient import TestClient
 
 from app.api.repositories import (
     get_component_discovery_service,
+    get_dependency_resolution_service,
     get_manifest_analysis_service,
     get_repository_ingestion_service,
     get_repository_inventory_service,
+    get_source_code_analysis_service,
 )
 from app.components.architecture_recovery.component_discovery import (
     ComponentDiscoveryError,
+)
+from app.components.architecture_recovery.dependency_resolution import (
+    DependencyResolutionError,
 )
 from app.components.architecture_recovery.manifest_analysis import (
     ManifestAnalysisError,
@@ -21,6 +26,9 @@ from app.components.architecture_recovery.repository_ingestion.service import (
 from app.components.architecture_recovery.repository_inventory import (
     INVENTORY_FILE_NAME,
     RepositoryInventoryError,
+)
+from app.components.architecture_recovery.source_code_analysis import (
+    SourceCodeAnalysisError,
 )
 from app.main import app
 
@@ -249,8 +257,54 @@ def test_ingesting_a_repository_discovers_components(client: TestClient) -> None
     assert not (Path(created["path"]) / "component_discovery.json").exists()
 
 
+def test_ingesting_a_repository_resolves_dependencies(client: TestClient) -> None:
+    """Dependency resolution runs automatically after component discovery."""
+
+    created = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    assert created["dependency_resolution_error"] is None
+
+    dependencies = created["dependency_resolution"]
+
+    assert dependencies is not None
+    assert dependencies["resolved_relationship_count"] == 0
+    assert dependencies["unresolved_count"] == 0
+    assert dependencies["ambiguous_count"] == 0
+
+    written = Path(dependencies["path"])
+    assert written.name == "dependency_resolution.json"
+    assert written.parent == Path(created["path"]).parent
+    assert not (Path(created["path"]) / "dependency_resolution.json").exists()
+
+
+def test_ingesting_a_repository_analyzes_source_code(client: TestClient) -> None:
+    """Source code analysis runs automatically after dependency resolution."""
+
+    created = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    assert created["source_code_analysis_error"] is None
+
+    source = created["source_code_analysis"]
+
+    assert source is not None
+    assert source["resolved_count"] == 0
+    assert source["unresolved_count"] == 0
+    assert source["ambiguous_count"] == 0
+
+    written = Path(source["path"])
+    assert written.name == "source_code_analysis.json"
+    assert written.parent == Path(created["path"]).parent
+    assert not (Path(created["path"]) / "source_code_analysis.json").exists()
+
+
 def test_previous_response_fields_are_unchanged(client: TestClient) -> None:
-    """Adding component discovery must not disturb the earlier stages' output."""
+    """Adding source code analysis must not disturb the earlier stages' output."""
 
     created = client.post(
         "/repositories",
@@ -262,11 +316,102 @@ def test_previous_response_fields_are_unchanged(client: TestClient) -> None:
     assert created["branch"] == "main"
     assert created["commit"] == "a" * 40
 
-    # And so are both earlier analysis stages.
+    # And so are every earlier analysis stage.
     assert created["inventory_error"] is None
     assert created["manifest_analysis_error"] is None
+    assert created["component_discovery_error"] is None
+    assert created["dependency_resolution_error"] is None
+    assert created["source_code_analysis_error"] is None
     assert created["inventory"]["file_count"] == 4
     assert created["manifest_analysis"]["resource_count"] == 2
+    assert created["component_discovery"] is not None
+    assert created["dependency_resolution"] is not None
+    assert created["source_code_analysis"] is not None
+
+
+def test_dependency_resolution_is_skipped_when_discovery_fails(
+    client: TestClient,
+) -> None:
+    """Dependency resolution needs component discovery, so it says so."""
+
+    class FailingDiscoveryService:
+        def run(self, inventory, analysis, output_directory):
+            raise ComponentDiscoveryError("discovery failed")
+
+    app.dependency_overrides[get_component_discovery_service] = (
+        lambda: FailingDiscoveryService()
+    )
+
+    body = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    assert body["dependency_resolution"] is None
+    assert "no component discovery" in body["dependency_resolution_error"]
+    assert body["manifest_analysis"] is not None
+
+
+def test_dependency_resolution_failure_does_not_fail_the_ingest(
+    client: TestClient,
+) -> None:
+    """A downstream failure must not undo the clone or the earlier stages."""
+
+    class FailingDependencyService:
+        def run(self, discovery, analysis, output_directory):
+            raise DependencyResolutionError("dependency workspace is not writable")
+
+    app.dependency_overrides[get_dependency_resolution_service] = (
+        lambda: FailingDependencyService()
+    )
+
+    response = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+
+    assert body["component_discovery"] is not None
+    assert body["dependency_resolution"] is None
+    assert (
+        body["dependency_resolution_error"]
+        == "dependency workspace is not writable"
+    )
+    assert body["source_code_analysis"] is None
+    assert "no dependency resolution" in body["source_code_analysis_error"]
+
+
+def test_source_analysis_failure_does_not_fail_the_ingest(
+    client: TestClient,
+) -> None:
+    """A source analysis failure must not undo the clone or earlier stages."""
+
+    class FailingSourceAnalysisService:
+        def run(self, inventory, discovery, dependencies, root, output_directory):
+            raise SourceCodeAnalysisError("source analysis workspace is not writable")
+
+    app.dependency_overrides[get_source_code_analysis_service] = (
+        lambda: FailingSourceAnalysisService()
+    )
+
+    response = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
+
+    assert response.status_code == 201
+
+    body = response.json()
+
+    assert body["dependency_resolution"] is not None
+    assert body["source_code_analysis"] is None
+    assert (
+        body["source_code_analysis_error"]
+        == "source analysis workspace is not writable"
+    )
 
 
 def test_discovery_is_skipped_when_analysis_fails(client: TestClient) -> None:
