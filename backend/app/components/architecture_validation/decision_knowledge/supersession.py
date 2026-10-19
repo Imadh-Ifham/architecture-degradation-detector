@@ -62,6 +62,7 @@ from collections.abc import Sequence
 
 from .._release import release_sort_key
 from ..models import (
+    WILDCARD,
     ConstraintKind,
     DecisionRecord,
     ObservedFact,
@@ -70,8 +71,6 @@ from ..models import (
     SourceTier,
 )
 from .models import DecisionVersion
-
-WILDCARD = "*"
 
 CONSTRAINT_RELATIONSHIP: dict[ConstraintKind, RelationshipKind | None] = {
     ConstraintKind.MAY_CALL: RelationshipKind.COMMUNICATES_WITH,

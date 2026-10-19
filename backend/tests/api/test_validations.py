@@ -13,6 +13,7 @@ Description:
     and not a rehearsal of it.
 """
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -46,13 +47,32 @@ from app.components.architecture_validation.service import STAGE_ORDER
 from app.components.architecture_validation.validation_reasoning import (
     ValidationReasoningService,
 )
+from app.infrastructure.ai import (
+    TASK_PRIMARY_VERDICT,
+    TASK_PRIMARY_VERDICT_FALLBACK,
+    TASK_PRIMARY_VERDICT_LOCAL,
+    TASK_VERIFICATION,
+    AISettings,
+    ConfiguredAIClient,
+    VerdictCache,
+    load_prompt,
+)
+from app.infrastructure.ai.providers.fake import FakeProvider
+from app.infrastructure.validated_graph import ValidatedGraphFileStore
 from app.infrastructure.decision_log import JsonlDecisionStore
+from app.infrastructure.git.workspace_artifact_reader import ArtifactUnavailableError
 from app.infrastructure.recovery_gateway.snapshot_file_reader import (
     SnapshotFileReader,
 )
 from app.main import app
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "validation"
+ARTIFACTS = Path(tempfile.mkdtemp(prefix="c2-api-artifacts-"))
+"""Where these runs publish, which is not the project's artifacts tree.
+
+A real file store rather than none: the route is exercised as it is wired, and
+publishing is now part of what a run does.
+"""
 SUBJECT = FIXTURES / "subject"
 SNAPSHOTS = Path(__file__).resolve().parents[2] / "data" / "snapshots"
 
@@ -71,6 +91,57 @@ class WorkspaceReader:
         )
 
 
+def unreachable_reasoner():
+    """The real reasoning stage over a provider that cannot answer.
+
+    The suite must never depend on a key or a network: a test that starts
+    making real calls the day somebody fills in `.env` is a test that fails
+    for reasons unrelated to the code. A provider that cannot answer is the
+    one state every machine is guaranteed to be in, and it exercises the rung
+    the demonstration's rollback rests on - a verdict from the deterministic
+    table, badged as having had no model behind it.
+    """
+
+    settings = AISettings(ai_api_key="not-a-real-key")
+    client = ConfiguredAIClient(
+        FakeProvider(fail_times=99),
+        settings=settings,
+        cache=VerdictCache("unused", enabled=False),
+    )
+    return ValidationReasoningService(
+        client,
+        load_prompt("primary_verdict.v1.md"),
+        (
+            TASK_PRIMARY_VERDICT,
+            TASK_PRIMARY_VERDICT_FALLBACK,
+            TASK_PRIMARY_VERDICT_LOCAL,
+        ),
+        provider="fake",
+    )
+
+
+def unreachable_verifier():
+    """The real verification stage over a provider that cannot answer.
+
+    The same reason as the reasoner's: the suite must never depend on a key or
+    a network. It exercises the path this unit is on the cut list for - a
+    verification that could not run, published as `None`, which classification
+    has to treat as uncertain rather than as agreement.
+    """
+
+    client = ConfiguredAIClient(
+        FakeProvider(fail_times=99),
+        settings=AISettings(ai_api_key="not-a-real-key"),
+        cache=VerdictCache("unused", enabled=False),
+    )
+    return IndependentVerificationService(
+        client,
+        load_prompt("critical_reframing.v1.md"),
+        TASK_VERIFICATION,
+        provider="fake",
+    )
+
+
 @pytest.fixture
 def client():
     """A client whose validation service reads the committed fixtures.
@@ -87,11 +158,11 @@ def client():
             WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
         ),
         evidence=EvidenceRetrievalService(WorkspaceReader()),
-        reasoning=ValidationReasoningService(),
-        verification=IndependentVerificationService(),
+        reasoning=unreachable_reasoner(),
+        verification=unreachable_verifier(),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
-        publishing=GraphPublishingService(),
+        publishing=GraphPublishingService(ValidatedGraphFileStore(ARTIFACTS)),
     )
     app.dependency_overrides[get_validation_service] = lambda: service
 
@@ -116,7 +187,7 @@ class TestPipelineEndpoint:
         body = client.get("/validations/pipeline").json()
 
         assert body["implemented_count"] == sum(1 for s in PIPELINE if s.implemented)
-        assert 0 < body["implemented_count"] < body["stage_count"]
+        assert body["implemented_count"] == body["stage_count"] == 8
 
     def test_every_stage_carries_what_the_screen_renders(self, client):
         stage = client.get("/validations/pipeline").json()["stages"][0]
@@ -191,18 +262,26 @@ class TestRunEndpoint:
         assert counts["identity_collisions"] == 0
         assert counts["merged_facts"] == 0
 
-    def test_a_run_with_stages_still_stubbed_is_reported_as_incomplete(self, client):
-        """A client must never read a partial run as a finished one."""
+    def test_a_run_over_the_whole_pipeline_is_reported_as_completed(self, client):
+        """It asserted `incomplete` while a stage was a stub, and then that
+        `published_ref` was not part of the claim once publishing stopped
+        depending on the review queue. Eight of eight are now built, so the
+        honest assertion is the one it was waiting to be able to make.
+
+        What it still protects is the half that matters: a client must never
+        read a partial run as a finished one, so every stage reports a status
+        and none of them is left pending.
+        """
 
         body = client.post(
             "/validations",
             json={"repository_id": "online-boutique", "release_id": "v0.10.0"},
         ).json()
 
-        assert body["status"] == "incomplete"
+        assert body["status"] == "completed"
         assert body["model_calls"] == 0
-        assert body["published_ref"] is None
-        assert any(stage["status"] == "pending" for stage in body["stages"])
+        assert body["published_ref"] is not None
+        assert not any(stage["status"] == "pending" for stage in body["stages"])
 
     def test_an_unknown_release_is_a_conflict_rather_than_a_server_error(self, client):
         """No recording for that release is the caller's to fix, not a fault."""
@@ -420,3 +499,71 @@ class TestTheDecisionSourcesRoute:
         )
 
         assert response.status_code == 409
+
+
+class TestARepositoryNobodyIngested:
+    """The first thing anyone tries, and it used to be a 500.
+
+    Running a validation before the repository has been cloned is a user
+    error, not a fault here - so it is a conflict with the state of the
+    workspace, carrying the sentence that says what to do about it. It reached
+    the client as an unhandled exception until the manual test guide walked
+    through the route and hit it.
+    """
+
+    @pytest.fixture
+    def client_without_a_checkout(self):
+        class NoCheckout:
+            def read_text(self, repository_id, release_id, path):
+                raise ArtifactUnavailableError(
+                    f"No workspace checkout for '{repository_id}'. Ingest it first."
+                )
+
+            def list_paths(self, repository_id, release_id, pattern):
+                raise ArtifactUnavailableError(
+                    f"No workspace checkout for '{repository_id}'. Ingest it first."
+                )
+
+        service = ArchitectureValidationService(
+            architecture_reader=SnapshotFileReader(SNAPSHOTS),
+            normalization=ObservationNormalizationService(),
+            knowledge=DecisionKnowledgeService(
+                NoCheckout(), JsonlDecisionStore(FIXTURES / "decisions")
+            ),
+            evidence=EvidenceRetrievalService(NoCheckout()),
+            reasoning=unreachable_reasoner(),
+            verification=unreachable_verifier(),
+            classification=ClassificationService(),
+            review=ArchitectReviewService(),
+            publishing=GraphPublishingService(ValidatedGraphFileStore(ARTIFACTS)),
+        )
+        app.dependency_overrides[get_validation_service] = lambda: service
+
+        with TestClient(app) as test_client:
+            yield test_client
+
+        app.dependency_overrides.clear()
+
+    def test_a_run_says_to_ingest_the_repository_rather_than_failing(
+        self, client_without_a_checkout
+    ):
+        response = client_without_a_checkout.post(
+            "/validations",
+            json={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+        )
+
+        assert response.status_code == 409
+        assert "Ingest it first" in response.json()["detail"]
+
+    def test_the_decision_sources_route_says_the_same_thing(
+        self, client_without_a_checkout
+    ):
+        """Asked before a run, so it is the route most likely to be hit first."""
+
+        response = client_without_a_checkout.get(
+            "/validations/decision-sources",
+            params={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+        )
+
+        assert response.status_code == 409
+        assert "Ingest it first" in response.json()["detail"]

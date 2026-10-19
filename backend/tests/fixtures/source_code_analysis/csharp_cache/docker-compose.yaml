@@ -1,0 +1,7 @@
+services:
+  cartservice:
+    build: ./src/cartservice
+    environment:
+      REDIS_ADDR: redis-cart:6379
+  redis-cart:
+    image: redis:alpine

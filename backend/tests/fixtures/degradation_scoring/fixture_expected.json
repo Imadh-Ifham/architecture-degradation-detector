@@ -1,0 +1,348 @@
+{
+  "data_provenance": "fixture",
+  "system_id": "c4-fixture-shop",
+  "release_id": "v1.5.0",
+  "releases": [
+    "v1.0.0",
+    "v1.1.0",
+    "v1.2.0",
+    "v1.3.0",
+    "v1.4.0",
+    "v1.5.0"
+  ],
+  "note": "Designed outcome of every payload in events/fixture_events.v1.json with default settings (scoring_rank_only_confirmed=false). Synthetic data, not results.",
+  "counts": {
+    "payloads": 17,
+    "quarantined": {
+      "malformed_payload": 3,
+      "unresolved_element": 1
+    },
+    "skipped": {
+      "intentional": 1,
+      "rejected": 1,
+      "system_scope_not_rankable": 1,
+      "superseded": 1
+    },
+    "eligible": 10,
+    "ranked": 9,
+    "resolution": {
+      "exact": 8,
+      "prefix_fallback": 1,
+      "unresolved": 1
+    },
+    "resolution_rate": 0.9
+  },
+  "confirmed_event_ids": [
+    "DEG-C4FX-R02-0001",
+    "DEG-C4FX-R02-0002"
+  ],
+  "malformed": [
+    {
+      "index": 14,
+      "event_id": null,
+      "defect": "event_id missing",
+      "error_type": "missing",
+      "loc": [
+        "event_id"
+      ]
+    },
+    {
+      "index": 15,
+      "event_id": "DEG-C4FX-R02-0902",
+      "defect": "event_key is not sha256:<64 hex>",
+      "error_type": "string_pattern_mismatch",
+      "loc": [
+        "event_key"
+      ]
+    },
+    {
+      "index": 16,
+      "event_id": "DEG-C4FX-R02-0903",
+      "defect": "scope ELEMENT without element_id",
+      "error_type": "value_error",
+      "loc": []
+    }
+  ],
+  "events": [
+    {
+      "event_id": "DEG-C4FX-R02-0001",
+      "outcome": "ranked",
+      "resolution": "exact",
+      "review_status": "CONFIRMED",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.3.0",
+        "releases_present": [
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      },
+      "c3_v2_1": {
+        "first_seen_release": "v1.2.0",
+        "releases_present": [
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0002",
+      "outcome": "ranked",
+      "resolution": "exact",
+      "review_status": "CONFIRMED",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.0.0",
+        "releases_present": [
+          "v1.0.0",
+          "v1.1.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      },
+      "c3_v2_1": {
+        "first_seen_release": "v1.3.0",
+        "releases_present": [
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0003",
+      "outcome": "ranked",
+      "resolution": "exact",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.0.0",
+        "releases_present": [
+          "v1.0.0",
+          "v1.1.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0004",
+      "outcome": "ranked",
+      "resolution": "exact",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.0.0",
+        "releases_present": [
+          "v1.0.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0005",
+      "outcome": "ranked",
+      "resolution": "exact",
+      "review_status": "PENDING",
+      "context_tag": "UNCERTAIN",
+      "fallback": {
+        "first_seen_release": "v1.2.0",
+        "releases_present": [
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0006",
+      "outcome": "ranked",
+      "resolution": "exact",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.3.0",
+        "releases_present": [
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      },
+      "c3_v2_1": {
+        "first_seen_release": "v1.3.0",
+        "releases_present": [
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0007",
+      "outcome": "ranked",
+      "resolution": "prefix_fallback",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.1.0",
+        "releases_present": [
+          "v1.1.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0008",
+      "outcome": "ranked",
+      "resolution": "exact",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.1.0",
+        "releases_present": [
+          "v1.1.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0009",
+      "outcome": "quarantined:unresolved_element",
+      "resolution": "unresolved",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.0.0",
+        "releases_present": [
+          "v1.0.0",
+          "v1.1.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0010",
+      "outcome": "skipped:intentional",
+      "resolution": null,
+      "review_status": "PENDING",
+      "context_tag": "INTENTIONAL",
+      "fallback": {
+        "first_seen_release": "v1.2.0",
+        "releases_present": [
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0011",
+      "outcome": "skipped:rejected",
+      "resolution": null,
+      "review_status": "REJECTED",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.2.0",
+        "releases_present": [
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0012",
+      "outcome": "skipped:system_scope_not_rankable",
+      "resolution": null,
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.0.0",
+        "releases_present": [
+          "v1.0.0",
+          "v1.1.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R01-0013",
+      "outcome": "skipped:superseded",
+      "resolution": null,
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.0.0",
+        "releases_present": [
+          "v1.0.0",
+          "v1.1.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0"
+        ]
+      }
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0014",
+      "outcome": "ranked",
+      "resolution": "exact",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "fallback": {
+        "first_seen_release": "v1.0.0",
+        "releases_present": [
+          "v1.0.0",
+          "v1.1.0",
+          "v1.2.0",
+          "v1.3.0",
+          "v1.4.0",
+          "v1.5.0"
+        ]
+      }
+    }
+  ],
+  "graph": {
+    "elements": 22,
+    "cycle": [
+      "order-service",
+      "payment-service",
+      "inventory-service",
+      "shipping-service"
+    ],
+    "hub": "common-lib",
+    "hub_dependents": 11,
+    "bridge": "integration-hub",
+    "renamed": {
+      "order-service": "order-svc"
+    },
+    "without_source_paths": [
+      "admin-ui",
+      "web-frontend"
+    ]
+  }
+}

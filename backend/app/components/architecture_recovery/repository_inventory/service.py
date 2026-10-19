@@ -143,8 +143,11 @@ class RepositoryInventoryService:
         not have to read the file back.
         """
 
+        # `repository_key` and not the workspace `id`: the document describes
+        # the repository, which is the same across its analyzed releases, while
+        # the workspace directory is one clone of one revision.
         reference = RepositoryRef(
-            id=repository.id,
+            id=repository.repository_key,
             url=repository.url,
             branch=repository.branch,
             commit=repository.commit,

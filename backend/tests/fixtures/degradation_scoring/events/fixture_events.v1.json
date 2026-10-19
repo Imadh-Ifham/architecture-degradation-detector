@@ -1,0 +1,1473 @@
+[
+  {
+    "schema_version": "2.1.0",
+    "event_id": "DEG-C4FX-R02-0001",
+    "event_key": "sha256:ce36863f51b6baf9d16397ffb3e9af506b284a816f72d487e55943c1fd974d6d",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "INSTANCE",
+    "anti_pattern_type": "CyclicDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": "AP-CYC-0001",
+    "members": [
+      "order-service",
+      "payment-service",
+      "inventory-service",
+      "shipping-service"
+    ],
+    "element_id": null,
+    "lineage_id": null,
+    "lifecycle": "growing",
+    "window": {
+      "start_release": "v1.3.0",
+      "end_release": "v1.5.0",
+      "n_releases": 3,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "member_count",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 3,
+        "s": 4,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.2.0",
+            "value": null
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 3.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 4.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 4.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "CONFIRMED",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    },
+    "first_seen_release": "v1.2.0",
+    "instance_history": [
+      {
+        "release_id": "v1.2.0",
+        "transition": "INTRODUCED",
+        "member_count": 2
+      },
+      {
+        "release_id": "v1.3.0",
+        "transition": "GREW",
+        "member_count": 3
+      },
+      {
+        "release_id": "v1.4.0",
+        "transition": "GREW",
+        "member_count": 4
+      },
+      {
+        "release_id": "v1.5.0",
+        "transition": "PERSISTED",
+        "member_count": 4
+      }
+    ]
+  },
+  {
+    "schema_version": "2.1.0",
+    "event_id": "DEG-C4FX-R02-0002",
+    "event_key": "sha256:b4e3d14e7519279e6a352f776d75a905a9de9a27efdb6d802fe4e700224ade2e",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "HubLikeElement",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": "AP-HUB-0002",
+    "members": [],
+    "element_id": "common-lib",
+    "lineage_id": "LIN-C4FX-0002",
+    "lifecycle": "growing",
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.5.0",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "fan_in",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 6,
+        "s": 10,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 6.0
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": 7.0
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 8.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 9.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 10.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 11.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "CONFIRMED",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    },
+    "first_seen_release": "v1.3.0",
+    "instance_history": [
+      {
+        "release_id": "v1.3.0",
+        "transition": "INTRODUCED",
+        "member_count": 1
+      },
+      {
+        "release_id": "v1.4.0",
+        "transition": "PERSISTED",
+        "member_count": 1
+      },
+      {
+        "release_id": "v1.5.0",
+        "transition": "PERSISTED",
+        "member_count": 1
+      }
+    ]
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0003",
+    "event_key": "sha256:1441ba5507f9658d9bea29b0d9567e6900468e0153fa990194e0f0f94699694b",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "OversizedElement",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "order-service",
+    "lineage_id": "LIN-C4FX-0003",
+    "lifecycle": "persistent",
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.5.0",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "size",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 6,
+        "s": 10,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 9000.0
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": 9800.0
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 10400.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 11000.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 11900.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 12450.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0004",
+    "event_key": "sha256:7867155e59d4840ba0ddc4e8a2105ef5c2da06643a2a0c51891cd41ae063eb97",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "UnstableDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "payment-service",
+    "lineage_id": "LIN-C4FX-0004",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.5.0",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "instability",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 5,
+        "s": 8,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 0.4
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": null
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 0.5
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 0.55
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 0.6
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 0.7
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0005",
+    "event_key": "sha256:2e46e678bb4f65f93919deca4cfccb22d0fda59b85464af3b8a69e955233f91e",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "MetricDrift",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "integration-hub",
+    "lineage_id": "LIN-C4FX-0005",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.2.0",
+      "end_release": "v1.5.0",
+      "n_releases": 4,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "efferent_coupling",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 4,
+        "s": 6,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.2.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 3.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 3.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 4.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "UNCERTAIN",
+      "stage": "LLM",
+      "rule_id": null,
+      "justification": "A release note mentions an integration rewrite, but no decision links it to this change.",
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.1.0",
+    "event_id": "DEG-C4FX-R02-0006",
+    "event_key": "sha256:dee9b7bd6593cfa90d48e86c6bcd59cf68cc997e4500a498fb33c553c21ba133",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "INSTANCE",
+    "anti_pattern_type": "SharedPersistence",
+    "catalog": "microservices",
+    "architecture_style": "microservices",
+    "instance_id": "AP-SHP-0006",
+    "members": [
+      "order-service",
+      "reporting-service"
+    ],
+    "element_id": null,
+    "lineage_id": null,
+    "lifecycle": "growing",
+    "window": {
+      "start_release": "v1.3.0",
+      "end_release": "v1.5.0",
+      "n_releases": 3,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "member_count",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 3,
+        "s": 4,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.3.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 3.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    },
+    "first_seen_release": "v1.3.0",
+    "instance_history": [
+      {
+        "release_id": "v1.3.0",
+        "transition": "INTRODUCED",
+        "member_count": 2
+      },
+      {
+        "release_id": "v1.4.0",
+        "transition": "PERSISTED",
+        "member_count": 2
+      },
+      {
+        "release_id": "v1.5.0",
+        "transition": "GREW",
+        "member_count": 3
+      }
+    ]
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0007",
+    "event_key": "sha256:5976124a116880e33f397dc0a913686e1b2b7e11043a1990077d5f8dadb8f05c",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "UnstableDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "src/services/notification",
+    "lineage_id": "LIN-C4FX-0007",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.1.0",
+      "end_release": "v1.5.0",
+      "n_releases": 5,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "instability",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 5,
+        "s": 8,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.1.0",
+            "value": 0.3
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 0.35
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 0.4
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 0.5
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 0.6
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0008",
+    "event_key": "sha256:0dbabc9cc3b7edd7f84234f185d187fee0bd7e6423add65d53f37aedd9fedb01",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "INSTANCE",
+    "anti_pattern_type": "SharedPersistence",
+    "catalog": "microservices",
+    "architecture_style": "microservices",
+    "instance_id": "AP-SHP-0008",
+    "members": [
+      "order-svc",
+      "inventory-service"
+    ],
+    "element_id": null,
+    "lineage_id": null,
+    "lifecycle": "persistent",
+    "window": {
+      "start_release": "v1.1.0",
+      "end_release": "v1.5.0",
+      "n_releases": 5,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "member_count",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 5,
+        "s": 8,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.1.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 2.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0009",
+    "event_key": "sha256:4beef4f5053f170d7c2bfd69180ea5e3ed6e3ce487a14b6e7e3a6795358b8277",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "OversizedElement",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "legacy-billing",
+    "lineage_id": "LIN-C4FX-0009",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.5.0",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "size",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 6,
+        "s": 10,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 3000.0
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": 3200.0
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 3500.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 3900.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 4200.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 4800.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0010",
+    "event_key": "sha256:ca7731e11bd510a2d86738aeb730b11531ceeb6a1a5f0c21ec2b25bf0549237c",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "OversizedElement",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "catalog-service",
+    "lineage_id": "LIN-C4FX-0010",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.2.0",
+      "end_release": "v1.5.0",
+      "n_releases": 4,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "size",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 4,
+        "s": 6,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.2.0",
+            "value": 7000.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 8100.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 9000.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 9900.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "INTENTIONAL",
+      "stage": "RULE",
+      "rule_id": "R2_DOCUMENTED_RESTRUCTURE",
+      "justification": "ADR-0002 moves the search index into catalog-service.",
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0011",
+    "event_key": "sha256:182e682c84d74cdd7ca6552c7bd01a5e09a6c3500a01d112b25769620055df03",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "HubLikeElement",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "auth-service",
+    "lineage_id": "LIN-C4FX-0011",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.2.0",
+      "end_release": "v1.5.0",
+      "n_releases": 4,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "fan_in",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 4,
+        "s": 6,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.2.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 3.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 3.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 4.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "REJECTED",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0012",
+    "event_key": "sha256:80179e34a2d8caf07b74cba2e7cd78ed0946716503e8c20c5cce4a08ced95bd0",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "SYSTEM",
+    "anti_pattern_type": "BigBallOfMud",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": null,
+    "lineage_id": null,
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.5.0",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "cyclic_edge_count",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 6,
+        "s": 10,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 0.0
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": 1.0
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 2.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 3.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 4.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 4.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R01-0013",
+    "event_key": "sha256:2a336434c1fc6439905e57ce9ae7f3ba546015b62ccfb830bb02692f59773ae3",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-01",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "UnstableDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "shipping-service",
+    "lineage_id": "LIN-C4FX-0013",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.4.0",
+      "n_releases": 5,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "instability",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 5,
+        "s": 8,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 0.3
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": 0.35
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 0.4
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 0.45
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 0.5
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.4.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.4.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0014",
+    "event_key": "sha256:2a336434c1fc6439905e57ce9ae7f3ba546015b62ccfb830bb02692f59773ae3",
+    "supersedes_event_id": "DEG-C4FX-R01-0013",
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "UnstableDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "shipping-service",
+    "lineage_id": "LIN-C4FX-0014",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.5.0",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "instability",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 6,
+        "s": 10,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 0.3
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": 0.35
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 0.4
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 0.45
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 0.5
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 0.6
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_key": "sha256:1441ba5507f9658d9bea29b0d9567e6900468e0153fa990194e0f0f94699694b",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "OversizedElement",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "order-service",
+    "lineage_id": "LIN-C4FX-0003",
+    "lifecycle": "persistent",
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.5.0",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "size",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 6,
+        "s": 10,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 9000.0
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": 9800.0
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 10400.0
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 11000.0
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 11900.0
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 12450.0
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0902",
+    "event_key": "not-a-hash",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "UnstableDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "payment-service",
+    "lineage_id": "LIN-C4FX-0004",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.0.0",
+      "end_release": "v1.5.0",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "instability",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 5,
+        "s": 8,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.0.0",
+            "value": 0.4
+          },
+          {
+            "release_id": "v1.1.0",
+            "value": null
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 0.5
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 0.55
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 0.6
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 0.7
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4FX-R02-0903",
+    "event_key": "sha256:5976124a116880e33f397dc0a913686e1b2b7e11043a1990077d5f8dadb8f05c",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4FX-02",
+    "system_id": "c4-fixture-shop",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "UnstableDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": null,
+    "lineage_id": "LIN-C4FX-0007",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v1.1.0",
+      "end_release": "v1.5.0",
+      "n_releases": 5,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "instability",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 5,
+        "s": 8,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v1.1.0",
+            "value": 0.3
+          },
+          {
+            "release_id": "v1.2.0",
+            "value": 0.35
+          },
+          {
+            "release_id": "v1.3.0",
+            "value": 0.4
+          },
+          {
+            "release_id": "v1.4.0",
+            "value": 0.5
+          },
+          {
+            "release_id": "v1.5.0",
+            "value": 0.6
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "c1://c4-fixture-shop/v1.5.0"
+      ],
+      "c2_validation_refs": [
+        "c2://c4-fixture-shop/v1.5.0"
+      ],
+      "release_package_hashes": [
+        "sha256:3a50001b2d4d23e348d349ef68549e8737f86619354497d787a3ca2a864cc7c1"
+      ],
+      "config_hash": "sha256:4888fa20d2e67c75423320e789954bd026b1c3281c72ff80b8288f3d8ce4522a"
+    }
+  }
+]

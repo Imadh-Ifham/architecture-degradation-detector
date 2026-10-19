@@ -1,0 +1,11 @@
+services:
+  loadgenerator:
+    build: ./src/loadgenerator
+    environment:
+      FRONTEND_ADDR: frontend:8080
+  frontend:
+    build: ./src/frontend
+    environment:
+      SHOPPING_ASSISTANT_SERVICE_ADDR: shoppingassistantservice:80
+  shoppingassistantservice:
+    build: ./src/shoppingassistantservice

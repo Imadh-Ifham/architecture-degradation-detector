@@ -1,0 +1,5 @@
+services:
+  gateway:
+    build: ./services/gateway
+    environment:
+      PAYMENT_SERVICE_ADDR: paymentservice:50051

@@ -31,6 +31,17 @@ class ProviderError(RuntimeError):
     """The provider could not produce a usable response."""
 
 
+class ProviderContentError(ProviderError):
+    """The provider answered and the answer could not be read.
+
+    Separate from the other failures because the response to it is different.
+    A transport failure is worth trying another model for; content that cannot
+    be read is the model's own answer being unusable, and handing the same
+    question to a second model would be asking something the first one already
+    botched.
+    """
+
+
 class ProviderRateLimited(ProviderError):
     """The provider refused the request for rate reasons.
 
@@ -65,7 +76,13 @@ def strictify(schema: dict) -> dict:
             for name, definition in (result.get("properties") or {}).items()
         }
         result["properties"] = properties
-        result["required"] = sorted(properties)
+        # Declaration order, not alphabetical. Sorting is deterministic but
+        # it is not the order the caller declared, and a schema whose two
+        # field lists disagree about order is a schema no reader can check
+        # against the file it came from. It buys nothing from this provider -
+        # emission order was measured to be the model's own - so this keeps
+        # the request faithful to the declaration rather than relying on it.
+        result["required"] = list(properties)
         result["additionalProperties"] = False
 
     if "items" in result:
@@ -191,7 +208,7 @@ class OpenAICompatibleProvider:
         try:
             message = response["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
-            raise ProviderError(
+            raise ProviderContentError(
                 f"The provider's response had no message content: {str(response)[:300]}"
             ) from error
 
@@ -201,7 +218,7 @@ class OpenAICompatibleProvider:
             # Reachable in best-effort mode, and in strict mode only if the
             # provider ignored the constraint. Either way it is the first
             # guard's job, so it is reported rather than repaired here.
-            raise ProviderError(
+            raise ProviderContentError(
                 f"The provider returned content that is not valid JSON: {message[:300]}"
             ) from error
 

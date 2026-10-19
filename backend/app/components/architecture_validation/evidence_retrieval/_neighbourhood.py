@@ -24,9 +24,12 @@ Description:
     free tier survivable.
 
     No graph library. One hop over a tuple of relationships is a
-    comprehension, `networkx` is undeclared today, and a dependency taken for
-    a traversal this size would have to be justified to everybody who
-    resolves the lockfile.
+    comprehension, and a dependency taken for a traversal this size would have
+    to be justified to everybody who resolves the lockfile. `networkx` has
+    since been declared - by the components that consume the published graph -
+    so the argument is now about this traversal rather than about the
+    dependency, and it is the same argument: eight neighbours do not need a
+    graph object built and thrown away.
 """
 
 from app.domain.recovered_architecture import RecoveredArchitecture

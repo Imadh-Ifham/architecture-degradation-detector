@@ -15,7 +15,7 @@ import re
 import shutil
 import stat
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.components.architecture_recovery.repository_ingestion.errors import (
@@ -29,7 +29,6 @@ from app.components.architecture_recovery.repository_ingestion.validation import
 )
 from app.domain.repository import IngestedRepository
 from app.infrastructure.git.client import GitClient
-
 
 METADATA_FILE_NAME = "metadata.json"
 SOURCE_DIRECTORY_NAME = "source"
@@ -52,31 +51,99 @@ class RepositoryIngestionService:
         self._root = Path(root)
 
     def ingest(self, url: str, branch: str) -> IngestedRepository:
-        """Clone `url` at `branch` into the workspace and return its record.
+        """Clone `url` at the tip of `branch` into the workspace.
 
         Raises `InvalidRepositorySource` for a rejected source, and
         `GitCommandError` when git itself fails.
         """
 
-        # Redact first, so credentials can never reach disk or the response.
         source_url = redact_credentials(validate_url(url))
         source_branch = validate_branch(branch)
 
-        repository_id = build_repository_id(source_url, source_branch)
-        target = self._repository_directory(repository_id)
+        return self._ingest(
+            source_url,
+            revision=source_branch,
+            branch=source_branch,
+            workspace_id=build_repository_id(source_url, source_branch),
+            release_tag=None,
+            clone=lambda path: self._git.clone(source_url, source_branch, path),
+        )
+
+    def ingest_revision(
+        self, url: str, revision: str, branch: str | None = None
+    ) -> IngestedRepository:
+        """Clone one explicit revision, preserving other releases of the repo.
+
+        `revision` is a tag or a commit SHA. The workspace directory is keyed by
+        the revision, so analyzing `v1.2.0` never overwrites the checkout of
+        `v1.0.0`; both remain available for their own analysis.
+
+        `repository_id` on the returned record is the repository's identity and
+        is the same for every revision of the same url.
+        """
+
+        source_url = redact_credentials(validate_url(url))
+        source_revision = validate_branch(revision)
+
+        return self._ingest(
+            source_url,
+            revision=source_revision,
+            branch=branch,
+            workspace_id=build_revision_repository_id(source_url, source_revision),
+            release_tag=source_revision,
+            clone=lambda path: self._git.clone_at(source_url, source_revision, path),
+        )
+
+    def _ingest(
+        self,
+        source_url: str,
+        *,
+        revision: str,
+        branch: str | None,
+        workspace_id: str,
+        release_tag: str | None,
+        clone,
+    ) -> IngestedRepository:
+        """Clone, resolve the revision's metadata, and swap the workspace in."""
+
+        target = self._repository_directory(workspace_id)
         staging = self._root / STAGING_DIRECTORY_NAME / uuid.uuid4().hex
 
         try:
             clone_path = staging / SOURCE_DIRECTORY_NAME
-            self._git.clone(source_url, source_branch, clone_path)
+            clone(clone_path)
+
+            commit = self._git.head_commit(clone_path)
+            commit_date = self._git.commit_date(clone_path, "HEAD")
+
+            # A tag is a name someone can point elsewhere. The commit SHA is
+            # what makes the analyzed source unambiguous, so both are recorded.
+            release_date = None
+            release_date_source = None
+
+            if release_tag and self._git.is_tag(clone_path, release_tag):
+                release_date = self._git.tag_date(clone_path, release_tag)
+                release_date_source = "tagger" if release_date else None
+
+                if release_date is None:
+                    # A lightweight tag has no date of its own. The tagged
+                    # commit's author date is the honest fallback, labelled.
+                    release_date = commit_date
+                    release_date_source = "author" if release_date else None
 
             record = IngestedRepository(
-                id=repository_id,
+                id=workspace_id,
                 url=source_url,
-                branch=source_branch,
-                commit=self._git.head_commit(clone_path),
+                branch=branch or revision,
+                commit=commit,
                 path=target / SOURCE_DIRECTORY_NAME,
-                ingested_at=datetime.now(timezone.utc),
+                ingested_at=datetime.now(UTC),
+                repository_id=build_repository_key(source_url),
+                release_tag=release_tag,
+                revision=revision,
+                release_date=release_date,
+                release_date_source=release_date_source,
+                commit_date=commit_date,
             )
 
             (staging / METADATA_FILE_NAME).write_text(
@@ -203,7 +270,31 @@ def build_repository_id(url: str, branch: str) -> str:
     branches, or two repositories sharing a name, from colliding.
     """
 
-    digest = hashlib.sha256(f"{url}@{branch}".encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha256(f"{url}@{branch}".encode()).hexdigest()[:12]
+    return f"{_slugify(url)}-{digest}"
+
+
+def build_revision_repository_id(url: str, revision: str) -> str:
+    """Derive a workspace id for one analyzed revision.
+
+    Distinct per revision on purpose: each release keeps its own checkout and
+    its own analysis artifacts, and ingesting a newer release must not delete
+    the working tree an earlier release's evidence points at.
+    """
+
+    digest = hashlib.sha256(f"{url}@{revision}".encode()).hexdigest()[:12]
+    return f"{_slugify(url)}-{digest}"
+
+
+def build_repository_key(url: str) -> str:
+    """Derive the repository's identity, independent of branch and release.
+
+    This is the key architecture snapshots are stored under, so two releases of
+    one repository must produce the same value even though their workspace
+    directories differ.
+    """
+
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
     return f"{_slugify(url)}-{digest}"
 
 

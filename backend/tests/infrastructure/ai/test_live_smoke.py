@@ -22,8 +22,7 @@ Description:
     subcomponents later.
 """
 
-import json
-
+import httpx
 import pytest
 
 from app.infrastructure.ai.interface import ConfiguredAIClient
@@ -91,6 +90,55 @@ class _NoCache:
         return None
 
 
+def test_the_real_rate_limits_are_reported(settings, capsys):
+    """Print this account's actual limits, per configured model.
+
+    A free roster's figures change without notice and every published number
+    for them disagrees with every other, so they are read from the account
+    rather than believed. This is a test and not a scratch script because the
+    checklist asks for it again before demo week, and a script that ran once
+    is a number nobody can re-check.
+
+    It talks to `httpx` directly rather than through the adapter, which is the
+    one place in the suite that is allowed to: the adapter drops response
+    headers on purpose, because no component has any business reading them,
+    and what is under test here is the account rather than the code path.
+    """
+
+    report = []
+    for model in (settings.ai_reasoner_model, settings.ai_verifier_model):
+        response = httpx.post(
+            f"{settings.ai_base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.ai_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_completion_tokens": 1,
+                "temperature": settings.ai_temperature,
+            },
+            timeout=settings.ai_timeout_seconds,
+        )
+        assert response.status_code == 200, response.text[:300]
+
+        limits = {
+            name: value
+            for name, value in response.headers.items()
+            if "ratelimit" in name
+        }
+        assert limits, "the provider reported no rate-limit headers"
+        report.append((model, limits))
+
+    with capsys.disabled():
+        print()
+        for model, limits in report:
+            print(f"  {model}")
+            for name in sorted(limits):
+                print(f"    {name}: {limits[name]}")
+
+
 @pytest.mark.parametrize("task", [TASK_PRIMARY_VERDICT, TASK_VERIFICATION])
 def test_the_configured_model_answers_under_a_strict_schema(client, settings, task):
     """Both models, because the verifier being wrong is as bad as the reasoner
@@ -107,7 +155,9 @@ def test_the_configured_model_answers_under_a_strict_schema(client, settings, ta
     assert result.model_id == settings.model_for(task)
     assert result.cached is False
 
-    answer = json.loads(result.content)
+    # Already parsed: the client hands back the response as data, so a test
+    # that parsed it again would be testing its own string handling.
+    answer = result.content
     assert set(answer) == {"verdict", "cited"}
     assert answer["verdict"] in {"confirms", "contradicts", "insufficient_evidence"}
 
@@ -126,6 +176,6 @@ def test_every_citation_resolves_to_evidence_that_was_supplied(client):
     )
 
     supplied = {"ev:1", "ev:2"}
-    invented = set(json.loads(result.content)["cited"]) - supplied
+    invented = set(result.content["cited"]) - supplied
 
     assert not invented, f"the model cited evidence that was never supplied: {invented}"

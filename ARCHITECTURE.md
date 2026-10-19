@@ -71,18 +71,15 @@ The physical skeleton established now:
 
 **Purpose:** Reconstruct the architecture of a system **as it actually is** — the ground truth used by every later stage.
 
-**Planned subcomponents:**
+**Subcomponents — the first seven are built; the rest are planned:**
 
 - **Repository ingestion** — clone a target repository at a given branch into a local workspace, and remove it again.
 - **Repository inventory** — inventory the working tree into a versioned JSON document (files, classifications, candidate components, relationships) that later stages consume.
 - **Manifest analysis** — parse the manifests the inventory found (Compose, Kubernetes, Dockerfile, OpenAPI, Protobuf) into declared resources, endpoints and relationships, keeping declared dependencies, configured endpoints and API definitions distinct.
 - **Component discovery** — identify the logical components (services, applications, modules) and associate the artifacts that implement, define, build, deploy and contract each one, keeping artifacts distinct from components and recording evidence, uncertainty and unresolved cases.
-- **Static extraction** — derive structural information from source code and build artifacts.
-- **Deployment analysis** — derive deployment topology and environment structure from deployment descriptors and configuration.
-- **Interface analysis** — identify interfaces, contracts, and communication boundaries between parts of the system.
-- **Runtime extraction** — derive behavior and actual interaction information from runtime evidence.
-- **Evidence normalization/correlation** — normalize heterogeneous evidence into a common representation and correlate facts that describe the same architectural element.
-- **Architecture reconstruction** — assemble the normalized, correlated evidence into a coherent architectural model.
+- **Dependency resolution** — correlate configured endpoints, deployment declarations and resource mappings with the discovered components, recording resolved relationships, ambiguity, unresolved targets and provenance while keeping declared wiring distinct from verified communication.
+- **Source code analysis** — extract scoped source-level gRPC, HTTP and cache/database client evidence, resolve targets through component discovery and dependency resolution, and preserve evidence strength, ambiguity and unresolved findings without claiming runtime execution.
+- **Graph construction** — assemble the evidence into one version-scoped snapshot per analyzed revision, with release and commit provenance, explicit completion status, element sizes and evidence, and publish it to a historical graph store where a newer release never overwrites an earlier one.
 
 **Produces:** the **Recovered Architecture Model/Graph** — the as-is architecture, typically represented as a graph of elements and relationships.
 
@@ -94,7 +91,7 @@ The physical skeleton established now:
 
 **Purpose:** Determine whether the recovered architecture matches the architecture that was **intended**.
 
-**Planned subcomponents:**
+**Subcomponents — the first four are built; the four after them are planned:**
 
 - **Observation normalization** — turn the recovered architecture into one uniform fact per relationship, whatever architectural style it came from, with every element name reduced to a single identity and every release identifier made orderable.
 - **Decision knowledge** — hold the architectural decisions as an append-only history and answer which one governed a relationship at a given release, with three sources behind one protocol (records in the code repository, records in a repository the user names, rules reconstructed from the repository's own configuration) and half-open validity intervals so a superseded decision never governs.
@@ -188,19 +185,19 @@ Rules:
 | Component                 | Subcomponents                                                                                                                    |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `architecture_recovery`   | `static_extraction`, `deployment_analysis`, `interface_analysis`, `runtime_extraction`, `evidence_correlation`, `reconstruction` |
-| `architecture_validation` | `validation_reasoning`, `independent_verification`, `classification`, `architect_review`, `graph_publishing` |
+| `architecture_validation` | `validation_reasoning`, `independent_verification`, `classification`, `architect_review`, `graph_publishing`                     |
 | `degradation_detection`   | `release_analysis`, `architecture_comparison`, `detection`, `cause_analysis`                                                     |
 | `degradation_scoring`     | `scoring_engine`, `severity`, `rules`                                                                                            |
 
-`architecture_validation`'s pipeline is **eight** subcomponents. The three already built are
-described in §3.2 and are no longer listed as planned. The four names originally listed are
+`architecture_validation`'s pipeline is **eight** subcomponents, and the first **four** are built
+(normalization, decision knowledge, evidence retrieval and validation reasoning). The four names originally listed are
 preserved rather than dropped:
 
-| Originally listed | Where its responsibility now sits |
-| ----------------- | --------------------------------- |
-| `adr_extraction`        | `decision_knowledge/sources/repo_adr.py` and `external_adr.py` — one source among three, because most repositories hold no decision records |
-| `intent_extraction`     | `decision_knowledge/sources/config_scan.py` — reading intent out of configuration produces decision records, so it belongs to the subcomponent that holds them |
-| `constraint_extraction` | the closed `ConstraintKind` vocabulary every source normalises into, in the component's own `models.py` |
+| Originally listed       | Where its responsibility now sits                                                                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adr_extraction`        | `decision_knowledge/sources/repo_adr.py` and `external_adr.py` — one source among three, because most repositories hold no decision records                             |
+| `intent_extraction`     | `decision_knowledge/sources/config_scan.py` — reading intent out of configuration produces decision records, so it belongs to the subcomponent that holds them          |
+| `constraint_extraction` | the closed `ConstraintKind` vocabulary every source normalises into, in the component's own `models.py`                                                                 |
 | `validation`            | split across `validation_reasoning`, `independent_verification`, `classification` and `graph_publishing`, which have different dependencies and different failure modes |
 
 The split follows §4.1: one folder is one subcomponent with one responsibility. `validation` as a
@@ -264,7 +261,6 @@ A provider adapter is named for the **API contract it speaks**, not always for a
 hosted and local runtimes expose the same OpenAI-compatible chat-completions API, so one
 `openai_compatible.py` adapter serves all of them and the provider becomes configuration rather than
 code. A vendor-specific adapter is still named for its vendor where the API is genuinely proprietary.
-
 
 > These folders and files are **not created now**.
 
