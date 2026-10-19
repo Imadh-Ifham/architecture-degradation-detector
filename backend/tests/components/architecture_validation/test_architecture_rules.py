@@ -179,24 +179,24 @@ class TestOrchestration:
 
         assert STAGE_ORDER == SUBCOMPONENTS
 
-    @pytest.mark.parametrize("name", sorted(set(SUBCOMPONENTS) - IMPLEMENTED))
-    def test_an_unimplemented_subcomponent_raises_rather_than_returning_nothing(self, name):
-        """Asserted rather than assumed.
+    def test_every_subcomponent_is_built(self):
+        """What the pair below used to be half of.
 
-        A half-written subcomponent that silently returns None looks identical
-        to one not yet started, and the difference matters while most of them
-        are stubs.
+        For seven weeks this was a parametrised test over the subcomponents
+        *not* in IMPLEMENTED, asserting each one raised `NotImplementedError`
+        rather than silently returning None - because a half-written
+        subcomponent and an unstarted one look identical from the outside, and
+        the difference mattered while most of them were stubs.
 
-        As each subcomponent is built, its name moves into IMPLEMENTED - so
-        this test and the next one together record how far the component has
-        got, and neither can be satisfied by accident.
+        There are none left, so the parametrisation was empty and the test was
+        permanently skipped, which is a worse state than either passing or
+        failing. This is the invariant that replaced it. The raising rule
+        still applies to whoever adds a ninth: the test below asserts that
+        every name in IMPLEMENTED really does work, so a new stub has to be
+        declared unimplemented or it fails there.
         """
 
-        service_class = _service_class(name)
-        entry = _entry_method(service_class)
-        stub = service_class(*[None] * _init_arity(service_class))
-        with pytest.raises(NotImplementedError):
-            getattr(stub, entry)(*[None] * _arity(service_class, entry))
+        assert IMPLEMENTED == set(SUBCOMPONENTS)
 
     @pytest.mark.parametrize("name", sorted(IMPLEMENTED))
     def test_an_implemented_subcomponent_no_longer_raises(self, name):

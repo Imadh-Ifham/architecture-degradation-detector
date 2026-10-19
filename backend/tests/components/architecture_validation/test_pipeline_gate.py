@@ -257,7 +257,7 @@ class StubReview:
     def __init__(self) -> None:
         self.queued: list = []
 
-    def enqueue(self, facts) -> tuple[str, ...]:
+    def enqueue(self, facts, repository_id="", release_id="") -> tuple[str, ...]:
         self.queued.extend(facts)
         return tuple(f"review-{index}" for index, _ in enumerate(facts))
 
@@ -564,13 +564,18 @@ real one.
 """
 
 
-def build_unimplemented(release="v0.10.0"):
-    """Assemble the pipeline from the real subcomponents, stubs and all.
+def build_whole(release="v0.10.0"):
+    """Assemble the pipeline from the real subcomponents, all eight of them.
 
     This is what the API wires today, so it is the configuration the run
     endpoint is actually exercised in. The knowledge model reads the recorded
     decision corpus, which is the same log a live run accumulates - read
     through the same port, so nothing here is a special case.
+
+    It was called `build_unimplemented` while stages were still stubs, and the
+    name stopped being true when M7 landed: every stage here is real, the two
+    databases are simply not configured, and a stage that writes to a store it
+    was not given reports that rather than failing.
     """
 
     return ArchitectureValidationService(
@@ -589,21 +594,37 @@ def build_unimplemented(release="v0.10.0"):
 
 
 class TestStagesNotBuiltYet:
-    """An eight-stage component has to be runnable before stage eight exists."""
+    """An eight-stage component has to be runnable before stage eight exists.
 
-    def test_a_run_completes_with_only_one_subcomponent_implemented(self):
-        """Without this the component is undemonstrable until the last stage
-        is finished, and the stages that do work cannot be shown at all."""
+    **That premise has been served and is now spent**, and the class is kept
+    with its name because the history is the point: for seven weeks these
+    tests were the reason the component could be demonstrated at all while
+    half of it was a stub. Every stage is now built, so what they assert has
+    changed - a run completes - and the one property that must outlive the
+    premise is kept alive by *constructing* the condition rather than waiting
+    for one: `test_a_stage_that_did_not_run_says_so` injects a stage that
+    raises, because the guarantee has to hold for the next person who adds
+    one.
+    """
 
-        result = build_unimplemented().run(
+    def test_a_run_now_completes_end_to_end(self):
+        """What the class was built to make possible, arrived at.
+
+        It asserted `incomplete` for seven weeks, which was the honest answer
+        while a stage was a stub. Eight of eight are built, the two databases
+        are simply not configured, and the run completes.
+        """
+
+        result = build_whole().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
 
-        assert result.status == "incomplete"
+        assert result.status == "completed"
         assert [stage.name for stage in result.stages] == list(STAGE_ORDER)
+        assert result.published_ref is not None
 
     def test_the_implemented_stage_still_reports_what_it_did(self):
-        result = build_unimplemented().run(
+        result = build_whole().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
         stages = {stage.name: stage for stage in result.stages}
@@ -612,46 +633,28 @@ class TestStagesNotBuiltYet:
         assert normalisation.status is StageStatus.COMPLETED
         assert normalisation.counts["facts"] > 0
 
-    def test_no_unimplemented_stage_claims_to_have_completed(self):
-        """A stub reporting a completed pass would be the one failure mode
-        that makes the whole board worthless."""
+    def test_a_stage_that_did_not_run_says_so(self):
+        """A stub reporting a completed pass is the one failure mode that
+        makes the whole board worthless.
 
-        result = build_unimplemented().run(
-            repository_id="online-boutique", release_id="v0.10.0"
-        )
-
-        for stage in result.stages:
-            if stage.name in IMPLEMENTED_STAGES:
-                continue
-            assert stage.status in {StageStatus.PENDING, StageStatus.SKIPPED}
-            assert stage.note
-
-    def test_no_stage_after_the_one_that_stalled_claims_to_have_run(self):
-        """Otherwise it reads as a clean pass over work it never saw.
-
-        This test named `classification` as the follower until M5 was built,
-        at which point the stall became classification itself and the named
-        follower stopped existing. The order is now read from the run, which
-        is what the test always claimed to be doing - so the next promotion
-        moves the stall along again without touching this.
+        There is no unimplemented stage left, so the condition is constructed:
+        a reasoning stage that raises `NotImplementedError` is exactly what
+        every stage looked like a week ago, and the guarantee has to hold for
+        whoever adds the ninth.
         """
 
-        result = build_unimplemented().run(
-            repository_id="online-boutique", release_id="v0.10.0"
-        )
+        service = build_whole()
+        service._reasoning = _NotBuilt()
+
+        result = service.run(repository_id="online-boutique", release_id="v0.10.0")
         stages = {stage.name: stage for stage in result.stages}
-        stalled = next(
-            stage.name for stage in result.stages
-            if stage.status is StageStatus.PENDING
-        )
 
-        assert stalled not in IMPLEMENTED_STAGES
-        for name in FACT_PRODUCING_STAGES:
-            if name == stalled:
-                continue
-            assert stages[name].note or stages[name].status is StageStatus.COMPLETED
+        assert result.status == "incomplete"
+        assert stages["validation_reasoning"].status is StageStatus.PENDING
+        assert stages["validation_reasoning"].note == "not implemented yet"
+        assert not any(stages["validation_reasoning"].counts.values())
 
-    def test_an_incomplete_run_makes_no_model_calls_and_still_publishes(self):
+    def test_a_run_with_no_model_reachable_costs_nothing_and_still_publishes(self):
         """It published nothing while M8 was unwritten, and the assertion has
         expired rather than been loosened.
 
@@ -665,12 +668,12 @@ class TestStagesNotBuiltYet:
         with no model reachable costs nothing and says so.
         """
 
-        result = build_unimplemented().run(
+        result = build_whole().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
 
         assert result.model_calls == 0
-        assert result.status == "incomplete"
+        assert result.status == "completed"
         assert result.published_ref is not None
 
     def test_a_subcomponent_that_breaks_is_not_reported_as_unbuilt(self):
@@ -687,51 +690,6 @@ class TestStagesNotBuiltYet:
 
         with pytest.raises(ValueError, match="index is corrupt"):
             service.run(repository_id="online-boutique", release_id="v0.10.0")
-
-    def test_a_stalled_stage_blames_the_stub_rather_than_the_evidence(self):
-        """"No fact had a governing decision" would read as a stage having
-        looked and found none, which is not what happened.
-
-        The earlier form asserted that every later stage in the per-fact group
-        named the stall. M5 being built made the stall the last of that group,
-        so that form has no instance left to check and asserting it would have
-        meant asserting nothing. What survives is the half that was always the
-        point: a stage that did not run says so, and reports no finding about
-        the architecture while it is at it.
-
-        M6 moved the stall out of that group altogether, so *where* it falls
-        is read from the run rather than named here - it is the first stage in
-        order that is not built, whichever group that happens to be in. Naming
-        it was the part that expired twice.
-
-        And M8 retired the *every later stage* half for good. Publishing is
-        gated on the stages that produce facts rather than on the run, so it
-        completes after a stalled review queue and completes correctly: the
-        document carries every fact of the release. The stage order is a
-        reporting order, not a dependency chain, and the one dependency that
-        matters is asserted directly in `test_graph_publishing.py`.
-        """
-
-        result = build_unimplemented().run(
-            repository_id="online-boutique", release_id="v0.10.0"
-        )
-        stalled = next(
-            stage for stage in result.stages if stage.status is StageStatus.PENDING
-        )
-
-        assert stalled.name == next(
-            stage.name
-            for stage in result.stages
-            if stage.name not in IMPLEMENTED_STAGES
-        )
-        assert stalled.note == "not implemented yet"
-        assert not any(stalled.counts.values()), (
-            f"{stalled.name} did not run and is reporting {stalled.counts}"
-        )
-
-
-class TestARunWithNothingToValidate:
-    """Zero facts is a real outcome, and it must not look like a clean pass."""
 
     def test_no_facts_means_no_stage_claims_to_have_completed(self):
         """Found by running the live wiring: recovery's inventory carries no
@@ -1889,17 +1847,17 @@ class TestTheM4Gate:
         assert self.stage(second).counts["from_cache"] == 15
         assert ai.call_count == calls_after_first
 
-    def test_seven_of_eight_stages_are_implemented(self):
+    def test_eight_of_eight_stages_are_implemented(self):
         """How far the component has got, asserted so that promoting a stage
-        is a deliberate edit that shows up in a diff rather than a number
-        that drifts."""
+        is a deliberate edit that shows up in a diff rather than a number that
+        drifts.
 
-        assert len(IMPLEMENTED_STAGES) == 7
-        assert "validation_reasoning" in IMPLEMENTED_STAGES
-        assert "independent_verification" in IMPLEMENTED_STAGES
-        assert "classification" in IMPLEMENTED_STAGES
-        assert "graph_publishing" in IMPLEMENTED_STAGES
-        assert "architect_review" not in IMPLEMENTED_STAGES
+        It has read five, six and seven in turn, and this is the last time it
+        changes: the component has eight stages.
+        """
+
+        assert len(IMPLEMENTED_STAGES) == 8
+        assert set(IMPLEMENTED_STAGES) == set(STAGE_ORDER)
 
 
 def _superseded_record():
@@ -1982,7 +1940,7 @@ class TestWhetherTheSecondModelWasAsked:
         """VER-9. Not `performed` with a hole in it, and not `not_requested`:
         the environment failed, which is a different finding."""
 
-        result = build_unimplemented().run(
+        result = build_whole().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
 
@@ -1995,7 +1953,7 @@ class TestWhetherTheSecondModelWasAsked:
         refusal is the design: substituting the reasoner would be the first
         model endorsing its own answer."""
 
-        result = build_unimplemented().run(
+        result = build_whole().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
         note = self.stage(result).note
@@ -2013,7 +1971,7 @@ class TestWhetherTheSecondModelWasAsked:
         first = service.run(
             repository_id="online-boutique", release_id="v0.10.0", verify=False
         )
-        second = build_unimplemented().run(
+        second = build_whole().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
 
@@ -2037,7 +1995,7 @@ class TestWhetherTheSecondModelWasAsked:
         confused model, and the second is a result about the model while the
         first is a result about the afternoon."""
 
-        result = build_unimplemented().run(
+        result = build_whole().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
         counts = self.stage(result).counts
@@ -2788,7 +2746,7 @@ class TestTheM6GateOnARun:
     """M6's own rows: the stage counts, and the one number a whole release is
     gated on downstream.
 
-    Asserted over `build_unimplemented()`, which is the real classification
+    Asserted over `build_whole()`, which is the real classification
     service behind an unreachable reasoner and an unreachable verifier. That
     is the rung-5 configuration - every governed fact decided by the
     deterministic table, none of them audited - and it is the case where an
@@ -2797,7 +2755,7 @@ class TestTheM6GateOnARun:
     """
 
     def run(self, release="v0.10.0"):
-        return build_unimplemented().run(
+        return build_whole().run(
             repository_id="online-boutique", release_id=release
         )
 
@@ -2894,3 +2852,14 @@ class TestTheM6GateOnARun:
         assert result.validation_confidence == 0.0
         assert result.facts == ()
         assert self.stage(result).status is StageStatus.SKIPPED
+
+
+class _NotBuilt:
+    """A subcomponent nobody has written yet, which is what every stage was.
+
+    Kept so the guarantee in `test_a_stage_that_did_not_run_says_so` outlives
+    the condition that used to produce it for free.
+    """
+
+    def judge(self, *args, **kwargs):
+        raise NotImplementedError

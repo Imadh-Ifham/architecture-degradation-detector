@@ -23,12 +23,15 @@ Description:
 """
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from app.domain.recovered_architecture import RecoveredArchitecture
 from app.domain.validated_architecture import ValidatedArchitectureGraph
 
 from .models import AIResult, EvidencePackage, ReviewItem
+
+if TYPE_CHECKING:
+    from .architect_review.models import ReviewDecision
 
 
 class RecoveredArchitectureReader(Protocol):
@@ -91,17 +94,32 @@ class DecisionKnowledgeStore(Protocol):
 
 
 class ReviewQueueRepository(Protocol):
-    """Facts held back for an architect to confirm or reject."""
+    """Facts held back for an architect to confirm or reject.
+
+    `enqueue` is idempotent on the item's id, which is content-addressed from
+    the repository, the release and the fact: a run that queued an item and
+    then failed later is re-run from the start, and the same fact must not
+    arrive twice. An item somebody has already decided keeps its decision -
+    a settled question must not depend on how many times the pipeline ran
+    afterwards.
+
+    Nothing downstream reads this. A queue that is empty, stale or unreachable
+    cannot change a verdict, a confidence or a published document.
+    """
 
     def enqueue(self, item: ReviewItem) -> str:
-        """Store the item and return its id."""
+        """Store the item if it is not already there, and return its id."""
+        ...
+
+    def get(self, item_id: str) -> ReviewItem | None:
+        """Return one item, or `None` when no such item exists."""
         ...
 
     def pending(self) -> list[ReviewItem]:
-        """Return every unresolved item, oldest first."""
+        """Return every undecided item, oldest first."""
         ...
 
-    def resolve(self, item_id: str, accepted: bool, resolved_by: str) -> None:
+    def resolve(self, decision: "ReviewDecision") -> None:
         """Record an architect's decision on one item."""
         ...
 

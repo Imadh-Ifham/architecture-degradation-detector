@@ -38,6 +38,7 @@ from app.components.architecture_validation import (
 )
 from app.components.architecture_validation.architect_review import (
     ArchitectReviewService,
+    QueueUnavailable,
 )
 from app.components.architecture_recovery.repository_ingestion.service import (
     SOURCE_DIRECTORY_NAME,
@@ -79,6 +80,9 @@ from app.infrastructure.ai import (
     load_prompt,
 )
 from app.infrastructure.ai.providers.openai_compatible import OpenAICompatibleProvider
+from app.components.architecture_validation.architect_review.models import (
+    ReviewDecision,
+)
 from app.infrastructure.validated_graph import ValidatedGraphFileStore
 from app.infrastructure.git.release_dates import ReleaseDateReader
 from app.infrastructure.decision_log import JsonlDecisionStore
@@ -97,6 +101,17 @@ from app.infrastructure.recovery_gateway import (
 router = APIRouter(prefix="/validations", tags=["Validation"])
 
 PRIMARY_VERDICT_PROMPT = "primary_verdict.v1.md"
+REVIEW_REPOSITORY_ID = "online-boutique"
+REVIEW_RELEASE_ID = "v0.10.0"
+"""Which release the review queue is bound to.
+
+One repository and one release, because there is one subject system and the
+queue is bound at wiring time so an item cannot be written against the wrong
+release by a caller that forgot. A second subject system makes these a
+parameter of the routes; inventing that now would be a parameter with one
+possible value.
+"""
+
 CRITICAL_REFRAMING_PROMPT = "critical_reframing.v1.md"
 BLIND_VERDICT_PROMPT = "blind_verdict.v1.md"
 
@@ -535,7 +550,10 @@ def get_validation_service() -> ArchitectureValidationService:
             blind_prompt=get_blind_prompt(),
         ),
         classification=ClassificationService(),
-        review=ArchitectReviewService(),
+        review=ArchitectReviewService(
+            get_review_queue(),
+            DecisionKnowledgeService(get_artifact_reader(), get_decision_store()),
+        ),
         publishing=GraphPublishingService(get_graph_file_store()),
     )
 
@@ -564,6 +582,39 @@ def get_release_dates() -> ReleaseDateReader:
     """
 
     return ReleaseDateReader(settings.repositories_root, SOURCE_DIRECTORY_NAME)
+
+
+@lru_cache(maxsize=1)
+def get_review_queue():
+    """The review queue, or `None` when there is no database behind it.
+
+    `None` means *not configured*, which the review stage reports as a note
+    rather than a warning: a run on a laptop with nothing installed queues
+    nothing and says the facts are in the published document regardless. A
+    configured queue that refused is a fault and is named as one.
+
+    The repository is bound to one repository and release, which is wiring
+    rather than data on the item - so a caller that forgot cannot write an
+    item against the wrong release.
+    """
+
+    try:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.infrastructure.postgres.database import DATABASE_URL
+        from app.infrastructure.postgres.repositories.c2_review_repository import (
+            PostgresReviewQueueRepository,
+        )
+
+        engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 3})
+        engine.connect().close()
+    except Exception:  # noqa: BLE001 - an absent database is a normal state
+        return None
+
+    return PostgresReviewQueueRepository(
+        sessionmaker(bind=engine), REVIEW_REPOSITORY_ID, REVIEW_RELEASE_ID
+    )
 
 
 @router.get(
@@ -816,3 +867,169 @@ def run_validation(
         decision_mode=run.decision_mode,
         stages=[StageRecordResponse(**stage.to_dict()) for stage in run.stages],
     )
+
+class ReviewItemResponse(BaseModel):
+    """One fact waiting on an architect."""
+
+    item_id: str
+    fact_id: str
+    bucket: str
+    confidence: float
+    source_tier: str | None = Field(
+        default=None,
+        description=(
+            "The tier of the source the decision came from, which is what "
+            "lets a screen say *why* this needs a person rather than showing "
+            "a number below a threshold."
+        ),
+    )
+    evidence_refs: list[str] = Field(
+        description="References, never the evidence. The item holds no copies."
+    )
+    candidate_decision_id: str | None = Field(
+        default=None,
+        description="What a confirmation would ratify, when there is one.",
+    )
+    status: str
+    created_at: datetime
+
+
+class ReviewDecisionRequest(BaseModel):
+    """What an architect decided about one queued fact."""
+
+    accepted: bool = Field(
+        description=(
+            "true ratifies the candidate decision, which raises its strength "
+            "in the knowledge log so the next run can reach a verdict that is "
+            "currently capped. false records that a mined candidate was wrong "
+            "and appends nothing - a rejection is kept, because the ratio of "
+            "confirmations to rejections is the only ground truth this system "
+            "produces for free."
+        )
+    )
+    decided_by: str = Field(
+        default="architect",
+        description=(
+            "A role rather than a person: the role exists in the system and "
+            "whoever fills it is interchangeable."
+        ),
+    )
+    note: str | None = None
+
+
+class ReviewOutcomeResponse(BaseModel):
+    """What recording one decision did."""
+
+    item_id: str
+    status: str
+    ratified: int = Field(
+        description=(
+            "How many decision versions the confirmation applied to. Zero on "
+            "a rejection, and zero on an acceptance whose candidate has been "
+            "superseded since it was queued - which is information for "
+            "whoever pressed the button rather than a fault, and is why it is "
+            "returned instead of logged."
+        )
+    )
+    note: str = Field(
+        description="What has not happened yet, in words, for the screen."
+    )
+
+
+@router.get(
+    "/reviews",
+    response_model=list[ReviewItemResponse],
+    summary="List the facts waiting on an architect",
+    response_description="Every undecided item, oldest first.",
+)
+def list_reviews(
+    service: ArchitectureValidationService = Depends(get_validation_service),
+):
+    """Return the queue, oldest first.
+
+    Oldest first and not newest: a queue read newest-first buries the item
+    that has been waiting longest, which is the one a reviewer most needs.
+
+    An empty list is a real answer and not an error. On this subject system
+    every service pair is covered by an enforced policy, so nothing falls to a
+    weak tier and nothing needs a person - which is a property of the
+    repository rather than of the component.
+    """
+
+    queue = get_review_queue()
+    if queue is None:
+        return []
+    return [ReviewItemResponse(**_review_item(item)) for item in queue.pending()]
+
+
+@router.post(
+    "/reviews/{item_id}",
+    response_model=ReviewOutcomeResponse,
+    summary="Record an architect's decision on one queued fact",
+    response_description="What the decision did, and what it did not do.",
+    responses={404: {"description": "No such review item."}},
+)
+def decide_review(
+    item_id: str,
+    request: ReviewDecisionRequest,
+    service: ArchitectureValidationService = Depends(get_validation_service),
+):
+    """Record the decision, and ratify the candidate when it is accepted.
+
+    **This does not re-run the release.** It appends to the knowledge log and
+    returns. When a verdict changes has to be a decision somebody made rather
+    than a side effect: five confirmations would otherwise start five runs,
+    each resolving against a log the others were still changing, and the
+    verdicts would depend on the order the buttons were pressed.
+
+    So the loop is confirm, then run - and the run is the ordinary
+    `POST /validations`, not a special path.
+    """
+
+    decision = ReviewDecision(
+        item_id=item_id,
+        accepted=request.accepted,
+        decided_by=request.decided_by,
+        decided_at=datetime.now(UTC),
+        note=request.note,
+    )
+
+    try:
+        outcome = service.record_review(decision, REVIEW_REPOSITORY_ID)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except QueueUnavailable as error:
+        # The queue is where the decision has to be written down, so unlike a
+        # run this cannot degrade: there is nowhere to record the answer.
+        raise HTTPException(
+            status_code=503,
+            detail=f"the review queue is unavailable: {error}",
+        ) from error
+
+    return ReviewOutcomeResponse(
+        item_id=outcome.item_id,
+        status=str(outcome.status),
+        ratified=outcome.ratified,
+        note=(
+            "the rule is now authoritative in the decision log. This fact "
+            "still reads as it did, because verdicts are never rewritten - "
+            "the next run will resolve it as a ratified rule and the ceiling "
+            "will lift."
+            if outcome.ratified
+            else "recorded. Nothing was appended to the decision log."
+        ),
+    )
+
+
+def _review_item(item) -> dict:
+    return {
+        "item_id": item.item_id,
+        "fact_id": item.fact_id,
+        "bucket": str(item.bucket),
+        "confidence": item.confidence,
+        "source_tier": str(item.source_tier) if item.source_tier else None,
+        "evidence_refs": list(item.evidence_refs),
+        "candidate_decision_id": item.candidate_decision_id,
+        "status": str(item.status),
+        "created_at": item.created_at,
+    }

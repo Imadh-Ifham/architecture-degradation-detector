@@ -102,7 +102,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Queues what the system will not decide alone, and records what a person decided.",
         research_module="M7",
         uses_model=False,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="graph_publishing",

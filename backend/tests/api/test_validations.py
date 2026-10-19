@@ -187,7 +187,7 @@ class TestPipelineEndpoint:
         body = client.get("/validations/pipeline").json()
 
         assert body["implemented_count"] == sum(1 for s in PIPELINE if s.implemented)
-        assert 0 < body["implemented_count"] < body["stage_count"]
+        assert body["implemented_count"] == body["stage_count"] == 8
 
     def test_every_stage_carries_what_the_screen_renders(self, client):
         stage = client.get("/validations/pipeline").json()["stages"][0]
@@ -262,14 +262,15 @@ class TestRunEndpoint:
         assert counts["identity_collisions"] == 0
         assert counts["merged_facts"] == 0
 
-    def test_a_run_with_stages_still_stubbed_is_reported_as_incomplete(self, client):
-        """A client must never read a partial run as a finished one.
+    def test_a_run_over_the_whole_pipeline_is_reported_as_completed(self, client):
+        """It asserted `incomplete` while a stage was a stub, and then that
+        `published_ref` was not part of the claim once publishing stopped
+        depending on the review queue. Eight of eight are now built, so the
+        honest assertion is the one it was waiting to be able to make.
 
-        `published_ref` is no longer part of that claim. Publishing is gated
-        on the six stages that produce facts, and the only unbuilt stage is
-        the review queue - downstream of every fact - so an incomplete run
-        now publishes a document that is itself complete. The status and the
-        pending stage are what say the run is not finished.
+        What it still protects is the half that matters: a client must never
+        read a partial run as a finished one, so every stage reports a status
+        and none of them is left pending.
         """
 
         body = client.post(
@@ -277,10 +278,10 @@ class TestRunEndpoint:
             json={"repository_id": "online-boutique", "release_id": "v0.10.0"},
         ).json()
 
-        assert body["status"] == "incomplete"
+        assert body["status"] == "completed"
         assert body["model_calls"] == 0
         assert body["published_ref"] is not None
-        assert any(stage["status"] == "pending" for stage in body["stages"])
+        assert not any(stage["status"] == "pending" for stage in body["stages"])
 
     def test_an_unknown_release_is_a_conflict_rather_than_a_server_error(self, client):
         """No recording for that release is the caller's to fix, not a fault."""

@@ -66,6 +66,9 @@ class ClassificationService:
         caps = rules.applicable(
             rules.CapContext(
                 tier=decision.source_tier,
+                # A rule a named architect vouched for is not capped by where
+                # it was read from. The ceiling exists because nobody had.
+                ratified=bool(decision.ratified_by),
                 inferred=rules.inferred(fact.quality),
                 outcome=outcome,
                 agreement=verdict.arbiter_agreement,

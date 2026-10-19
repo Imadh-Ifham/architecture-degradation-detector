@@ -619,3 +619,95 @@ def _sized_document(unit, release="v0.10.0"):
         ),
         validation_confidence=0.5,
     )
+
+
+class TestTheReviewQueueIsNotInThePipeline:
+    """M7's requirement, asserted where the document is: a queue that refuses
+    costs the run nothing, and the proof is that the document does not change.
+
+    A stage record saying `completed` proves nothing about whether the queue
+    is on the critical path. Two identical documents do.
+    """
+
+    def run_with(self, root, queue):
+        service = pipeline(root)
+        service._review = ArchitectReviewService(queue, None)
+        return service.run(repository_id=REPOSITORY, release_id=RELEASE)
+
+    def test_a_queue_that_refuses_does_not_fail_the_run(self, tmp_path):
+        result = self.run_with(tmp_path, _RefusingQueue())
+        stage = next(s for s in result.stages if s.name == "architect_review")
+
+        assert result.status == "completed"
+        assert result.published_ref is not None
+        assert any("review queue failed" in w for w in stage.warnings)
+        assert stage.counts["needing_review"] > 0
+
+    def test_the_published_document_is_identical_with_the_queue_broken(self, tmp_path):
+        """The structural half. If the document differed, the queue would be
+        in the pipeline whatever the stage record said."""
+
+        working = self.run_with(tmp_path / "ok", _RecordingQueue())
+        broken = self.run_with(tmp_path / "broken", _RefusingQueue())
+
+        assert _without_run_identity(working) == _without_run_identity(broken)
+
+    def test_an_unconfigured_queue_is_a_note_and_not_a_warning(self, tmp_path):
+        result = self.run_with(tmp_path, None)
+        stage = next(s for s in result.stages if s.name == "architect_review")
+
+        assert stage.warnings == ()
+        assert "no queue is configured" in (stage.note or "")
+
+    def test_a_working_queue_takes_exactly_the_facts_routed_to_review(self, tmp_path):
+        queue = _RecordingQueue()
+
+        result = self.run_with(tmp_path, queue)
+        stage = next(s for s in result.stages if s.name == "architect_review")
+        reviewed = [f for f in result.facts if f.route == "review"]
+
+        assert stage.counts["queued"] == len(reviewed)
+        assert {i.fact_id for i in queue.items} == {f.fact_id for f in reviewed}
+
+
+def _without_run_identity(result) -> dict:
+    """The published document with the two fields that are a run's identity
+    removed, since those differ between any two runs by design."""
+
+    document = json.loads(Path(result.published_ref).read_text(encoding="utf-8"))
+    document["graph"]["run"].pop("run_id")
+    document["graph"]["run"].pop("generated_at")
+    document["graph"]["summary"].pop("model_calls", None)
+    return document
+
+
+class _RecordingQueue:
+    def __init__(self) -> None:
+        self.items = []
+
+    def enqueue(self, item):
+        self.items.append(item)
+        return item.item_id
+
+    def get(self, item_id):
+        return next((i for i in self.items if i.item_id == item_id), None)
+
+    def pending(self):
+        return list(self.items)
+
+    def resolve(self, decision):
+        return None
+
+
+class _RefusingQueue:
+    def enqueue(self, item):
+        raise RuntimeError("no route to the database")
+
+    def get(self, item_id):
+        raise RuntimeError("no route to the database")
+
+    def pending(self):
+        raise RuntimeError("no route to the database")
+
+    def resolve(self, decision):
+        raise RuntimeError("no route to the database")

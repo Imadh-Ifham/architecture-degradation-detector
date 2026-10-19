@@ -96,6 +96,31 @@ class CorpusReader:
         )
 
 
+def review_queue(repository_id: str, release_id: str):
+    """The review queue, or `None` with the reason printed.
+
+    `None` is *not configured*, which the review stage reports as a note
+    rather than a warning: the facts needing a person are in the published
+    document regardless, and a run on a laptop with no database should not
+    warn about a store it was never asked to write.
+    """
+
+    try:
+        from app.infrastructure.postgres.database import DATABASE_URL
+        from app.infrastructure.postgres.repositories.c2_review_repository import (
+            PostgresReviewQueueRepository,
+        )
+
+        engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 3})
+        engine.connect().close()
+    except Exception as error:
+        print(f"  queue      not configured: {_first_line(error)}")
+        return None
+    return PostgresReviewQueueRepository(
+        sessionmaker(bind=engine), repository_id, release_id
+    )
+
+
 def recorder():
     """The relational record, or `None` with the reason printed.
 
@@ -135,14 +160,17 @@ def projection():
     return Neo4jGraphProjection(driver.session)
 
 
-def pipeline(file_only: bool, corpus: bool) -> ArchitectureValidationService:
+def pipeline(
+    file_only: bool, corpus: bool, repository_id: str, release_id: str
+) -> ArchitectureValidationService:
     client = get_ai_client()
     artifacts = CorpusReader() if corpus else get_artifact_reader()
     decisions = JsonlDecisionStore(DECISIONS) if corpus else get_decision_store()
+    knowledge = DecisionKnowledgeService(artifacts, decisions)
     return ArchitectureValidationService(
         architecture_reader=get_architecture_reader(),
         normalization=ObservationNormalizationService(),
-        knowledge=DecisionKnowledgeService(artifacts, decisions),
+        knowledge=knowledge,
         evidence=EvidenceRetrievalService(artifacts),
         reasoning=ValidationReasoningService(
             client,
@@ -158,7 +186,10 @@ def pipeline(file_only: bool, corpus: bool) -> ArchitectureValidationService:
             provider=ai_settings.ai_provider,
         ),
         classification=ClassificationService(),
-        review=ArchitectReviewService(),
+        review=ArchitectReviewService(
+            None if file_only else review_queue(repository_id, release_id),
+            knowledge,
+        ),
         publishing=GraphPublishingService(
             get_graph_file_store(),
             None if file_only else recorder(),
@@ -184,7 +215,12 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     print(f"stores for {arguments.repository} {arguments.release}:")
-    service = pipeline(arguments.file_only, arguments.corpus)
+    service = pipeline(
+        arguments.file_only,
+        arguments.corpus,
+        arguments.repository,
+        arguments.release,
+    )
 
     found = get_release_dates().read(arguments.repository, arguments.release)
     released_at, source = found if found else (None, None)
@@ -197,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     stage = next(s for s in run.stages if s.name == "graph_publishing")
+    review = next(s for s in run.stages if s.name == "architect_review")
     print()
     print(f"run        {run.run_id}  status {run.status}")
     print(f"confidence {run.validation_confidence}  over {len(run.facts)} facts")
@@ -204,6 +241,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"published  {run.published_ref}")
     print(f"stores     {stage.note or 'nothing written'}")
     for warning in stage.warnings:
+        print(f"  warning  {warning}")
+    print(f"review     {review.counts.get('queued', 0)} queued"
+          f"{'  (' + review.note + ')' if review.note else ''}")
+    for warning in review.warnings:
         print(f"  warning  {warning}")
 
     if run.published_ref:

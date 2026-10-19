@@ -8,7 +8,6 @@ Description:
 """
 
 from dataclasses import dataclass
-from enum import StrEnum
 
 from app.domain.validated_architecture import ValidationBucket
 
@@ -20,19 +19,6 @@ labelled set to sweep it against yet, and a value like 0.73 would imply a sweep
 that never happened. Re-sweeping once a labelled set exists is a one-line
 change plus a re-run.
 """
-
-
-class Route(StrEnum):
-    """Who looks at a classified fact next.
-
-    A second axis from the bucket, not a stronger version of it. The bucket is
-    what this component concluded; the route is what happens to the
-    conclusion. Merged into one field, an architect clearing a review queue
-    would be editing conclusions.
-    """
-
-    PUBLISH = "publish"
-    REVIEW = "review"
 
 
 @dataclass(frozen=True)

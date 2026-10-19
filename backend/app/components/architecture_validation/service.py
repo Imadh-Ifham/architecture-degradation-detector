@@ -32,8 +32,8 @@ from time import perf_counter
 
 from app.domain.recovered_architecture import RecoveredArchitecture
 
-from .architect_review import ArchitectReviewService
-from .classification import ClassificationService, Route, per_fact_mode
+from .architect_review import ArchitectReviewService, QueueUnavailable
+from .classification import ClassificationService, per_fact_mode
 from .decision_knowledge import (
     DEFAULT_MODE,
     DecisionKnowledgeService,
@@ -46,6 +46,7 @@ from .models import (
     ArbiterAgreement,
     ClassifiedFact,
     PrimaryVerdict,
+    Route,
     StageRecord,
     StageStatus,
     ValidationRunResult,
@@ -533,7 +534,9 @@ class ArchitectureValidationService:
         )
         stages.extend(reasoning_stages)
 
-        stages.append(self._queue_for_review(classified))
+        stages.append(
+            self._queue_for_review(classified, repository_id, release_id)
+        )
 
         # Built before publishing rather than after, because the publisher is
         # handed the run itself. A document assembled from loose arguments
@@ -859,16 +862,72 @@ class ArchitectureValidationService:
             classification.record(),
         ], mode, _run_provenance(verdicts, judged)
 
-    def _queue_for_review(self, classified: list[ClassifiedFact]) -> StageRecord:
+    def record_review(self, decision, repository_id: str):
+        """Record what an architect decided about one queued fact.
+
+        On the orchestrator rather than reached for directly, so the route
+        talks to one service and the component keeps one entry point. It is
+        deliberately **not** part of `run()`: a decision is not a stage, and
+        nothing in a run waits for one.
+
+        It does not start a run either. When a verdict changes has to be a
+        choice somebody made - five confirmations would otherwise start five
+        runs, each resolving against a log the others were still writing.
+        """
+
+        return self._review.decide(decision, repository_id)
+
+    def _queue_for_review(
+        self, classified: list[ClassifiedFact], repository_id: str, release_id: str
+    ) -> StageRecord:
+        """Write down what the system would not decide alone.
+
+        This stage cannot hold up a run and cannot change its output. The
+        facts needing a person are already in the published document, with
+        their bucket and the cap that bound them; the queue is an additional
+        place the same facts appear so somebody can find them, and nothing
+        downstream reads it.
+
+        So a queue that refused is a **warning naming the store**, not a
+        failed stage: the run is finished and correct by this point, and every
+        row is rebuildable from the document - which makes an unreachable
+        queue late rather than lost.
+        """
+
         with _Stage("architect_review") as stage:
-            needing_review = tuple(f for f in classified if f.route == "review")
+            needing_review = tuple(f for f in classified if f.route == Route.REVIEW)
             if not needing_review:
                 stage.counts = {"queued": 0}
                 stage.skip("no fact was routed for review")
                 return stage.record()
 
-            queued, ran = _attempt(stage, self._review.enqueue, needing_review)
-            stage.counts = {"queued": len(queued) if ran else 0}
+            try:
+                queued = self._review.enqueue(
+                    needing_review, repository_id, release_id
+                )
+            except QueueUnavailable as error:
+                # Named rather than counted, and the same distinction M8 makes
+                # about its two stores: "nothing needs a person" and "the
+                # queue could not be written" look identical on a screen, and
+                # only one of them is a finding.
+                stage.counts = {"queued": 0, "needing_review": len(needing_review)}
+                stage.warnings = (f"review queue failed: {error}",)
+                stage.note = (
+                    f"{len(needing_review)} facts need a person and could not be "
+                    "queued. They are in the published document regardless"
+                )
+                return stage.record()
+            except NotImplementedError:
+                stage.counts = {"queued": 0}
+                stage.skip("not implemented yet")
+                return stage.record()
+
+            stage.counts = {"queued": len(queued)}
+            if not queued:
+                stage.note = (
+                    f"{len(needing_review)} facts need a person; no queue is "
+                    "configured, so they are in the published document only"
+                )
             return stage.record()
 
     def _publish(self, run: ValidationRunResult, architecture: RecoveredArchitecture):

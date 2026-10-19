@@ -37,6 +37,25 @@ class RelationshipKind(StrEnum):
     DEPENDS_ON = "depends-on"
 
 
+class Route(StrEnum):
+    """Who looks at a classified fact next.
+
+    A second axis from the bucket, not a stronger version of it. The bucket is
+    what this component concluded; the route is what happens to the
+    conclusion. Merged into one field, an architect clearing a review queue
+    would be editing conclusions.
+
+    Here rather than in the subcomponent that assigns it, because two of them
+    read it: classification decides a fact's route and architect review acts
+    on it. The field it describes is on `ClassifiedFact`, which is shared, so
+    the vocabulary is shared too - and a subcomponent reaching into a sibling
+    for the word `review` is the coupling the import rules exist to stop.
+    """
+
+    PUBLISH = "publish"
+    REVIEW = "review"
+
+
 class SourceTier(StrEnum):
     """Where a statement of intent was found.
 
