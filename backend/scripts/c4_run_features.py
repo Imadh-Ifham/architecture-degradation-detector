@@ -1,6 +1,6 @@
-# Run C4 layers 1-2 (ingestion + features) on the fixtures and save the run to PostgreSQL for
-# inspection (C4-T16b): tables c4_scoring_run, c4_event_ingestion, c4_event_features.
-# Real-repository runs come in T21. Usage, from backend/:
+# Run C4 layers 1-3 (ingestion, features, scoring) on the fixtures and save the run to
+# PostgreSQL for inspection (C4-T16b, T19): tables c4_scoring_run, c4_event_ingestion,
+# c4_event_features, c4_event_scores. Real-repository runs come in T21. Usage, from backend/:
 #     uv run python -m scripts.c4_run_features                 # fixtures, fixture ADR index
 #     uv run python -m scripts.c4_run_features --no-adr        # ADR-violation criterion off
 #     then open docs/pp1/demo-queries.sql in DBeaver
@@ -28,7 +28,7 @@ FIXTURES = BACKEND_ROOT / "tests" / "fixtures" / "degradation_scoring"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="C4 layers 1-2 on fixtures, saved to Postgres")
+    parser = argparse.ArgumentParser(description="C4 layers 1-3 on fixtures, saved to Postgres")
     parser.add_argument("--events", type=Path, default=FIXTURES / "events/fixture_events.v1.json")
     parser.add_argument(
         "--graph", type=Path, default=FIXTURES / "graphs/fixture_release_package.v1.5.0.json"
@@ -81,6 +81,15 @@ def main() -> None:
                 "quarantined": outcomes.count("quarantined"),
                 "hotspot": result.features.hotspot.inactive_reason or "active",
                 "adr": result.features.adr.inactive_reason or "active",
+                "topsis_mode": result.scoring.topsis_mode,
+                "weights": {
+                    d.value: round(w, 4) for d, w in result.scoring.weights.weights.items()
+                },
+                "weights_provenance": result.scoring.weights.provenance.value,
+                "top_5": [
+                    {"rank": r.rank, "event_id": r.event_id, "severity": round(r.severity, 4)}
+                    for r in result.scoring.ranking[:5]
+                ],
             },
             indent=2,
         )

@@ -1,0 +1,91 @@
+﻿C4 quality gate report
+Date (UTC): 2026-10-18 17:47:20
+Git commit: 1710b0c on feat/scoring-report
+Uncommitted changes: 21 paths
+Python: Python 3.13.2
+uv: uv 0.13.0 (4ecd0eff2 2026-10-09 x86_64-pc-windows-msvc)
+
+=== ruff check: uv run ruff check --extend-select I,UP,B,SIM,N,RUF app/components/degradation_scoring tests/components/degradation_scoring app/domain/severity_report.py scripts/scoring_export_schemas.py app/infrastructure/git/history.py app/infrastructure/postgres/models/c4_mining_cache.py app/infrastructure/postgres/repositories/mining_cache_repository.py alembic/versions/0002_c4_mining_cache.py scripts/c4_hotspot_profile.py app/infrastructure/postgres/models/c4_scoring_run.py app/infrastructure/postgres/repositories/scoring_run_repository.py alembic/versions/0003_c4_scoring_run.py alembic/versions/0004_c4_event_scores.py scripts/c4_run_features.py scripts/c4_rank.py tests/domain/test_severity_report.py tests/scripts/test_scoring_export_schemas.py tests/infrastructure/git/test_history.py tests/infrastructure/postgres/test_mining_cache_repository.py tests/infrastructure/postgres/test_scoring_run_repository.py tests/scripts/test_scoring_rank.py ===
+All checks passed!
+--- ruff check: PASS
+
+=== ruff format: uv run ruff format --check app/components/degradation_scoring tests/components/degradation_scoring app/domain/severity_report.py scripts/scoring_export_schemas.py app/infrastructure/git/history.py app/infrastructure/postgres/models/c4_mining_cache.py app/infrastructure/postgres/repositories/mining_cache_repository.py alembic/versions/0002_c4_mining_cache.py scripts/c4_hotspot_profile.py app/infrastructure/postgres/models/c4_scoring_run.py app/infrastructure/postgres/repositories/scoring_run_repository.py alembic/versions/0003_c4_scoring_run.py alembic/versions/0004_c4_event_scores.py scripts/c4_run_features.py scripts/c4_rank.py tests/domain/test_severity_report.py tests/scripts/test_scoring_export_schemas.py tests/infrastructure/git/test_history.py tests/infrastructure/postgres/test_mining_cache_repository.py tests/infrastructure/postgres/test_scoring_run_repository.py tests/scripts/test_scoring_rank.py ===
+112 files already formatted
+--- ruff format: PASS
+
+=== mypy: uv run mypy app/components/degradation_scoring tests/components/degradation_scoring app/domain/severity_report.py scripts/scoring_export_schemas.py app/infrastructure/git/history.py app/infrastructure/postgres/models/c4_mining_cache.py app/infrastructure/postgres/repositories/mining_cache_repository.py alembic/versions/0002_c4_mining_cache.py scripts/c4_hotspot_profile.py app/infrastructure/postgres/models/c4_scoring_run.py app/infrastructure/postgres/repositories/scoring_run_repository.py alembic/versions/0003_c4_scoring_run.py alembic/versions/0004_c4_event_scores.py scripts/c4_run_features.py scripts/c4_rank.py tests/domain/test_severity_report.py tests/scripts/test_scoring_export_schemas.py tests/infrastructure/git/test_history.py tests/infrastructure/postgres/test_mining_cache_repository.py tests/infrastructure/postgres/test_scoring_run_repository.py tests/scripts/test_scoring_rank.py ===
+Success: no issues found in 93 source files
+--- mypy: PASS
+
+=== pytest + coverage: uv run pytest tests/components/degradation_scoring tests/domain/test_severity_report.py tests/scripts/test_scoring_export_schemas.py tests/infrastructure/git/test_history.py tests/infrastructure/postgres/test_mining_cache_repository.py tests/infrastructure/postgres/test_scoring_run_repository.py tests/scripts/test_scoring_rank.py -q -p no:cacheprovider --cov=app.components.degradation_scoring --cov=app.domain.severity_report --cov=scripts.scoring_export_schemas --cov=scripts.c4_rank --cov=app.infrastructure.git.history --cov=app.infrastructure.postgres.repositories.mining_cache_repository --cov=app.infrastructure.postgres.repositories.scoring_run_repository --cov-report=term-missing --cov-fail-under=80 ===
+........................................................................ [ 12%]
+........................................................................ [ 25%]
+........................................................................ [ 38%]
+........................................................................ [ 50%]
+........................................................................ [ 63%]
+.......................................ss............................... [ 76%]
+........................................................................ [ 89%]
+.............................................................            [100%]
+=============================== tests coverage ================================
+_______________ coverage: platform win32, python 3.13.2-final-0 _______________
+
+Name                                                                  Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------------------------
+app\components\degradation_scoring\__init__.py                            2      0      0      0   100%
+app\components\degradation_scoring\config.py                             53      0      0      0   100%
+app\components\degradation_scoring\evaluation\__init__.py                 2      0      0      0   100%
+app\components\degradation_scoring\evaluation\models.py                   0      0      0      0   100%
+app\components\degradation_scoring\evaluation\service.py                  1      0      0      0   100%
+app\components\degradation_scoring\explanation\__init__.py                2      0      0      0   100%
+app\components\degradation_scoring\explanation\models.py                  0      0      0      0   100%
+app\components\degradation_scoring\explanation\service.py                 1      0      0      0   100%
+app\components\degradation_scoring\features\__init__.py                   2      0      0      0   100%
+app\components\degradation_scoring\features\adr_weight.py                27      0      8      0   100%
+app\components\degradation_scoring\features\blast_radius.py              45      0     10      0   100%
+app\components\degradation_scoring\features\errors.py                     2      0      0      0   100%
+app\components\degradation_scoring\features\history.py                   93      0     24      0   100%
+app\components\degradation_scoring\features\hotspot.py                   85      0     24      0   100%
+app\components\degradation_scoring\features\models.py                    93      0      0      0   100%
+app\components\degradation_scoring\features\persistence.py               44      0     16      0   100%
+app\components\degradation_scoring\features\service.py                   31      0      4      0   100%
+app\components\degradation_scoring\ingestion\__init__.py                  2      0      0      0   100%
+app\components\degradation_scoring\ingestion\adr.py                      53      0     20      1    99%   28->26
+app\components\degradation_scoring\ingestion\errors.py                    4      0      0      0   100%
+app\components\degradation_scoring\ingestion\events.py                   48      0     16      0   100%
+app\components\degradation_scoring\ingestion\graph.py                    63      0     22      0   100%
+app\components\degradation_scoring\ingestion\models.py                   34      0      0      0   100%
+app\components\degradation_scoring\ingestion\resolution.py               52      0     18      0   100%
+app\components\degradation_scoring\ingestion\service.py                  29      0      6      0   100%
+app\components\degradation_scoring\models.py                             18      0      0      0   100%
+app\components\degradation_scoring\ports.py                               8      0      0      0   100%
+app\components\degradation_scoring\reporting\__init__.py                  2      0      0      0   100%
+app\components\degradation_scoring\reporting\errors.py                    4      0      0      0   100%
+app\components\degradation_scoring\reporting\manifest.py                 19      0      2      0   100%
+app\components\degradation_scoring\reporting\models.py                   29      0      0      0   100%
+app\components\degradation_scoring\reporting\service.py                  24      0      4      0   100%
+app\components\degradation_scoring\reporting\writer.py                   28      1      4      1    94%   43
+app\components\degradation_scoring\scoring_engine\__init__.py             2      0      0      0   100%
+app\components\degradation_scoring\scoring_engine\ahp.py                 66      0     18      0   100%
+app\components\degradation_scoring\scoring_engine\errors.py               6      0      0      0   100%
+app\components\degradation_scoring\scoring_engine\models.py              82      0      4      0   100%
+app\components\degradation_scoring\scoring_engine\normalizer.py          84      0     34      0   100%
+app\components\degradation_scoring\scoring_engine\service.py             20      0      0      0   100%
+app\components\degradation_scoring\scoring_engine\topsis.py              26      0      4      0   100%
+app\components\degradation_scoring\service.py                           165      3     44      6    96%   149->148, 475->477, 478, 480, 484, 485->487
+app\domain\severity_report.py                                           157      0     20      0   100%
+app\infrastructure\git\history.py                                        29      0      4      0   100%
+app\infrastructure\postgres\repositories\mining_cache_repository.py      20      0      0      0   100%
+app\infrastructure\postgres\repositories\scoring_run_repository.py       16      0      6      3    86%   30->32, 32->34, 34->exit
+scripts\c4_rank.py                                                       90      6     14      4    90%   75, 87-94, 114->116, 168
+scripts\scoring_export_schemas.py                                        30      1      8      1    95%   67
+-----------------------------------------------------------------------------------------------------------------
+TOTAL                                                                  1693     11    334     16    99%
+Required test coverage of 80% reached. Total coverage: 98.67%
+563 passed, 2 skipped in 36.32s
+--- pytest + coverage: PASS
+
+=== Summary ===
+ruff check           PASS
+ruff format          PASS
+mypy                 PASS
+pytest + coverage    PASS

@@ -12,7 +12,7 @@ from pydantic_core import PydanticCustomError
 from app.domain.boundary import BoundaryModel, NonEmptyStr
 from app.domain.degradation_event import ContextTag, ReviewStatus, Scope
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 # Weights and contributions are sums of floats, so they are compared with a tolerance.
 SUM_TOLERANCE = 1e-6
@@ -79,6 +79,13 @@ class DataProvenance(StrEnum):
     FIXTURE = "fixture"
     FIXTURE_EVENTS_LIVE_HISTORY = "fixture-events+live-history"
     LIVE = "live"
+
+
+class WeightsProvenance(StrEnum):
+    # Who made the AHP pairwise judgements. Weights stay provisional until the supervisor
+    # elicitation session has happened (CLAUDE.md §5.6).
+    PROVISIONAL_AUTHOR_ELICITED = "provisional-author-elicited"
+    SUPERVISOR_ELICITED = "supervisor-elicited"
 
 
 class DimensionScore(BoundaryModel):
@@ -222,6 +229,7 @@ class SeverityReportV1(BoundaryModel):
     data_provenance: DataProvenance
     active_dimensions: list[Dimension] = Field(min_length=1)
     weights_version: NonEmptyStr
+    weights_provenance: WeightsProvenance
     ahp_cr: float = Field(ge=0)
     normalization: NormalizationMode
     normalization_bounds: dict[str, NormalizationBounds] = Field(default_factory=dict)

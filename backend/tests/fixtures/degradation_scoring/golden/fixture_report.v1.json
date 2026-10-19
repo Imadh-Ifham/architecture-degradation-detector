@@ -1,0 +1,643 @@
+{
+  "schema_version": "1.1.0",
+  "run_id": "golden",
+  "system_id": "c4-fixture-shop",
+  "release_id": "v1.5.0",
+  "data_provenance": "fixture",
+  "active_dimensions": [
+    "blast_radius",
+    "adr_violation",
+    "persistence"
+  ],
+  "weights_version": "ahp_v1",
+  "weights_provenance": "provisional-author-elicited",
+  "ahp_cr": 0.011475369739961907,
+  "normalization": "minmax_small_n",
+  "normalization_bounds": {
+    "br_fan_in_ratio": {
+      "lower": 0.14285714285714285,
+      "upper": 0.9047619047619048
+    },
+    "br_pagerank": {
+      "lower": 0.0320298790759856,
+      "upper": 0.21455282088133296
+    },
+    "br_betweenness": {
+      "lower": 0.0,
+      "upper": 0.17761904761904762
+    },
+    "br_depth": {
+      "lower": 2.0,
+      "upper": 4.0
+    },
+    "ps_consecutive_releases": {
+      "lower": 3.0,
+      "upper": 6.0
+    },
+    "ps_growth_slope": {
+      "lower": 0.0,
+      "upper": 0.21428571428571427
+    }
+  },
+  "resolution_rate": 0.9,
+  "records": [
+    {
+      "event_id": "DEG-C4FX-R02-0001",
+      "anti_pattern_type": "CyclicDependency",
+      "scope": "INSTANCE",
+      "review_status": "CONFIRMED",
+      "context_tag": "GENUINE",
+      "rank": 1,
+      "severity": 0.6855864347962227,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.6880998177472666,
+          "normalized": 0.6880998177472666,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.3888888888888889,
+            "pagerank": 0.2016817783738057,
+            "betweenness": 0.17761904761904762,
+            "depth": 3.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 1.0,
+          "normalized": 1.0,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 1.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.19090909090909094,
+          "normalized": 0.19090909090909094,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 3.0,
+            "growth_slope": 0.13636363636363638
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.7993056868916084,
+        "hotspot": 0.0,
+        "adr_violation": 0.1981280920977883,
+        "persistence": 0.0025662210106032657
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0002",
+      "anti_pattern_type": "HubLikeElement",
+      "scope": "ELEMENT",
+      "review_status": "CONFIRMED",
+      "context_tag": "GENUINE",
+      "rank": 2,
+      "severity": 0.644501600985742,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.75,
+          "normalized": 0.75,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.9047619047619048,
+            "pagerank": 0.21455282088133296,
+            "betweenness": 0.0,
+            "depth": 4.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 0.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.8647058823529411,
+          "normalized": 0.8647058823529411,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 6.0,
+            "growth_slope": 0.11764705882352941
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.9474696347880954,
+        "hotspot": 0.0,
+        "adr_violation": 0.0,
+        "persistence": 0.052530365211904545
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0008",
+      "anti_pattern_type": "SharedPersistence",
+      "scope": "INSTANCE",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 3,
+      "severity": 0.6122963217583183,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.5820638950156037,
+          "normalized": 0.5820638950156037,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.45,
+            "pagerank": 0.10962596320039131,
+            "betweenness": 0.17761904761904762,
+            "depth": 3.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 1.0,
+          "normalized": 1.0,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 1.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.4666666666666666,
+          "normalized": 0.4666666666666666,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 5.0,
+            "growth_slope": 0.0
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.728213413076182,
+        "hotspot": 0.0,
+        "adr_violation": 0.25226290455132394,
+        "persistence": 0.019523682372493877
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0006",
+      "anti_pattern_type": "SharedPersistence",
+      "scope": "INSTANCE",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 4,
+      "severity": 0.5147109134863311,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.568900709245585,
+          "normalized": 0.568900709245585,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.45,
+            "pagerank": 0.10001562963929486,
+            "betweenness": 0.17761904761904762,
+            "depth": 3.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 0.13999999999999999,
+          "normalized": 0.13999999999999999,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 0.13999999999999999
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.3,
+          "normalized": 0.3,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 3.0,
+            "growth_slope": 0.21428571428571427
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.981637490229782,
+        "hotspot": 0.0,
+        "adr_violation": 0.006977025295828613,
+        "persistence": 0.011385484474389338
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0003",
+      "anti_pattern_type": "OversizedElement",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 5,
+      "severity": 0.4976336484791422,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.5435237214598964,
+          "normalized": 0.5435237214598964,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.47619047619047616,
+            "pagerank": 0.07521387365552705,
+            "betweenness": 0.17761904761904762,
+            "depth": 3.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 0.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.7897908597986056,
+          "normalized": 0.7897908597986056,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 6.0,
+            "growth_slope": 0.06413632842757552
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.9190602251969694,
+        "hotspot": 0.0,
+        "adr_violation": 0.0,
+        "persistence": 0.08093977480303063
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0007",
+      "anti_pattern_type": "UnstableDependency",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 6,
+      "severity": 0.4483805236405294,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.4644195590732111,
+          "normalized": 0.4644195590732111,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.5238095238095238,
+            "pagerank": 0.04348722196892187,
+            "betweenness": 0.05238095238095239,
+            "depth": 4.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 0.2,
+          "normalized": 0.2,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 0.2
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.7108527131782946,
+          "normalized": 0.7108527131782946,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 5.0,
+            "growth_slope": 0.1744186046511628
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.8932698162522505,
+        "hotspot": 0.0,
+        "adr_violation": 0.019442749790880096,
+        "persistence": 0.08728743395686928
+      },
+      "resolution": {
+        "status": "prefix_fallback",
+        "confidence": 0.7
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0004",
+      "anti_pattern_type": "UnstableDependency",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 7,
+      "severity": 0.37561379774198705,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.4101204064382532,
+          "normalized": 0.4101204064382532,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.47619047619047616,
+            "pagerank": 0.0600259360974288,
+            "betweenness": 0.09761904761904763,
+            "depth": 3.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 0.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.37952497952497943,
+          "normalized": 0.37952497952497943,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 4.0,
+            "growth_slope": 0.1044226044226044
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.9655136515869579,
+        "hotspot": 0.0,
+        "adr_violation": 0.0,
+        "persistence": 0.03448634841304202
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0014",
+      "anti_pattern_type": "UnstableDependency",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 8,
+      "severity": 0.3007367503385013,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.28799430294906164,
+          "normalized": 0.28799430294906164,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.47619047619047616,
+            "pagerank": 0.0320298790759856,
+            "betweenness": 0.0380952380952381,
+            "depth": 3.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 0.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.8846153846153846,
+          "normalized": 0.8846153846153846,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 6.0,
+            "growth_slope": 0.13186813186813187
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.7176047873486149,
+        "hotspot": 0.0,
+        "adr_violation": 0.0,
+        "persistence": 0.282395212651385
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0005",
+      "anti_pattern_type": "MetricDrift",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "UNCERTAIN",
+      "rank": 9,
+      "severity": 0.17981530320279437,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.1684153877617609,
+          "normalized": 0.1684153877617609,
+          "weight": 0.6464906402775342,
+          "features": {
+            "fan_in_ratio": 0.14285714285714285,
+            "pagerank": 0.059567726264050186,
+            "betweenness": 0.09285714285714286,
+            "depth": 2.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.0,
+          "features": {},
+          "active": false
+        },
+        "adr_violation": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.22147783103900426,
+          "features": {
+            "av": 0.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.5133333333333333,
+          "normalized": 0.5133333333333333,
+          "weight": 0.13203152868346155,
+          "features": {
+            "consecutive_releases": 4.0,
+            "growth_slope": 0.19999999999999998
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.7207232668982412,
+        "hotspot": 0.0,
+        "adr_violation": 0.0,
+        "persistence": 0.2792767331017588
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    }
+  ],
+  "quarantined": [
+    {
+      "event_id": null,
+      "reason": "malformed_payload",
+      "detail": "event_id: Field required"
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0902",
+      "reason": "malformed_payload",
+      "detail": "event_key: String should match pattern '^sha256:[0-9a-f]{64}$'"
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0903",
+      "reason": "malformed_payload",
+      "detail": "<event>: Value error, scope ELEMENT needs element_id and lineage_id"
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0009",
+      "reason": "unresolved_element",
+      "detail": "missing: legacy-billing"
+    }
+  ],
+  "skipped": [
+    {
+      "event_id": "DEG-C4FX-R02-0010",
+      "reason": "intentional"
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0011",
+      "reason": "rejected"
+    },
+    {
+      "event_id": "DEG-C4FX-R02-0012",
+      "reason": "system_scope_not_rankable"
+    },
+    {
+      "event_id": "DEG-C4FX-R01-0013",
+      "reason": "superseded"
+    }
+  ]
+}

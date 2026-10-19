@@ -1,20 +1,24 @@
-# Scoring engine: normalises the criteria, derives AHP weights and ranks events with
-# fixed-reference TOPSIS . T17: normalisation and criterion values.
+# Scoring engine: normalises the criteria (T17), derives AHP weights (T18) and ranks the
+# events with TOPSIS (T19), fixed-reference by default.
 
 from collections.abc import Sequence
 
 from app.components.degradation_scoring.config import C4Config
+from app.components.degradation_scoring.scoring_engine.ahp import derive_weights, load_judgements
 from app.components.degradation_scoring.scoring_engine.models import (
     Calibration,
+    CriterionWeights,
     NormalisedSet,
     RawEvent,
+    ScoringResult,
 )
 from app.components.degradation_scoring.scoring_engine.normalizer import normalise
+from app.components.degradation_scoring.scoring_engine.topsis import topsis
 from app.domain.severity_report import Dimension
 
 
 class ScoringService:
-    # Ranks events by severity from their features; the entry method becomes rank() in T19.
+    # Ranks events by severity from their raw features; rank() is the entry method.
 
     def __init__(self, config: C4Config) -> None:
         self._config = config
@@ -37,7 +41,34 @@ class ScoringService:
             },
         }
 
-    def normalise(
+    def rank(
+        self,
+        events: Sequence[RawEvent],
+        active: Sequence[Dimension],
+        *,
+        system_id: str,
+        release_id: str,
+        calibration: Calibration | None = None,
+    ) -> ScoringResult:
+        # normalise -> AHP weights over the active criteria -> TOPSIS in the configured mode
+        normalised = self._normalise(
+            events, active, system_id=system_id, release_id=release_id, calibration=calibration
+        )
+        weights = self._criterion_weights(normalised.active_criteria)
+        ranking = topsis(
+            normalised.events,
+            weights.weights,
+            normalised.active_criteria,
+            self._config.topsis_mode,
+        )
+        return ScoringResult(
+            topsis_mode=self._config.topsis_mode,
+            normalised=normalised,
+            weights=weights,
+            ranking=ranking,
+        )
+
+    def _normalise(
         self,
         events: Sequence[RawEvent],
         active: Sequence[Dimension],
@@ -57,4 +88,12 @@ class ScoringService:
             upper_percentile=self._config.winsor_upper_percentile,
             small_n_threshold=self._config.small_n_threshold,
             calibration=calibration,
+        )
+
+    def _criterion_weights(self, active: Sequence[Dimension]) -> CriterionWeights:
+        # AHP weights of the configured version; CR > max raises; renormalised over active
+        return derive_weights(
+            load_judgements(self._config.weights_version),
+            active,
+            max_consistency_ratio=self._config.ahp_max_consistency_ratio,
         )

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C4 severity report: {{ report.system_id }} {{ report.release_id }}</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 960px; padding: 16px;
+         color: #1d1d1f; background: #fff; line-height: 1.4; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  h2 { font-size: 1.15rem; margin-top: 28px; }
+  .banner { background: #fff3cd; border: 2px solid #b8860b; padding: 10px 14px; font-weight: 700; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  th { font-weight: 600; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .card { border: 1px solid #ccc; border-radius: 6px; padding: 12px 14px; margin: 14px 0; }
+  .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .rank { display: inline-block; min-width: 2.2em; font-weight: 700; }
+  .bar { background: #eee; height: 12px; border-radius: 3px; overflow: hidden; margin: 6px 0; }
+  .bar span { display: block; height: 100%; background: #c0392b; }
+  .badge { display: inline-block; font-size: 0.8rem; padding: 1px 7px; margin: 2px 4px 2px 0;
+           border-radius: 9px; border: 1px solid #888; background: #f4f4f4; }
+  .badge.warn { border-color: #b8860b; background: #fff3cd; }
+  .badge.off { border-color: #777; background: #e6e6e6; }
+  .off { color: #777; }
+  .muted { color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+{% if banner %}
+<p class="banner" role="alert">{{ banner }}</p>
+{% endif %}
+<h1>Severity report: {{ report.system_id }} @ {{ report.release_id }}</h1>
+<p class="muted">Run {{ report.run_id }} · schema {{ report.schema_version }}</p>
+
+<h2>Summary</h2>
+<table>
+  <tr><th>Data source</th><td>{{ report.data_provenance.value }}</td></tr>
+  <tr><th>Active dimensions</th><td>{{ report.active_dimensions | map(attribute="value") | join(", ") }}</td></tr>
+  <tr><th>Weights</th><td>{{ report.weights_version }} · {{ report.weights_provenance.value }} (elicited by {{ view.weights_elicited_by }})</td></tr>
+  <tr><th>AHP consistency</th><td>CR {{ "%.3f" | format(report.ahp_cr) }} (λmax {{ "%.3f" | format(view.ahp_lambda_max) }}); refused above 0.10</td></tr>
+  <tr><th>Ranking</th><td>TOPSIS {{ view.topsis_mode }} · normalisation {{ report.normalization.value }}</td></tr>
+  <tr><th>Events</th><td>{{ view.payloads }} payloads: {{ report.records | length }} ranked, {{ report.skipped | length }} skipped, {{ report.quarantined | length }} quarantined</td></tr>
+  <tr><th>Resolution rate</th><td>{{ report.resolution_rate | pct }}</td></tr>
+  <tr><th>Hotspot</th><td>{% if view.hotspot_inactive_reason %}off ({{ view.hotspot_inactive_reason }}){% else %}on{% if view.unmapped_line_share is not none %} · unmapped line share {{ view.unmapped_line_share | pct }}{% endif %}{% if view.path_mapping %} · paths from {{ view.path_mapping }}{% endif %}{% endif %}</td></tr>
+  <tr><th>ADR violation</th><td>{% if view.adr_inactive_reason %}off ({{ view.adr_inactive_reason }}){% else %}on{% endif %}</td></tr>
+</table>
+
+<h3>AHP weights</h3>
+<table>
+  <tr><th>Dimension</th><th class="n">Elicited (all four)</th><th class="n">Used this run</th></tr>
+{% for d in dimensions %}
+  <tr{% if d not in report.active_dimensions %} class="off"{% endif %}><td>{{ labels[d] }}</td><td class="n">{{ "%.3f" | format(view.elicited_weights[d]) }}</td><td class="n">{% if d in report.active_dimensions %}{{ "%.3f" | format(view.weights[d]) }}{% else %}off{% endif %}</td></tr>
+{% endfor %}
+</table>
+
+<h2>Ranked events</h2>
+{% if not report.records %}
+<p>No event was ranked.</p>
+{% endif %}
+{% for record in report.records %}
+{% set notes = view.notes[record.event_id] %}
+<section class="card">
+  <h3><span class="rank">#{{ record.rank }}</span> {{ record.anti_pattern_type }} · {{ record.event_id }}</h3>
+  <div class="bar" title="severity {{ '%.3f' | format(record.severity) }}"><span style="width: {{ '%.1f' | format(100 * record.severity) }}%"></span></div>
+  <p>Severity <strong>{{ "%.3f" | format(record.severity) }}</strong> · {{ record.scope.value }} · {{ notes.nodes | join(", ") }} · review {{ record.review_status.value }} · context {{ record.context_tag.value }}</p>
+  <p>
+{% for flag in notes.flags %}
+    <span class="badge{% if flag.endswith(' off') %} off{% else %} warn{% endif %}">{{ flag }}</span>
+{% endfor %}
+  </p>
+  <table>
+    <tr><th>Dimension</th><th class="n">Value</th><th class="n">Weight</th><th class="n">Contribution</th><th>Features</th></tr>
+{% for d in dimensions %}
+{% set score = record.dimensions[d] %}
+{% if score.active %}
+    <tr><td>{{ labels[d] }}</td><td class="n">{{ "%.3f" | format(score.normalized) }}</td><td class="n">{{ "%.3f" | format(score.weight) }}</td><td class="n">{{ record.contributions[d] | pct }}</td><td class="muted">{% for name, value in score.features.items() %}{{ name }} {{ value | num }}{% if not loop.last %} · {% endif %}{% endfor %}{% if d.value == "persistence" and notes.growth_metric %} · metric {{ notes.growth_metric }}{% endif %}{% if d.value == "adr_violation" and notes.adr_id %} · {{ notes.adr_id }}{% endif %}</td></tr>
+{% else %}
+    <tr class="off"><td>{{ labels[d] }}</td><td class="n">off</td><td class="n">0</td><td class="n">0</td><td></td></tr>
+{% endif %}
+{% endfor %}
+  </table>
+</section>
+{% endfor %}
+
+<h2>Skipped ({{ report.skipped | length }})</h2>
+{% if report.skipped %}
+<table>
+  <tr><th>Event</th><th>Reason</th></tr>
+{% for item in report.skipped %}
+  <tr><td>{{ item.event_id }}</td><td>{{ item.reason.value }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>None.</p>
+{% endif %}
+
+<h2>Quarantined ({{ report.quarantined | length }})</h2>
+{% if report.quarantined %}
+<table>
+  <tr><th>Event</th><th>Reason</th><th>Detail</th></tr>
+{% for item in report.quarantined %}
+  <tr><td>{{ item.event_id or "(no id)" }}</td><td>{{ item.reason.value }}</td><td class="muted">{{ item.detail }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>None.</p>
+{% endif %}
+</body>
+</html>
