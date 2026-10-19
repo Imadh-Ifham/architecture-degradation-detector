@@ -23,7 +23,12 @@ Description:
     The schema is here rather than in a module of its own because it and the
     prompt are the two halves of one question: the prompt says what to answer
     and the schema says in what shape, and they are edited together or they
-    disagree. The field order in it is load-bearing - see `verdict_schema`.
+    disagree.
+
+    `render_items` and `render_truncation_warning` are public because M5's
+    renderer calls them. Both arms have to read the same evidence the same
+    way, or a measured difference between them is partly a difference in
+    formatting - which is the one thing a mechanism comparison cannot have.
 """
 
 from ..models import EvidencePackage, PromptTemplate, Verdict
@@ -52,8 +57,8 @@ def render(template: PromptTemplate, package: EvidencePackage) -> str:
         ("subject", package.subject),
         ("relationship", str(package.relationship)),
         ("object", package.object),
-        ("items", _items(package)),
-        ("warning", _warning(package)),
+        ("items", render_items(package)),
+        ("warning", render_truncation_warning(package)),
     ):
         body = body.replace("{{" + name + "}}", value)
 
@@ -63,12 +68,18 @@ def render(template: PromptTemplate, package: EvidencePackage) -> str:
 def verdict_schema() -> dict:
     """The shape a verdict has to come back in.
 
-    **The order of `properties` is load-bearing.** Under constrained decoding
-    the fields are generated in the order they are declared, so `reasoning`
-    and `cited_evidence_refs` are declared before `verdict`: the model commits
-    to its reasoning and to the evidence it is resting on *before* it names
-    the conclusion, which is the cheap version of a reasoning trace and costs
-    no second call.
+    `reasoning` and `cited_evidence_refs` are declared before `verdict`,
+    which is what a reader of the schema expects of an answer meant to reason
+    and then conclude. **Nothing may depend on it.** The order was believed to
+    make the model commit to its reasoning before naming a conclusion; a spike
+    on 2026-10-18 inspected the outgoing request and the responses and
+    measured otherwise - the declared order survives `strictify` intact in
+    both `properties` and `required`, and the provider returns the conclusion
+    first regardless, identically on three consecutive calls at temperature
+    zero. Strict decoding constrains which fields exist, their types and their
+    permitted values, and leaves emission order to the model. The declaration
+    stays because it costs nothing and because the day a provider honours it
+    the property arrives for free.
 
     `verdict` is an enum rather than a string, so an answer outside the five
     values is impossible at generation time rather than something this code
@@ -103,7 +114,7 @@ def verdict_schema() -> dict:
     }
 
 
-def _items(package: EvidencePackage) -> str:
+def render_items(package: EvidencePackage) -> str:
     """Every item, in the order the package put them in.
 
     The order is the budget's truncation order, so what the model reads first
@@ -116,7 +127,7 @@ def _items(package: EvidencePackage) -> str:
     )
 
 
-def _warning(package: EvidencePackage) -> str:
+def render_truncation_warning(package: EvidencePackage) -> str:
     """What to say when the question was weakened to fit a budget.
 
     A package that quietly dropped a whole kind of evidence would be answered
@@ -131,4 +142,9 @@ def _warning(package: EvidencePackage) -> str:
     return "\n" + TRUNCATION_WARNING.format(roles=roles) + "\n"
 
 
-__all__ = ["render", "verdict_schema"]
+__all__ = [
+    "render",
+    "render_items",
+    "render_truncation_warning",
+    "verdict_schema",
+]

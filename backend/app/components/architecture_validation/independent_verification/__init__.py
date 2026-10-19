@@ -10,6 +10,7 @@ Description:
     Re-exports the service class only. No logic lives here.
 """
 
+from .models import MECHANISM_CRITICAL_REFRAMING
 from .service import IndependentVerificationService
 
-__all__ = ["IndependentVerificationService"]
+__all__ = ["MECHANISM_CRITICAL_REFRAMING", "IndependentVerificationService"]
