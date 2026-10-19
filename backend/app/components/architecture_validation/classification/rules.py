@@ -28,7 +28,8 @@ from ..models import (
     VerificationMode,
     VerificationOutcome,
 )
-from .models import PUBLISH_THRESHOLD, Cap, Route
+from ..models import Route
+from .models import PUBLISH_THRESHOLD, Cap
 
 TERM_VERDICT_BASE = 0.50
 """What a verdict is worth before anything about its evidence is considered.
@@ -127,6 +128,18 @@ TIER_CAP = {
 }
 """The ceiling table, and the research claim this component is defending.
 
+**A ratified record is exempt from every row of it**, which is the third row
+of CLS-D1's table and was missing from this code until M7 was built. The
+exemption is the table's own premise being satisfied rather than a hole in it:
+the ceiling exists because nobody has vouched for the rule, and once a named
+architect has, at a recorded time, the condition it protects against is gone.
+
+What keeps that from being a back door is that it takes a person.
+`extraction_method` stays `reconstructed` for the record's life and
+`ratified_by` sits beside it, so a confirmed rule is always distinguishable
+from a written one; and there is no code path from a run to a confirmation.
+
+
 Tiers 1 and 2 have no cap: both may state a violation. **Tier 2 reaching the
 top is the finding**, and it has to be defensible out loud. For a structural
 rule - may this service call that one - a network policy is unambiguous,
@@ -216,6 +229,7 @@ class CapContext:
     """
 
     tier: SourceTier | None
+    ratified: bool
     inferred: bool
     outcome: VerificationOutcome | None
     agreement: ArbiterAgreement | None
@@ -224,7 +238,7 @@ class CapContext:
 
 
 CAPS = (
-    lambda ctx: TIER_CAP[ctx.tier] if ctx.tier is not None else None,
+    lambda ctx: None if ctx.ratified else _tier_cap(ctx.tier),
     lambda ctx: OBSERVATION_CAP if ctx.inferred else None,
     lambda ctx: VERIFICATION_CAP.get(ctx.outcome),
     lambda ctx: ARBITER_CAP.get(ctx.agreement),
@@ -237,6 +251,17 @@ Several apply at once on most facts. They are composed by minimum rather than
 applied in sequence, so the answer cannot depend on the order of this tuple -
 which is the order most likely to be edited by somebody in a hurry.
 """
+
+
+def _tier_cap(tier: SourceTier | None) -> Cap | None:
+    """The ceiling the governing decision's tier imposes, if it imposes one.
+
+    A missing tier raises rather than defaulting, because `SourceTier` is
+    closed at five values and a sixth appearing should stop the run instead of
+    quietly taking the most permissive row.
+    """
+
+    return TIER_CAP[tier] if tier is not None else None
 
 
 def applicable(context: CapContext) -> tuple[Cap, ...]:

@@ -66,6 +66,9 @@ class ClassificationService:
         caps = rules.applicable(
             rules.CapContext(
                 tier=decision.source_tier,
+                # A rule a named architect vouched for is not capped by where
+                # it was read from. The ceiling exists because nobody had.
+                ratified=bool(decision.ratified_by),
                 inferred=rules.inferred(fact.quality),
                 outcome=outcome,
                 agreement=verdict.arbiter_agreement,
@@ -103,6 +106,12 @@ class ClassificationService:
             source_tier=decision.source_tier,
             evidence_refs=verdict.cited_evidence_refs,
             model_calls=_model_calls(verdict, verification),
+            produced_by=verdict.produced_by,
+            verification_outcome=outcome,
+            arbiter_agreement=verdict.arbiter_agreement,
+            verdict=verdict,
+            verification=verification,
+            **_topology(fact),
         )
 
     def _unreasoned(self, fact: ObservedFact,
@@ -139,7 +148,25 @@ class ClassificationService:
             ),
             evidence_refs=(),
             model_calls=0,
+            **_topology(fact),
         )
+
+
+def _topology(fact: ObservedFact) -> dict:
+    """Which relationship this verdict is about, in recovery's own ids.
+
+    Copied onto the classified fact because the publisher is handed these and
+    nothing else, and the alternative is joining two lists by `fact_id` on the
+    way out - which is the join that putting the verdict on the edge exists to
+    avoid.
+    """
+
+    return {
+        "source_element_id": fact.subject.id,
+        "target_element_id": fact.object.id,
+        "relationship": fact.relationship,
+        "attributes": dict(fact.attributes),
+    }
 
 
 def _model_calls(verdict: PrimaryVerdict,
