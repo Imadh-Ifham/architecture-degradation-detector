@@ -260,9 +260,11 @@ class TestObservationNormalizationHasNoIO:
         # Constructible with nothing: that is what "no I/O" means in practice.
         assert ObservationNormalizationService().normalise
 
-    def test_the_stand_in_lives_outside_the_component_and_states_its_expiry(self):
-        """A thing that has to disappear should be named and dated so that it
-        cannot be forgotten."""
+    def test_the_dependency_stand_in_is_gone(self):
+        """It was named for its own expiry, and recovery has shipped the thing
+        it stood in for. Asserted rather than remembered, because a module
+        that derives architecture from deployment manifests must not come
+        back into this project under another name."""
 
         stand_in = (
             COMPONENT.parents[1]
@@ -271,9 +273,7 @@ class TestObservationNormalizationHasNoIO:
             / "c1_dependency_stand_in.py"
         )
 
-        assert stand_in.is_file()
-        docstring = ast.get_docstring(ast.parse(stand_in.read_text(encoding="utf-8"))) or ""
-        assert "deleted when recovery ships" in docstring
+        assert not stand_in.exists()
 
 
 READS_THROUGH_A_PORT = ("decision_knowledge", "evidence_retrieval")
