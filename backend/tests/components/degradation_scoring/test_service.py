@@ -1,16 +1,28 @@
-# Tests for the degradation scoring service (C4-T16b, T19): layers 1-3 on the fixtures and the
+# Tests for the degradation scoring service (C4-T16b, T19, T20): layers 1-3 on the fixtures, the
 # plain rows saved for inspection (c4_scoring_run, c4_event_ingestion, c4_event_features,
-# c4_event_scores), and the scoring engine's input built from the features (C4-T17).
+# c4_event_scores), the scoring engine's input (C4-T17), and rank() with report and manifest.
 
+import json
+import os
+from pathlib import Path
 from typing import Any, cast
 
+import jsonschema
 import pytest
 
 from app.components import degradation_scoring
 from app.components.degradation_scoring.features.models import HotspotFeatures
-from app.components.degradation_scoring.service import DegradationScoringService, scoring_inputs
-from app.domain.severity_report import Dimension
+from app.components.degradation_scoring.reporting.manifest import file_hash
+from app.components.degradation_scoring.service import (
+    DegradationScoringService,
+    RankRun,
+    report_view,
+    scoring_inputs,
+)
+from app.domain.severity_report import DataProvenance, Dimension, SeverityReportV1
+from app.shared.canonical_json import content_hash
 from tests.components.degradation_scoring.support import (
+    FIXTURES,
     FakeRunRepository,
     adr_index_document,
     default_config,
@@ -214,3 +226,239 @@ def test_run_row_details_record_how_the_run_was_scored() -> None:
     assert scoring["calibration_frozen"] is False
     assert "br_fan_in_ratio" in scoring["normalization_bounds"]
     assert all(row["av_normalized"] is not None for row in scores)  # AV on in this run
+
+
+# rank(): the full run with report, HTML and manifest (C4-T20)
+
+GOLDEN = FIXTURES / "golden" / "fixture_report.v1.json"
+REPORT_SCHEMA = (
+    Path(degradation_scoring.__file__).parent / "docs" / "schemas" / "severity_report.schema.json"
+)
+
+
+def rank(tmp_path: Path, run_id: str = "golden", **kwargs: Any) -> RankRun:
+    config_updates = kwargs.pop("config", {})
+    service = DegradationScoringService(
+        default_config(outputs_root=tmp_path, **config_updates),
+        history_source=kwargs.pop("history_source", None),
+    )
+    return service.rank(
+        PAYLOADS, GRAPH_DOC, run_id=run_id, data_provenance=DataProvenance.FIXTURE, **kwargs
+    )
+
+
+def read(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def assert_close(actual: Any, expected: Any, where: str = "$") -> None:
+    # equal JSON, floats within 1e-9 (last-bit noise across platforms)
+    if isinstance(expected, float) and isinstance(actual, (int, float)):
+        assert actual == pytest.approx(expected, rel=1e-9, abs=1e-12), where
+    elif isinstance(expected, dict):
+        assert isinstance(actual, dict), where
+        assert list(actual) == list(expected), where
+        for key in expected:
+            assert_close(actual[key], expected[key], f"{where}.{key}")
+    elif isinstance(expected, list):
+        assert isinstance(actual, list), where
+        assert len(actual) == len(expected), where
+        for i, (a, e) in enumerate(zip(actual, expected, strict=True)):
+            assert_close(a, e, f"{where}[{i}]")
+    else:
+        assert actual == expected, where
+
+
+def test_rank_writes_the_run_files_under_system_and_run_id(tmp_path: Path) -> None:
+    result = rank(tmp_path, adr_document=adr_index_document())
+    directory = tmp_path / "c4-fixture-shop" / "golden"
+
+    assert result.outputs.directory == directory
+    assert sorted(p.name for p in directory.iterdir()) == [
+        "c4_quarantine.json",
+        "c4_report.html",
+        "c4_report.json",
+        "c4_run_manifest.json",
+    ]
+
+
+def test_rank_report_is_schema_valid(tmp_path: Path) -> None:
+    result = rank(tmp_path, adr_document=adr_index_document())
+    data = read(result.outputs.report_json)
+
+    jsonschema.validate(data, read(REPORT_SCHEMA))
+    assert SeverityReportV1.model_validate(data) == result.report
+    assert data["schema_version"] == "1.1.0"
+    assert data["weights_provenance"] == "provisional-author-elicited"
+    assert data["data_provenance"] == "fixture"
+
+
+def test_rank_report_follows_the_fixture_design(tmp_path: Path) -> None:
+    result = rank(tmp_path, adr_document=adr_index_document())
+    report, counts = result.report, EXPECTED["counts"]
+
+    assert [r.rank for r in report.records] == list(range(1, counts["ranked"] + 1))
+    assert [r.event_id for r in report.records] == [r.event_id for r in result.run.scoring.ranking]
+    assert len(report.skipped) == sum(counts["skipped"].values())
+    assert len(report.quarantined) == sum(counts["quarantined"].values())
+    assert report.resolution_rate == counts["resolution_rate"]
+    assert report.active_dimensions == [
+        Dimension.BLAST_RADIUS,
+        Dimension.ADR_VIOLATION,
+        Dimension.PERSISTENCE,
+    ]
+    for record in report.records:
+        av = record.dimensions[Dimension.ADR_VIOLATION]
+        assert av.raw == pytest.approx(DESIGNED_AV[record.event_id]["av"])
+        assert av.features["av"] == pytest.approx(DESIGNED_AV[record.event_id]["av"])
+        assert not record.dimensions[Dimension.HOTSPOT].active
+
+
+def test_fixture_report_matches_the_golden_file(tmp_path: Path) -> None:
+    # after an intended change: run once with C4_REGENERATE_GOLDEN=1, then review the diff
+    result = rank(tmp_path, adr_document=adr_index_document())
+    actual = read(result.outputs.report_json)
+    if os.environ.get("C4_REGENERATE_GOLDEN") == "1":
+        GOLDEN.parent.mkdir(exist_ok=True)
+        GOLDEN.write_bytes(result.outputs.report_json.read_bytes())
+
+    assert_close(actual, read(GOLDEN))
+
+
+def test_identical_input_gives_identical_json(tmp_path: Path) -> None:
+    first = rank(tmp_path / "a", adr_document=adr_index_document())
+    same = rank(tmp_path / "b", adr_document=adr_index_document())
+    other = rank(tmp_path / "c", run_id="another-run", adr_document=adr_index_document())
+
+    text = first.outputs.report_json.read_bytes()
+    assert same.outputs.report_json.read_bytes() == text
+    assert other.outputs.report_json.read_bytes().replace(b"another-run", b"golden") == text
+    assert same.outputs.report_html.read_bytes() == first.outputs.report_html.read_bytes()
+
+    manifests = [read(r.outputs.manifest) for r in (first, same)]
+    for manifest in manifests:
+        del manifest["created_at"], manifest["settings"]["outputs_root"]
+    assert manifests[0] == manifests[1]
+
+
+def test_rank_without_adr_index_switches_av_off(tmp_path: Path) -> None:
+    result = rank(tmp_path)
+    manifest = read(result.outputs.manifest)
+    html = result.outputs.report_html.read_text(encoding="utf-8")
+
+    assert result.report.active_dimensions == [Dimension.BLAST_RADIUS, Dimension.PERSISTENCE]
+    for record in result.report.records:
+        av = record.dimensions[Dimension.ADR_VIOLATION]
+        assert (av.active, av.weight, record.contributions[Dimension.ADR_VIOLATION]) == (
+            False,
+            0.0,
+            0.0,
+        )
+    assert manifest["adr"]["active"] is False
+    assert manifest["adr"]["inactive_reason"] == "no_adr_index"
+    assert manifest["inputs"]["adr_index_hash"] is None
+    assert sum(manifest["weights"]["used"].values()) == pytest.approx(1.0)
+    assert "off (no_adr_index)" in html
+    assert html.count('<span class="badge off">ADR off</span>') == len(result.report.records)
+
+
+def test_rank_in_classic_mode_is_recorded(tmp_path: Path) -> None:
+    result = rank(tmp_path, config={"topsis_mode": "classic"})
+
+    assert read(result.outputs.manifest)["topsis_mode"] == "classic"
+    assert "TOPSIS classic" in result.outputs.report_html.read_text(encoding="utf-8")
+
+
+def test_manifest_records_inputs_parameters_and_counts(tmp_path: Path) -> None:
+    adr = adr_index_document()
+    result = rank(tmp_path, adr_document=adr, code_commit="abc123")
+    manifest = read(result.outputs.manifest)
+    counts = EXPECTED["counts"]
+
+    assert manifest["run_id"] == "golden"
+    assert manifest["code_commit"] == "abc123"
+    assert manifest["inputs"]["events_hash"] == content_hash(PAYLOADS)
+    assert manifest["inputs"]["graph_hash"] == content_hash(GRAPH_DOC)
+    assert manifest["inputs"]["adr_index_hash"] == content_hash(adr)
+    assert manifest["counts"]["payloads"] == counts["payloads"]
+    assert manifest["counts"]["ranked"] == counts["ranked"]
+    assert manifest["counts"]["skipped_by_reason"] == dict(sorted(counts["skipped"].items()))
+    assert manifest["resolution_rate"] == counts["resolution_rate"]
+    assert manifest["weights"]["version"] == "ahp_v1"
+    assert manifest["weights"]["provenance"] == "provisional-author-elicited"
+    assert manifest["weights"]["ahp_cr"] == result.report.ahp_cr
+    assert manifest["normalization"]["mode"] == "minmax_small_n"
+    assert manifest["topsis_mode"] == "fixed_reference"
+    assert manifest["hotspot"]["cochange_threshold"] == 5
+    assert manifest["hotspot"]["max_files_per_commit"] == 50
+    assert "unmapped_line_share" in manifest["hotspot"]
+    assert manifest["stand_ins"]["prefix_fallback_events"] == 1
+    assert manifest["stand_ins"]["presence_fallback_events"] == counts["ranked"]
+    assert manifest["seeds"] == {"seed": 42}
+    assert manifest["explanation"]["run"] is False
+    assert manifest["outputs"]["c4_report.json"] == file_hash(
+        result.outputs.report_json.read_bytes()
+    )
+
+
+class TaggedHistory:
+    # CommitHistorySource with tags v1.0.0..v1.5.0 (one a month) and one commit in every range,
+    # touching a file that only the manual mapping gives to order-service
+
+    def commits(self, repo_path: str, from_tag: str, to_tag: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "hash": "c1",
+                "author_email": "dev@example.com",
+                "committed_at": "2026-05-15T12:00:00+00:00",
+                "message": "fix: order totals",
+                "files": [{"path": "src/manual/order/Order.java", "added": 6, "deleted": 2}],
+            }
+        ]
+
+    def tag_dates(self, repo_path: str) -> dict[str, str]:
+        return {f"v1.{i}.0": f"2026-{i + 1:02d}-01T00:00:00+00:00" for i in range(6)}
+
+
+def test_manual_source_paths_switch_hotspot_on_with_a_badge(tmp_path: Path) -> None:
+    result = rank(
+        tmp_path,
+        history_source=TaggedHistory(),
+        repo_path=tmp_path,
+        source_paths={"order-service": ["src/manual/order/**"]},
+        path_mapping="manual-mapping",
+    )
+    manifest = read(result.outputs.manifest)
+    html = result.outputs.report_html.read_text(encoding="utf-8")
+    hotspot = {
+        row.event_id: row.hotspot for row in result.run.features.events if row.hotspot is not None
+    }
+
+    assert Dimension.HOTSPOT in result.report.active_dimensions
+    assert manifest["hotspot"]["active"] is True
+    assert manifest["inputs"]["path_mapping"] == "manual-mapping"
+    assert manifest["inputs"]["source_paths_hash"] == content_hash(
+        {"order-service": ["src/manual/order/**"]}
+    )
+    assert hotspot["DEG-C4FX-R02-0001"].commits == 1  # the cycle includes order-service
+    assert hotspot["DEG-C4FX-R02-0002"].commits == 0  # common-lib
+    assert "paths from manual-mapping" in html
+    assert "unmapped line share" in html
+    assert '<span class="badge warn">manual mapping</span>' in html
+
+
+def test_report_view_flags_by_event() -> None:
+    run_result, _ = run()
+    view = report_view(run_result, None)
+    flags = {event_id: notes.flags for event_id, notes in view.notes.items()}
+
+    assert "fallback: path prefix" in flags["DEG-C4FX-R02-0007"]
+    assert "context uncertain" in flags["DEG-C4FX-R02-0005"]
+    assert all("hotspot off" in f and "ADR off" in f for f in flags.values())
+    assert view.adr_inactive_reason == "no_adr_index"
+    assert view.notes["DEG-C4FX-R02-0001"].nodes == [
+        "inventory-service",
+        "order-service",
+        "payment-service",
+        "shipping-service",
+    ]

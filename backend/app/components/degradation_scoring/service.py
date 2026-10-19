@@ -1,9 +1,9 @@
 # Degradation scoring service: the only way into C4; orchestrates the subcomponents in order
-# (ingestion -> features -> scoring -> explanation -> reporting). Layers 1-3 so far (T16b,
-# T19); T20 adds the report, explanation comes in Phase 4.
+# (ingestion -> features -> scoring -> explanation -> reporting). rank() runs layers 1-3 and
+# writes the report and manifest (T20); explanation comes in Phase 4.
 
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -15,14 +15,28 @@ from app.components.degradation_scoring.features.models import EventFeatures, Fe
 from app.components.degradation_scoring.ingestion import IngestionService
 from app.components.degradation_scoring.ingestion.graph import build_graph
 from app.components.degradation_scoring.ingestion.models import IngestionResult
+from app.components.degradation_scoring.models import ResolvedEvent
 from app.components.degradation_scoring.ports import (
     CommitHistorySource,
     MiningCache,
     ScoringRunRepository,
 )
+from app.components.degradation_scoring.reporting import ReportingService
+from app.components.degradation_scoring.reporting.models import EventNotes, ReportView, RunOutputs
 from app.components.degradation_scoring.scoring_engine import ScoringService
 from app.components.degradation_scoring.scoring_engine.models import RawEvent, ScoringResult
-from app.domain.severity_report import Dimension
+from app.domain.degradation_event import ContextTag
+from app.domain.severity_report import (
+    SCHEMA_VERSION,
+    DataProvenance,
+    Dimension,
+    DimensionScore,
+    NormalizationBounds,
+    ResolutionStatus,
+    SeverityRecord,
+    SeverityReportV1,
+)
+from app.shared.canonical_json import content_hash
 
 
 class ScoringRun(BaseModel):
@@ -36,6 +50,16 @@ class ScoringRun(BaseModel):
     ingestion: IngestionResult
     features: FeatureSet
     scoring: ScoringResult
+
+
+class RankRun(BaseModel):
+    # a full rank run: layers 1-3, the report built from them and the files written (T20)
+
+    model_config = ConfigDict(frozen=True)
+
+    run: ScoringRun
+    report: SeverityReportV1
+    outputs: RunOutputs
 
 
 class DegradationScoringService:
@@ -53,7 +77,58 @@ class DegradationScoringService:
         self._ingestion = IngestionService(config)
         self._features = FeatureExtractionService(config, history_source, mining_cache)
         self._scoring = ScoringService(config)
+        self._reporting = ReportingService()
         self._runs = run_repository
+
+    def rank(
+        self,
+        payloads: Iterable[object],
+        graph_document: object,
+        *,
+        run_id: str,
+        data_provenance: DataProvenance,
+        adr_document: object | None = None,
+        repo_path: Path | None = None,
+        code_commit: str | None = None,
+        source_paths: Mapping[str, Sequence[str]] | None = None,
+        path_mapping: str | None = None,
+    ) -> RankRun:
+        # layers 1-3, then report, HTML and manifest in <outputs_root>/<system>/<run_id>/
+        # (CLAUDE.md §6); source_paths = a manual element -> paths mapping labelled by
+        # path_mapping, replacing the graph's own paths for those elements
+        payloads = list(payloads)
+        run = self.run_features(
+            payloads,
+            graph_document,
+            run_id=run_id,
+            data_provenance=data_provenance.value,
+            adr_document=adr_document,
+            repo_path=repo_path,
+            code_commit=code_commit,
+            source_paths=source_paths,
+        )
+        report = build_report(run, data_provenance)
+        facts = manifest_facts(
+            run,
+            self._config,
+            data_provenance=data_provenance,
+            code_commit=code_commit,
+            inputs={
+                "events_hash": content_hash(payloads),
+                "graph_hash": content_hash(graph_document),
+                "adr_index_hash": None if adr_document is None else content_hash(adr_document),
+                "source_paths_hash": None if source_paths is None else content_hash(source_paths),
+                "path_mapping": path_mapping,
+                "repo_path": repo_path.resolve().as_posix() if repo_path else None,
+            },
+        )
+        outputs = self._reporting.write(
+            report,
+            report_view(run, path_mapping),
+            facts,
+            self._config.outputs_root / run.system_id / run_id,
+        )
+        return RankRun(run=run, report=report, outputs=outputs)
 
     def run_features(
         self,
@@ -65,10 +140,14 @@ class DegradationScoringService:
         adr_document: object | None = None,
         repo_path: Path | None = None,
         code_commit: str | None = None,
+        source_paths: Mapping[str, Sequence[str]] | None = None,
     ) -> ScoringRun:
         # layers 1-3: ingest + resolve, features, then normalise + weights + TOPSIS;
         # stored for inspection (C4-T16b, C4-T19)
         graph = build_graph(graph_document, reverse=self._config.graph_reverse_edges)
+        for node, paths in sorted((source_paths or {}).items()):
+            if node in graph:
+                graph.nodes[node]["source_paths"] = list(paths)
         ingestion = self._ingestion.ingest(list(payloads), graph, adr_document)
         features = self._features.extract(ingestion.resolved, graph, repo_path, ingestion.adr_index)
         first = ingestion.resolved[0].event if ingestion.resolved else None
@@ -257,3 +336,228 @@ def score_rows(run: ScoringRun) -> list[dict[str, Any]]:
             row[f"{prefix}_contribution"] = ranked.contributions[dimension]
         rows.append(row)
     return rows
+
+
+# The report (CLAUDE.md §4.2): one SeverityRecord per ranked event, all four dimensions listed.
+# A criterion's value is its criterion score (weighted mean of its normalised features, §5.1;
+# AV is already on 0-1), which is also what TOPSIS consumed; features holds the raw values.
+
+
+def build_report(run: ScoringRun, data_provenance: DataProvenance) -> SeverityReportV1:
+    scoring, ingestion = run.scoring, run.ingestion
+    return SeverityReportV1(
+        schema_version=SCHEMA_VERSION,
+        run_id=run.run_id,
+        system_id=run.system_id,
+        release_id=run.release_id,
+        data_provenance=data_provenance,
+        active_dimensions=list(scoring.weights.active_criteria),
+        weights_version=scoring.weights.version,
+        weights_provenance=scoring.weights.provenance,
+        ahp_cr=scoring.weights.consistency_ratio,
+        normalization=scoring.normalised.mode,
+        normalization_bounds={
+            key: NormalizationBounds(lower=bounds.lower, upper=bounds.upper)
+            for key, bounds in scoring.normalised.calibration.bounds.items()
+        },
+        resolution_rate=ingestion.resolution_rate,
+        records=_records(run),
+        quarantined=list(ingestion.quarantined),
+        skipped=list(ingestion.skipped),
+    )
+
+
+def _records(run: ScoringRun) -> list[SeverityRecord]:
+    scoring = run.scoring
+    resolved = {item.event.event_id: item for item in run.ingestion.resolved}
+    features = {row.event_id: row for row in run.features.events}
+    criteria = {event.event_id: event.criteria for event in scoring.normalised.events}
+    records = []
+    for ranked in scoring.ranking:
+        item = resolved[ranked.event_id]
+        raw = _raw_features(features[ranked.event_id])
+        dimensions = {}
+        for dimension in Dimension:
+            value = criteria[ranked.event_id].get(dimension)
+            dimensions[dimension] = (
+                DimensionScore(
+                    raw=value,
+                    normalized=value,
+                    weight=scoring.weights.weights[dimension],
+                    features=raw[dimension],
+                )
+                if value is not None
+                else DimensionScore(raw=0.0, normalized=0.0, weight=0.0, active=False)
+            )
+        records.append(
+            SeverityRecord(
+                event_id=ranked.event_id,
+                anti_pattern_type=item.event.anti_pattern_type,
+                scope=item.event.scope,
+                review_status=item.event.review_status,
+                context_tag=item.event.context.tag,
+                rank=ranked.rank,
+                severity=ranked.severity,
+                dimensions=dimensions,
+                contributions={d: ranked.contributions[d] for d in Dimension},
+                resolution=item.resolution,
+            )
+        )
+    return records
+
+
+def _raw_features(row: EventFeatures) -> dict[Dimension, dict[str, bool | float | None]]:
+    br, ps, eh, av = row.blast_radius, row.persistence, row.hotspot, row.adr_violation
+    return {
+        Dimension.BLAST_RADIUS: {
+            "fan_in_ratio": br.fan_in_ratio,
+            "pagerank": br.pagerank,
+            "betweenness": br.betweenness,
+            "depth": float(br.depth),
+        },
+        Dimension.HOTSPOT: {
+            "churn_decayed": eh.churn_decayed,
+            "authors": float(eh.authors),
+            "coupling": float(eh.coupling),
+            "bugfix_ratio": eh.bugfix_ratio,
+            "commits": float(eh.commits),
+        }
+        if eh
+        else {},
+        Dimension.ADR_VIOLATION: {"av": av.av} if av else {},
+        Dimension.PERSISTENCE: {
+            "consecutive_releases": float(ps.consecutive_releases),
+            "growth_slope": ps.growth_slope,
+        },
+    }
+
+
+# The HTML view: run facts the JSON contract does not carry, and one set of badges per event.
+
+
+def report_view(run: ScoringRun, path_mapping: str | None) -> ReportView:
+    scoring, hotspot, adr = run.scoring, run.features.hotspot, run.features.adr
+    resolved = {item.event.event_id: item for item in run.ingestion.resolved}
+    features = {row.event_id: row for row in run.features.events}
+    notes = {}
+    for ranked in scoring.ranking:
+        item, row = resolved[ranked.event_id], features[ranked.event_id]
+        notes[ranked.event_id] = EventNotes(
+            nodes=list(item.nodes),
+            flags=_flags(item, row, path_mapping),
+            growth_metric=row.persistence.growth_metric,
+            adr_id=row.adr_violation.adr_id if row.adr_violation else None,
+        )
+    return ReportView(
+        payloads=len(run.ingestion.payloads),
+        topsis_mode=scoring.topsis_mode,
+        weights_elicited_by=scoring.weights.elicited_by,
+        ahp_lambda_max=scoring.weights.lambda_max,
+        elicited_weights=dict(scoring.weights.elicited),
+        weights=dict(scoring.weights.weights),
+        hotspot_inactive_reason=None if hotspot.active else hotspot.inactive_reason,
+        adr_inactive_reason=None if adr.active else adr.inactive_reason,
+        unmapped_line_share=hotspot.unmapped_line_share,
+        path_mapping=path_mapping,
+        notes=notes,
+    )
+
+
+def _flags(item: ResolvedEvent, row: EventFeatures, path_mapping: str | None) -> list[str]:
+    # badge texts; a text ending in " off" is drawn as a switched-off criterion
+    flags = []
+    if item.event.context.tag == ContextTag.UNCERTAIN:
+        flags.append("context uncertain")
+    if item.resolution.status == ResolutionStatus.PREFIX_FALLBACK:
+        flags.append("fallback: path prefix")
+    if row.hotspot and row.hotspot.first_seen_fallback:
+        flags.append("fallback: first seen")
+    if row.persistence.presence_fallback:
+        flags.append("fallback: presence")
+    if not row.persistence.growth_slope_available:
+        flags.append("no growth slope")
+    if row.blast_radius.betweenness_sampled:
+        flags.append("betweenness sampled")
+    if row.hotspot is None:
+        flags.append("hotspot off")
+    elif not row.hotspot.paths_available:
+        flags.append("no source paths")
+    elif path_mapping:
+        flags.append(path_mapping.replace("-", " "))
+    if row.adr_violation is None:
+        flags.append("ADR off")
+    return flags
+
+
+# The run manifest's facts (CLAUDE.md §6); reporting adds time, versions and file hashes.
+
+
+def manifest_facts(
+    run: ScoringRun,
+    config: C4Config,
+    *,
+    data_provenance: DataProvenance,
+    code_commit: str | None,
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    scoring, ingestion, features = run.scoring, run.ingestion, run.features
+    weights, normalised = scoring.weights, scoring.normalised
+    outcomes = [record.outcome for record in ingestion.payloads]
+    resolutions = [item.resolution.status for item in ingestion.resolved]
+    return {
+        "run_id": run.run_id,
+        "system_id": run.system_id,
+        "release_id": run.release_id,
+        "data_provenance": data_provenance.value,
+        "report_schema_version": SCHEMA_VERSION,
+        "code_commit": code_commit,
+        "inputs": dict(inputs),
+        "counts": {
+            "payloads": len(outcomes),
+            "ranked": outcomes.count("ranked"),
+            "skipped": outcomes.count("skipped"),
+            "quarantined": outcomes.count("quarantined"),
+            "skipped_by_reason": dict(sorted(ingestion.skip_counts().items())),
+            "quarantined_by_reason": dict(sorted(ingestion.quarantine_counts().items())),
+        },
+        "resolution_rate": ingestion.resolution_rate,
+        "active_dimensions": [d.value for d in weights.active_criteria],
+        "weights": {
+            "version": weights.version,
+            "provenance": weights.provenance.value,
+            "elicited_by": weights.elicited_by,
+            "ahp_cr": weights.consistency_ratio,
+            "ahp_ci": weights.consistency_index,
+            "ahp_lambda_max": weights.lambda_max,
+            "elicited": {d.value: w for d, w in weights.elicited.items()},
+            "used": {d.value: w for d, w in weights.weights.items()},
+        },
+        "normalization": {
+            "mode": normalised.mode.value,
+            "frozen": normalised.frozen,
+            "lower_percentile": normalised.calibration.lower_percentile,
+            "upper_percentile": normalised.calibration.upper_percentile,
+            "bounds": {
+                key: bounds.model_dump() for key, bounds in normalised.calibration.bounds.items()
+            },
+        },
+        "topsis_mode": scoring.topsis_mode,
+        "hotspot": {
+            **features.hotspot.model_dump(),
+            "include_globs": config.history_include_globs,
+            "exclude_globs": config.history_exclude_globs,
+        },
+        "adr": features.adr.model_dump(),
+        "stand_ins": {
+            "prefix_fallback_events": resolutions.count(ResolutionStatus.PREFIX_FALLBACK),
+            "first_seen_fallback_events": sum(
+                1 for row in features.events if row.hotspot and row.hotspot.first_seen_fallback
+            ),
+            "presence_fallback_events": sum(
+                1 for row in features.events if row.persistence.presence_fallback
+            ),
+        },
+        "explanation": {"run": False, "llm_model_id": None, "prompt_hashes": {}},
+        "seeds": {"seed": config.seed},
+        "settings": config.model_dump(mode="json"),
+    }
