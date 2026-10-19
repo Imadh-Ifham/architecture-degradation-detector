@@ -1,8 +1,8 @@
-# Tests for the degradation scoring service (C4-T16b): layers 1-2 on the fixtures and the
-# plain rows saved for inspection (c4_scoring_run, c4_event_ingestion, c4_event_features),
-# and the scoring engine's input built from the features (C4-T17).
+# Tests for the degradation scoring service (C4-T16b, T19): layers 1-3 on the fixtures and the
+# plain rows saved for inspection (c4_scoring_run, c4_event_ingestion, c4_event_features,
+# c4_event_scores), and the scoring engine's input built from the features (C4-T17).
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -39,7 +39,7 @@ def test_package_exports_only_the_service() -> None:
 
 def test_run_row_has_the_designed_counts() -> None:
     result, repo = run()
-    ((run_row, _, _),) = repo.saved
+    ((run_row, _, _, _),) = repo.saved
     counts = EXPECTED["counts"]
 
     assert (result.system_id, result.release_id) == ("c4-fixture-shop", "v1.5.0")
@@ -54,7 +54,7 @@ def test_run_row_has_the_designed_counts() -> None:
 
 def test_one_ingestion_row_per_payload_in_order() -> None:
     _, repo = run()
-    ((_, rows, _),) = repo.saved
+    ((_, rows, _, _),) = repo.saved
 
     assert [row["payload_index"] for row in rows] == list(range(len(PAYLOADS)))
     designed = {e["event_id"]: e["outcome"] for e in EXPECTED["events"]}
@@ -67,7 +67,7 @@ def test_one_ingestion_row_per_payload_in_order() -> None:
 
 def test_malformed_payloads_keep_their_position() -> None:
     _, repo = run()
-    ((_, rows, _),) = repo.saved
+    ((_, rows, _, _),) = repo.saved
 
     for malformed in EXPECTED["malformed"]:
         row = rows[malformed["index"]]
@@ -79,7 +79,7 @@ def test_malformed_payloads_keep_their_position() -> None:
 
 def test_ranked_rows_carry_nodes_and_resolution() -> None:
     _, repo = run()
-    ((_, rows, _),) = repo.saved
+    ((_, rows, _, _),) = repo.saved
     by_id = {row["event_id"]: row for row in rows}
 
     cycle = by_id["DEG-C4FX-R02-0001"]
@@ -97,7 +97,7 @@ def test_ranked_rows_carry_nodes_and_resolution() -> None:
 
 def test_feature_rows_without_repo_or_adr_index() -> None:
     result, repo = run()
-    ((run_row, _, rows),) = repo.saved
+    ((run_row, _, rows, _),) = repo.saved
 
     assert len(rows) == EXPECTED["counts"]["ranked"]
     assert (run_row["hotspot_active"], run_row["hotspot_inactive_reason"]) == (
@@ -114,7 +114,7 @@ def test_feature_rows_without_repo_or_adr_index() -> None:
 
 def test_feature_rows_with_the_fixture_adr_index() -> None:
     _, repo = run(adr_document=adr_index_document())
-    ((run_row, _, rows),) = repo.saved
+    ((run_row, _, rows, _),) = repo.saved
 
     details = run_row["details"]
     assert isinstance(details, dict)
@@ -136,20 +136,22 @@ def test_every_row_column_exists_in_the_tables() -> None:
     from app.infrastructure.postgres.models.c4_scoring_run import (
         c4_event_features,
         c4_event_ingestion,
+        c4_event_scores,
         c4_scoring_run,
     )
 
     _, repo = run(adr_document=adr_index_document())
-    ((run_row, ingestion, features),) = repo.saved
+    ((run_row, ingestion, features, scores),) = repo.saved
 
     assert set(run_row) == set(c4_scoring_run.c.keys())
     assert set(ingestion[0]) == set(c4_event_ingestion.c.keys())
     assert set(features[0]) == set(c4_event_features.c.keys())
+    assert set(scores[0]) == set(c4_event_scores.c.keys())
 
 
 def test_scoring_inputs_match_the_saved_feature_rows() -> None:
     result, repo = run(adr_document=adr_index_document())
-    ((_, _, rows),) = repo.saved
+    ((_, _, rows, _),) = repo.saved
     active, events = scoring_inputs(result.features)
     assert active == [Dimension.BLAST_RADIUS, Dimension.ADR_VIOLATION, Dimension.PERSISTENCE]
     for row, item in zip(rows, events, strict=True):
@@ -181,3 +183,34 @@ def test_scoring_inputs_with_hotspot_active() -> None:
     assert active == [Dimension.BLAST_RADIUS, Dimension.HOTSPOT, Dimension.PERSISTENCE]
     assert events[0].values["eh_churn_decayed"] == 4.5
     assert events[0].values["eh_coupling"] == 1.0
+
+
+def test_score_rows_follow_the_ranking_with_inactive_criteria_off() -> None:
+    result, repo = run()
+    ((_, _, features, scores),) = repo.saved
+
+    assert [row["rank"] for row in scores] == list(range(1, len(features) + 1))
+    assert {row["event_id"] for row in scores} == {row["event_id"] for row in features}
+    assert [row["event_id"] for row in scores] == [r.event_id for r in result.scoring.ranking]
+    for row in scores:
+        assert row["av_normalized"] is None and row["eh_normalized"] is None  # both off
+        assert (row["av_weight"], row["av_contribution"]) == (0.0, 0.0)
+        values = cast(dict[str, float], row)
+        assert values["br_weight"] + values["ps_weight"] == pytest.approx(1.0)
+        assert values["br_contribution"] + values["ps_contribution"] == pytest.approx(1.0)
+        assert row["br_normalized"] is not None
+
+
+def test_run_row_details_record_how_the_run_was_scored() -> None:
+    _, repo = run(adr_document=adr_index_document())
+    ((run_row, _, _, scores),) = repo.saved
+    scoring = cast(dict[str, Any], run_row["details"])["scoring"]
+
+    assert scoring["topsis_mode"] == "fixed_reference"
+    assert scoring["weights_version"] == "ahp_v1"
+    assert scoring["weights_provenance"] == "provisional-author-elicited"
+    assert round(scoring["ahp_cr"], 2) == 0.01
+    assert scoring["normalization"] == "minmax_small_n"
+    assert scoring["calibration_frozen"] is False
+    assert "br_fan_in_ratio" in scoring["normalization_bounds"]
+    assert all(row["av_normalized"] is not None for row in scores)  # AV on in this run

@@ -1,4 +1,4 @@
-# PostgresScoringRunRepository against a real database (Docker), C4-T16b.
+# PostgresScoringRunRepository against a real database (Docker), C4-T16b (scores: C4-T19).
 # Each test runs in one outer transaction that is rolled back; skips without PostgreSQL.
 
 from collections.abc import Iterator
@@ -14,6 +14,7 @@ from app.components.degradation_scoring.service import (
     feature_rows,
     ingestion_rows,
     run_row,
+    score_rows,
 )
 from tests.components.degradation_scoring.support import (
     adr_index_document,
@@ -66,7 +67,9 @@ def repo(sessions: sessionmaker[Session]) -> Any:
 
 def save(repo: Any, run_id: str = "pytest-run") -> None:
     run = RUN.model_copy(update={"run_id": run_id})
-    repo.save(run_row(run, "fixture", None, None), ingestion_rows(run), feature_rows(run))
+    repo.save(
+        run_row(run, "fixture", None, None), ingestion_rows(run), feature_rows(run), score_rows(run)
+    )
 
 
 def count(sessions: sessionmaker[Session], table: Any, run_id: str = "pytest-run") -> int:
@@ -82,6 +85,7 @@ def test_a_run_is_stored_with_all_its_rows(repo: Any, sessions: sessionmaker[Ses
     from app.infrastructure.postgres.models.c4_scoring_run import (
         c4_event_features,
         c4_event_ingestion,
+        c4_event_scores,
         c4_scoring_run,
     )
 
@@ -90,6 +94,7 @@ def test_a_run_is_stored_with_all_its_rows(repo: Any, sessions: sessionmaker[Ses
     assert count(sessions, c4_scoring_run) == 1
     assert count(sessions, c4_event_ingestion) == 17
     assert count(sessions, c4_event_features) == 9
+    assert count(sessions, c4_event_scores) == 9
 
 
 def test_values_round_trip(repo: Any, sessions: sessionmaker[Session]) -> None:
@@ -117,6 +122,27 @@ def test_values_round_trip(repo: Any, sessions: sessionmaker[Session]) -> None:
     assert fan_in == pytest.approx(7 / 18)
     assert (nodes, malformed_id) == ([], None)  # a malformed payload without an id
     assert details["adr_scope_weights"]["local"] == 0.4
+    assert details["scoring"]["weights_provenance"] == "provisional-author-elicited"
+
+
+def test_scores_round_trip_in_rank_order(repo: Any, sessions: sessionmaker[Session]) -> None:
+    from app.infrastructure.postgres.models.c4_scoring_run import c4_event_scores
+
+    save(repo)
+
+    s = c4_event_scores.c
+    with sessions() as session:
+        rows = session.execute(
+            select(s.event_id, s.rank, s.severity, s.av_weight, s.eh_normalized, s.eh_weight)
+            .where(s.run_id == "pytest-run")
+            .order_by(s.rank)
+        ).all()
+
+    expected = score_rows(RUN.model_copy(update={"run_id": "pytest-run"}))
+    assert [(r.event_id, r.rank) for r in rows] == [(e["event_id"], e["rank"]) for e in expected]
+    assert [r.severity for r in rows] == pytest.approx([e["severity"] for e in expected])
+    assert rows[0].av_weight == pytest.approx(0.2215, abs=1e-4)  # AV on in this run
+    assert (rows[0].eh_normalized, rows[0].eh_weight) == (None, 0.0)  # hotspot off
 
 
 def test_reusing_a_run_id_fails_and_stores_nothing_more(
@@ -135,6 +161,7 @@ def test_deleting_a_run_deletes_its_rows(repo: Any, sessions: sessionmaker[Sessi
     from app.infrastructure.postgres.models.c4_scoring_run import (
         c4_event_features,
         c4_event_ingestion,
+        c4_event_scores,
         c4_scoring_run,
     )
 
@@ -144,3 +171,4 @@ def test_deleting_a_run_deletes_its_rows(repo: Any, sessions: sessionmaker[Sessi
 
     assert count(sessions, c4_event_ingestion) == 0
     assert count(sessions, c4_event_features) == 0
+    assert count(sessions, c4_event_scores) == 0

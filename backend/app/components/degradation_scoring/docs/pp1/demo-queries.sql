@@ -2,8 +2,10 @@
 -- Fill the tables first, from backend/:
 --     uv run python -m scripts.c4_run_features --run-id fixture-demo-adr-on
 --     uv run python -m scripts.c4_run_features --no-adr --run-id fixture-demo-adr-off
+-- Runs saved before T19 have no scores; a reused run_id is refused, so delete the old run
+-- first (its rows go with it): DELETE FROM c4_scoring_run WHERE run_id = 'fixture-demo-adr-on';
 -- Story: the run -> what happened to each input event -> each ranked event's numbers
--- (-> later, layer 3: c4_event_scores with the 0-1 values, weights, severity and rank).
+-- -> layer 3: c4_event_scores with the 0-1 values, weights, contributions, severity and rank.
 
 -- 1. Runs: one row per C4 run. Counts per outcome, how many events could be matched to
 --    the graph, and which criteria were on (hotspot needs a repository, AV needs C2's links).
@@ -69,3 +71,43 @@ JOIN c4_event_features off_run
   ON off_run.event_id = on_run.event_id AND off_run.run_id = 'fixture-demo-adr-off'
 WHERE on_run.run_id = 'fixture-demo-adr-on'
 ORDER BY on_run.av_weight DESC NULLS LAST, on_run.event_id;
+
+-- 7. Layer 3, the ranking: severity (TOPSIS closeness to the ideal event, 0-1), each
+--    criterion's 0-1 value, AHP weight and share of the score. Empty value + weight 0 = the
+--    criterion was off for the run. Weights are provisional (author-elicited) until Y05.
+SELECT s.rank, s.event_id, i.anti_pattern_type,
+       round(s.severity::numeric, 4)         AS severity,
+       round(s.br_normalized::numeric, 3)    AS br, round(s.br_weight::numeric, 3) AS br_w,
+       round(s.eh_normalized::numeric, 3)    AS eh, round(s.eh_weight::numeric, 3) AS eh_w,
+       round(s.av_normalized::numeric, 3)    AS av, round(s.av_weight::numeric, 3) AS av_w,
+       round(s.ps_normalized::numeric, 3)    AS ps, round(s.ps_weight::numeric, 3) AS ps_w,
+       round(s.br_contribution::numeric, 3)  AS br_share,
+       round(s.av_contribution::numeric, 3)  AS av_share,
+       round(s.ps_contribution::numeric, 3)  AS ps_share
+FROM c4_event_scores s
+JOIN c4_event_ingestion i ON i.run_id = s.run_id AND i.event_id = s.event_id
+WHERE s.run_id = 'fixture-demo-adr-on'
+ORDER BY s.rank;
+
+-- 8. AV on vs off, ranked: how each event's rank moves when the ADR criterion is dropped
+--    and the other weights renormalise (C4-ADR-014).
+SELECT on_run.event_id, on_run.rank AS rank_av_on, off_run.rank AS rank_av_off,
+       off_run.rank - on_run.rank AS places_moved_down,
+       round(on_run.severity::numeric, 4) AS severity_av_on,
+       round(off_run.severity::numeric, 4) AS severity_av_off
+FROM c4_event_scores on_run
+JOIN c4_event_scores off_run
+  ON off_run.event_id = on_run.event_id AND off_run.run_id = 'fixture-demo-adr-off'
+WHERE on_run.run_id = 'fixture-demo-adr-on'
+ORDER BY on_run.rank;
+
+-- 9. How the run was scored (from the run's details): TOPSIS mode, weights version and
+--    provenance, AHP consistency ratio, normalisation mode.
+SELECT run_id,
+       details -> 'scoring' ->> 'topsis_mode'        AS topsis_mode,
+       details -> 'scoring' ->> 'weights_version'    AS weights_version,
+       details -> 'scoring' ->> 'weights_provenance' AS weights_provenance,
+       round((details -> 'scoring' ->> 'ahp_cr')::numeric, 4) AS ahp_cr,
+       details -> 'scoring' ->> 'normalization'      AS normalization
+FROM c4_scoring_run
+ORDER BY created_at DESC;

@@ -47,4 +47,4 @@ percentile method is not named.
 - Tested in `scoring_engine/test_normalizer.py` (hand-computed P5/P95, sparse fallback, AV
   pass-through, zero range, frozen bounds, save/load).
 - Rows `c4_event_scores` (normalised values, criteria, severity, rank) are added once, in T19
-  (migration `0004`), not in T17.
+  (migration `0006`), not in T17.

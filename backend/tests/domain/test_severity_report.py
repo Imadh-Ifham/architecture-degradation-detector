@@ -26,6 +26,7 @@ from app.domain.severity_report import (
     Dimension,
     SeverityReportV1,
     SkipReason,
+    WeightsProvenance,
 )
 
 Payload = dict[str, Any]
@@ -69,6 +70,7 @@ def report() -> Payload:
         "data_provenance": "fixture",
         "active_dimensions": ["blast_radius", "hotspot", "adr_violation", "persistence"],
         "weights_version": "ahp_v1",
+        "weights_provenance": "provisional-author-elicited",
         "ahp_cr": 0.04,
         "normalization": "minmax_small_n",
         "normalization_bounds": {"fan_in_ratio": {"lower": 0.1, "upper": 0.9}},
@@ -106,8 +108,9 @@ def without_adr(payload: Payload) -> Payload:
 def test_example_report_parses_and_round_trips() -> None:
     parsed = SeverityReportV1.model_validate(report())
 
-    assert parsed.schema_version == "1.0.0"
+    assert parsed.schema_version == "1.1.0"
     assert parsed.data_provenance is DataProvenance.FIXTURE
+    assert parsed.weights_provenance is WeightsProvenance.PROVISIONAL_AUTHOR_ELICITED
     assert [r.rank for r in parsed.records] == [1, 2]
     assert parsed.records[0].audit is not None
     assert parsed.records[0].audit.groundedness == 0.875
@@ -249,6 +252,8 @@ MALFORMED: dict[str, tuple[Callable[[Payload], None], str]] = {
     "unknown_skip_reason": (_set(["skipped", 0, "reason"], "too_boring"), "enum"),
     "unknown_review_status": (_set([*R0, "review_status"], "APPROVED"), "enum"),
     "run_id_missing": (_delete(["run_id"]), "missing"),
+    "weights_provenance_missing": (_delete(["weights_provenance"]), "missing"),
+    "unknown_weights_provenance": (_set(["weights_provenance"], "made-up"), "enum"),
     "wrong_major_version": (_set(["schema_version"], "2.0.0"), "string_pattern_mismatch"),
     "zero_resolution_confidence": (_set([*R0, "resolution", "confidence"], 0.0),
                                    "greater_than"),

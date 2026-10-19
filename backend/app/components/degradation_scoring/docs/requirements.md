@@ -79,14 +79,14 @@ Status: ✅ done · ◐ partly done · — not started. Updated at the end of ev
 | FR-01 | `ingestion/events.py` | `ingestion/test_events.py` | T08 | ✅ |
 | FR-02 | `ingestion/graph.py` | `ingestion/test_graph.py` | T09 | ✅ |
 | FR-03 | `ingestion/resolution.py` | `ingestion/test_resolution.py` | T10 | ✅ |
-| FR-04 | `features/blast_radius.py`, `features/service.py` | `features/test_blast_radius.py`, `features/test_blast_radius_prototype.py`, `features/test_service.py` | T11 | ✅ raw features; combined BR score in T17 |
+| FR-04 | `features/blast_radius.py`, `features/service.py` | `features/test_blast_radius.py`, `features/test_blast_radius_prototype.py`, `features/test_service.py` | T11, T17 | ✅ raw features (T11); combined BR criterion value (T17) |
 | FR-05 | `features/history.py`, `features/hotspot.py`, `infrastructure/git/history.py`, `infrastructure/postgres/repositories/mining_cache_repository.py` | `features/test_history.py`, `features/test_hotspot.py`, `tests/infrastructure/git/test_history.py`, `tests/infrastructure/postgres/test_mining_cache_repository.py` | T12, T13 | ◐ history + cache (T12); features pending (T13) |
 | FR-06 | `ingestion/adr.py`, `features/adr_weight.py` | `features/test_adr_weight.py` | T16 | — |
 | FR-07 | `features/persistence.py` | `features/test_persistence.py` | T15 | — |
-| FR-08 | `scoring_engine/normalizer.py` | `scoring_engine/test_normalizer.py` | T17 | — |
-| FR-09 | `scoring_engine/ahp.py` | `scoring_engine/test_ahp.py` | T18 | — |
-| FR-10 | `scoring_engine/topsis.py` | `scoring_engine/test_topsis.py` | T19 | — |
-| FR-11 | `app/domain/severity_report.py`, `scripts/scoring_export_schemas.py`, `reporting/writer.py` | `tests/domain/test_severity_report.py`, `tests/scripts/test_scoring_export_schemas.py`, `reporting/test_writer.py` | T05, T20 | ◐ contract + schema (T05); writer pending |
+| FR-08 | `scoring_engine/normalizer.py`, `scoring_engine/service.py`, `service.py` (`scoring_inputs`) | `scoring_engine/test_normalizer.py`, `scoring_engine/test_service.py`, `test_service.py` | T17 | ✅ (C4-ADR-013) |
+| FR-09 | `scoring_engine/ahp.py`, `scoring_engine/service.py` (`weights`), `scoring_engine/weights/ahp_v1.json`, `app/domain/severity_report.py` (`weights_provenance`) | `scoring_engine/test_ahp.py`, `scoring_engine/test_service.py`, `tests/domain/test_severity_report.py` | T18 | ✅ (C4-ADR-014); weights provisional until Y05 |
+| FR-10 | `scoring_engine/topsis.py`, `scoring_engine/service.py` (`rank`), `service.py` (`score_rows`), `infrastructure/postgres/models/c4_scoring_run.py` (`c4_event_scores`), `alembic/versions/0006_c4_event_scores.py` | `scoring_engine/test_topsis.py`, `scoring_engine/test_service.py`, `test_service.py`, `tests/infrastructure/postgres/test_scoring_run_repository.py` | T19 | ✅ (C4-ADR-002) |
+| FR-11 | `app/domain/severity_report.py`, `scripts/scoring_export_schemas.py`, `reporting/writer.py` | `tests/domain/test_severity_report.py`, `tests/scripts/test_scoring_export_schemas.py`, `reporting/test_writer.py` | T05, T20 | ◐ contract + schema (T05; 1.1.0 adds `weights_provenance`, T18); writer pending |
 | FR-12 | `reporting/manifest.py` | `reporting/test_manifest.py` | T20 | — |
 | FR-13 | `explanation/evidence.py`, `retriever.py`, `generator.py` | `explanation/test_generator.py` | T23, T24 | — |
 | FR-14 | `explanation/baseline.py` | `explanation/test_baseline.py` | T24 | — |
