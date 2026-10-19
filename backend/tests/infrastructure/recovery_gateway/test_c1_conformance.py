@@ -35,6 +35,11 @@ from app.components.architecture_recovery.repository_inventory.service import (
     RepositoryInventoryService,
     inventory_options_from_settings,
 )
+from app.infrastructure.recovery_gateway.graph_translation import (
+    DECLARED_CONFIDENCES,
+    ELEMENT_KINDS,
+    RELATIONSHIP_LABELS,
+)
 from app.infrastructure.recovery_gateway.inventory_schema import (
     CONFIDENCE_CONFIRMED,
     CONFIDENCE_INFERRED,
@@ -182,30 +187,63 @@ class TestWhatThisComponentMakesOfIt:
         assert style == "unknown"
         assert source == "inferred_by_c2"
 
-    @pytest.mark.parametrize("release", RELEASES)
-    def test_recovery_still_supplies_no_element_to_element_dependencies(
-        self, live_documents, release
-    ):
-        """The assumption the dependency stand-in exists for, asserted rather
-        than remembered. When this fails, the stand-in is deleted and the
-        recorded snapshots are re-made from recovery's own edges - which is
-        the single biggest simplification left in this component.
-        """
 
-        relationships = live_documents[release]["relationships"]
-        between_components = [
-            relationship
-            for relationship in relationships
-            if relationship.get("source", {}).get("kind") == "component"
-            and relationship.get("target", {}).get("kind") == "component"
-        ]
+class TestTheArchitectureGraphVocabulary:
+    """Recovery names its own kinds, and this component maps every one.
 
-        assert relationships, "recovery reported no relationships at all"
-        assert not between_components, (
-            "recovery now reports component-to-component relationships. "
-            "Delete c1_dependency_stand_in.py, re-record the snapshots, and "
-            f"read these instead: {between_components[:2]}"
+    The inventory tests above read a document. These read recovery's
+    **vocabulary** - the constants its graph construction emits - because
+    that is where drift now shows up: a new relationship kind or a new
+    infrastructure role appears as a word nothing here has a rule for, and
+    the mapping silently falls through to its default.
+
+    A fall-through is not loud. An unmapped relationship kind becomes a
+    dependency rather than a communication, every rule written about
+    communication then matches nothing, and a correct run reports the whole
+    architecture as ungoverned with no error anywhere. That is the failure
+    these three tests exist to turn into a red line.
+    """
+
+    def test_every_relationship_kind_has_a_label(self):
+        from app.components.architecture_recovery.graph_construction.builder import (
+            _DEPENDENCY_KIND,
+            _FINDING_KIND,
         )
+
+        emitted = set(_DEPENDENCY_KIND.values()) | set(_FINDING_KIND.values())
+        unmapped = emitted - set(RELATIONSHIP_LABELS)
+
+        assert not unmapped, (
+            f"recovery emits relationship kind(s) {sorted(unmapped)} that this "
+            "component has no label for. Add them to RELATIONSHIP_LABELS, and "
+            "decide for each whether it is a communication or a dependency."
+        )
+
+    def test_every_component_and_infrastructure_kind_is_an_element_kind(self):
+        from app.components.architecture_recovery.dependency_resolution.models import (
+            InfrastructureKind,
+        )
+        from app.components.architecture_recovery.repository_inventory.models import (
+            ComponentKind,
+        )
+
+        emitted = {item.value for item in ComponentKind} | {
+            item.value for item in InfrastructureKind
+        }
+
+        assert not emitted - set(ELEMENT_KINDS), (
+            f"recovery emits kind(s) {sorted(emitted - set(ELEMENT_KINDS))} that "
+            "this component maps to nothing. Unmapped kinds become modules, "
+            "which is right for a build unit and wrong for a datastore."
+        )
+
+    def test_the_confidence_that_means_declared_is_still_called_that(self):
+        from app.components.architecture_recovery.component_discovery.models import (
+            AssociationConfidence,
+        )
+
+        assert AssociationConfidence.DIRECT.value in DECLARED_CONFIDENCES
+        assert AssociationConfidence.HEURISTIC.value not in DECLARED_CONFIDENCES
 
 
 def _translated(document: dict, release: str):

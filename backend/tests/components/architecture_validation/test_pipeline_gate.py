@@ -887,11 +887,11 @@ class TestTheM1Gate:
         assert outcome.architecture.release_id == release
         assert outcome.architecture.elements
 
-    def test_the_stand_in_lives_outside_the_component_and_names_its_expiry(self):
-        """The last row of the checklist, and the only one that is about where
-        a file is rather than what it does."""
+    def test_the_dependency_stand_in_is_gone(self):
+        """The last row of the checklist, and the only one about where a file
+        is rather than what it does. Recovery ships its own element-to-element
+        dependencies now, so the module that derived them is deleted."""
 
-        import ast
         from pathlib import Path
 
         stand_in = (
@@ -902,9 +902,7 @@ class TestTheM1Gate:
             / "c1_dependency_stand_in.py"
         )
 
-        assert stand_in.is_file()
-        docstring = ast.get_docstring(ast.parse(stand_in.read_text(encoding="utf-8"))) or ""
-        assert "deleted when recovery ships" in docstring
+        assert not stand_in.exists()
 
 class TestTheM2Gate:
     """The stage gate for M2, as one executable checklist.

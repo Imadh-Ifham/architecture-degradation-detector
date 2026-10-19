@@ -1,27 +1,31 @@
 """Record one architecture snapshot per release.
 
 Author: Aman Mohamed M.A
-Date: 2026-10-15
+Date: 2026-10-19
 Description:
-    Produces the recorded recovery output the validation component develops and
-    demonstrates against - one `snapshot_<release>.json` per release, written
-    beside the inventory recordings it was built from.
+    Produces the recorded recovery output the validation component develops
+    and demonstrates against - one `snapshot_<release>.json` per release.
 
     Why this exists. The methodology says that where live recovery output is
-    not available for a repository, a recorded recovery output is used, so that
-    validation can be evaluated independently of recovery's completion
-    schedule. This is the tool that makes that recording.
+    not available for a repository, a recorded recovery output is used, so
+    that validation can be evaluated independently of recovery's completion
+    schedule. This is the tool that makes that recording, and the recording is
+    what the demonstration falls back to when the graph database, the clone or
+    the network is not there on the day.
 
-    What it does, in order: read the inventory document recovery really wrote,
-    translate it into the validation component's shape, and - only while
-    recovery's own dependency extraction is unfinished - fill in the
-    element-to-element dependencies with the stand-in. The stand-in is a no-op
-    once recovery supplies them, so re-running this after recovery ships
-    changes the output and not this script.
+    **What changed on 2026-10-19, and the cost of it.** Recovery now publishes
+    its own element-to-element dependencies, so this script no longer derives
+    them: it reads recovery's graph and records what it finds. That makes the
+    recording a recording of real output rather than of a substitute - and it
+    means the script now needs an ingested repository and a reachable graph
+    store, where before it needed neither. A recording of recovery's edges
+    cannot be made without recovery, and pretending otherwise is what the
+    deleted stand-in did.
 
-    Run it deliberately, never from a request:
+    Run it deliberately, never from a request, and after ingesting the
+    releases you want recorded:
 
-        uv run python tests/fixtures/validation/record_snapshots.py
+        uv run python tests/fixtures/validation/record_snapshots.py <repository_id>
 
     The output is committed. A change on recovery's side then arrives as a
     reviewable diff rather than as a surprise during a run.
@@ -37,79 +41,94 @@ BACKEND = HERE.parents[2]
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from app.infrastructure.recovery_gateway.c1_dependency_stand_in import (  # noqa: E402
-    supply_dependencies,
+from app.core.config import settings  # noqa: E402
+from app.infrastructure.neo4j.architecture_snapshot_store import (  # noqa: E402
+    Neo4jArchitectureSnapshotStore,
 )
-from app.infrastructure.recovery_gateway.fixture_reader import (  # noqa: E402
-    FixtureArchitectureReader,
+from app.infrastructure.neo4j.database import get_neo4j_session  # noqa: E402
+from app.infrastructure.recovery_gateway import (  # noqa: E402
+    GraphStoreReader,
+    WorkspaceIndex,
 )
 
-RELEASES = ("v0.9.0", "v0.10.0")
 SNAPSHOTS = BACKEND / "data" / "snapshots"
-REPOSITORY_ID = "online-boutique"
-SUBJECT = HERE / "subject"
 
 
-class SubjectTreeReader:
-    """Reads the generated subject working tree for one release.
+def releases_of(repository_id: str) -> tuple[str, ...]:
+    """Every release of a repository that has been ingested on this machine.
 
-    The stand-in needs a `SourceArtifactReader`, and for a recording the source
-    is the generated subject tree rather than an ingestion workspace - the
-    recording has to be reproducible from a fresh clone with nothing cloned.
+    Read from the workspace rather than listed here. A hard-coded release list
+    records one subject system into a script that is supposed to work for any
+    repository, and it goes stale the first time a release is added.
     """
 
-    def read_text(self, repository_id: str, release_id: str, path: str) -> str:
-        return (SUBJECT / release_id / path).read_text(encoding="utf-8")
+    records = WorkspaceIndex(settings.repositories_root).records()
 
-    def list_paths(self, repository_id: str, release_id: str, pattern: str) -> list[str]:
-        root = SUBJECT / release_id
-        return sorted(
-            str(match.relative_to(root)).replace("\\", "/")
-            for match in root.glob(pattern)
-            if match.is_file()
+    return tuple(
+        dict.fromkeys(
+            record.release_id
+            for record in records
+            if repository_id in (record.id, record.repository_key)
         )
+    )
 
 
-def record(release_id: str) -> Path:
+def record(reader: GraphStoreReader, repository_id: str, release_id: str) -> Path:
     """Write one release's snapshot and return where it went."""
 
-    architecture = FixtureArchitectureReader(HERE).read(REPOSITORY_ID, release_id)
-    architecture, warnings = supply_dependencies(architecture, SubjectTreeReader())
+    architecture = reader.read(repository_id, release_id)
 
     document = architecture.to_dict()
     document["provenance"] = {
         "reader": "snapshot_file_reader",
         "source_schema_version": architecture.provenance.source_schema_version,
-        "source_reference": f"recorded from inventory_{release_id}.json",
+        "source_reference": (
+            f"recorded from {architecture.provenance.source_snapshot_id}"
+        ),
+        "source_commit": architecture.provenance.source_commit,
+        "source_snapshot_id": architecture.provenance.source_snapshot_id,
+        "source_status": architecture.provenance.source_status,
     }
 
     SNAPSHOTS.mkdir(parents=True, exist_ok=True)
     target = SNAPSHOTS / f"snapshot_{release_id}.json"
     target.write_text(
-        json.dumps(document, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
-        encoding="utf-8",
+        json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
-    for warning in warnings:
-        print(f"  warning: {warning}")
+    for note in reader.notes(repository_id, release_id):
+        print(f"  note: {note}")
 
     print(
         f"  {target.name}: {len(architecture.elements)} elements, "
         f"{len(architecture.relationships)} dependencies, "
-        f"style {architecture.style} ({architecture.style_source})"
+        f"status {architecture.provenance.source_status}"
     )
     return target
 
 
-def record_all() -> None:
-    sys.path.insert(0, str(HERE))
-    import build_subject_tree
+def record_all(repository_id: str) -> None:
+    reader = GraphStoreReader(
+        Neo4jArchitectureSnapshotStore(get_neo4j_session), settings.repositories_root
+    )
 
-    build_subject_tree.build_all()
+    releases = releases_of(repository_id)
 
-    for release_id in RELEASES:
-        record(release_id)
+    if not releases:
+        raise SystemExit(
+            f"No ingested release for '{repository_id}'. Ingest the releases "
+            "first; a recording cannot be made of something nobody analysed."
+        )
+
+    for release_id in releases:
+        record(reader, repository_id, release_id)
 
 
 if __name__ == "__main__":
-    record_all()
+    if len(sys.argv) != 2:
+        raise SystemExit(
+            "usage: record_snapshots.py <repository_id>\n"
+            "The id is recovery's, as `GET /repositories` reports it."
+        )
+
+    record_all(sys.argv[1])

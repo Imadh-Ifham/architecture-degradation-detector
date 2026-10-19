@@ -60,23 +60,44 @@ Description:
     WHAT IS IN HERE
     ---------------------------------------------------------------------
 
-    `inventory_schema.py`       recovery's document shape, and CONTRACT_VERSION
+    `workspace.py`              recovery's ingestion records: both ids, the
+                                release tag, the commit and the release date
+    `graph_translation.py`      recovery's architecture graph, in this
+                                component's vocabulary
+    `graph_store_reader.py`     reads recovery's graph store - the live input
+    `inventory_schema.py`       recovery's inventory shape, and CONTRACT_VERSION
     `translation.py`            the only module that knows its field names
     `inventory_file_reader.py`  reads recovery's live inventory document
     `snapshot_schema.py`        the recorded snapshot's shape, in Pydantic
-    `snapshot_file_reader.py`   reads a recorded snapshot - the demo's input
+    `snapshot_file_reader.py`   reads a recorded snapshot - the rehearsed input
     `fixture_reader.py`         reads a committed inventory recording
-    `c1_dependency_stand_in.py` **temporary.** Produces the dependencies
-                                recovery will supply itself, and is deleted
-                                when it does
 
-    A reader for recovery's Neo4j graph joins these once recovery writes one.
-    It changes nothing in the component: that is the test of whether the port
-    was drawn in the right place.
+    ---------------------------------------------------------------------
+    WHAT THE GRAPH READER REPLACED
+    ---------------------------------------------------------------------
+
+    Until 2026-10-19 recovery reported relationships between files and
+    components rather than between one element and another, and a module in
+    here derived the missing ones from deployment manifests. Recovery now
+    publishes its own, from configured endpoints and from source-level calls,
+    so the stand-in is gone.
+
+    Nothing inside the validation component changed when it went, which is the
+    answer to whether the port was drawn in the right place.
 """
 
-from .c1_dependency_stand_in import C1DependencyStandIn, supply_dependencies
 from .fixture_reader import FixtureArchitectureReader
+from .graph_store_reader import (
+    ArchitectureGraphStore,
+    GraphContractError,
+    GraphStoreReader,
+)
+from .graph_translation import (
+    incompleteness_note,
+    released_at,
+    translate_snapshot,
+    unresolved_warnings,
+)
 from .inventory_file_reader import InventoryFileArchitectureReader
 from .inventory_schema import (
     CONTRACT_VERSION,
@@ -92,12 +113,15 @@ from .snapshot_schema import (
     SnapshotVersionError,
     parse_snapshot,
 )
+from .workspace import WorkspaceIndex, WorkspaceUnavailable
 
 __all__ = [
     "CONTRACT_VERSION",
     "SNAPSHOT_SCHEMA_VERSION",
-    "C1DependencyStandIn",
+    "ArchitectureGraphStore",
     "FixtureArchitectureReader",
+    "GraphContractError",
+    "GraphStoreReader",
     "InventoryContractError",
     "InventoryFieldError",
     "InventoryFileArchitectureReader",
@@ -106,6 +130,11 @@ __all__ = [
     "SnapshotFieldError",
     "SnapshotFileReader",
     "SnapshotVersionError",
+    "WorkspaceIndex",
+    "WorkspaceUnavailable",
+    "incompleteness_note",
     "parse_snapshot",
-    "supply_dependencies",
+    "released_at",
+    "translate_snapshot",
+    "unresolved_warnings",
 ]
