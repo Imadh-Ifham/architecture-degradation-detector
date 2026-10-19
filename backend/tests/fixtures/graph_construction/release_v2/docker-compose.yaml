@@ -1,0 +1,10 @@
+services:
+  frontend:
+    build: ./services/frontend
+    environment:
+      CHECKOUT_SERVICE_ADDR: checkout:5050
+      CART_SERVICE_ADDR: cart:7070
+  checkout:
+    build: ./services/checkout
+  cart:
+    build: ./services/cart

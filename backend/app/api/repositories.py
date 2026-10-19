@@ -7,13 +7,18 @@ Description:
     repository onto the machine, list what is present, and remove it again.
 
     A successful clone is followed immediately by a repository inventory,
-    manifest analysis, component discovery, dependency resolution and source
-    code analysis, and each stage's summary is included in the response. The
-    subcomponents stay independent: this transport layer is the only place that
-    knows the order in which they run.
+    manifest analysis, component discovery, dependency resolution, source code
+    analysis and graph construction, and each stage's summary is included in
+    the response. The subcomponents stay independent: this transport layer is
+    the only place that knows the order in which they run.
+
+    Release-aware analysis is available through `POST /repositories/releases`,
+    and the resulting history through `GET /repositories/{id}/snapshots`. Both
+    read and write the same graph store that graph construction publishes to.
 """
 
 from functools import lru_cache
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -31,6 +36,15 @@ from app.components.architecture_recovery.dependency_resolution import (
     DependencyResolutionSummaryResponse,
     dependency_resolution_service_from_settings,
 )
+from app.components.architecture_recovery.graph_construction import (
+    ArchitectureSnapshotStore,
+    GraphConstructionError,
+    GraphConstructionService,
+    GraphConstructionSummaryResponse,
+    SnapshotSummaryResponse,
+    graph_construction_service_from_settings,
+    release_from_ingested,
+)
 from app.components.architecture_recovery.manifest_analysis import (
     ManifestAnalysisError,
     ManifestAnalysisReport,
@@ -45,6 +59,7 @@ from app.components.architecture_recovery.repository_ingestion.errors import (
 from app.components.architecture_recovery.repository_ingestion.schemas import (
     IngestedRepositoryResponse,
     RepositoryIngestionRequest,
+    RepositoryReleaseRequest,
 )
 from app.components.architecture_recovery.repository_ingestion.service import (
     RepositoryIngestionService,
@@ -61,6 +76,7 @@ from app.components.architecture_recovery.repository_inventory import (
 )
 from app.components.architecture_recovery.source_code_analysis import (
     SourceCodeAnalysisError,
+    SourceCodeAnalysisReport,
     SourceCodeAnalysisService,
     SourceCodeAnalysisSummaryResponse,
     source_code_analysis_service_from_settings,
@@ -89,6 +105,8 @@ class RepositoryIngestionResponse(IngestedRepositoryResponse):
     dependency_resolution_error: str | None = None
     source_code_analysis: SourceCodeAnalysisSummaryResponse | None = None
     source_code_analysis_error: str | None = None
+    graph_construction: GraphConstructionSummaryResponse | None = None
+    graph_construction_error: str | None = None
 
 
 @lru_cache
@@ -164,6 +182,35 @@ def get_source_code_analysis_service() -> SourceCodeAnalysisService:
     return source_code_analysis_service_from_settings()
 
 
+@lru_cache
+def get_architecture_snapshot_store() -> ArchitectureSnapshotStore:
+    """Provide the historical graph store.
+
+    Imported lazily so a deployment without a configured graph store can still
+    serve the ingestion endpoints; the failure then lands on the stage that
+    needed it rather than at import time.
+    """
+
+    from app.infrastructure.neo4j.architecture_snapshot_store import (
+        Neo4jArchitectureSnapshotStore,
+    )
+    from app.infrastructure.neo4j.database import driver
+
+    return Neo4jArchitectureSnapshotStore(driver.session)
+
+
+@lru_cache
+def get_graph_construction_service() -> GraphConstructionService:
+    """Provide the graph construction service shared by all requests.
+
+    Declared as a FastAPI dependency so tests can override it.
+    """
+
+    return graph_construction_service_from_settings(
+        store=get_architecture_snapshot_store()
+    )
+
+
 @router.post(
     "",
     response_model=RepositoryIngestionResponse,
@@ -187,8 +234,9 @@ def ingest_repository(
     source_analysis_service: SourceCodeAnalysisService = Depends(
         get_source_code_analysis_service
     ),
+    graph_service: GraphConstructionService = Depends(get_graph_construction_service),
 ) -> RepositoryIngestionResponse:
-    """Clone, inventory, analyze, discover components, resolve and scan source."""
+    """Clone the branch tip and run every recovery stage over it."""
 
     try:
         repository = service.ingest(request.url, request.branch)
@@ -198,47 +246,76 @@ def ingest_repository(
             detail=str(error),
         ) from error
     except GitCommandError as error:
-        # git stderr is the only place the real cause appears (unknown branch,
-        # authentication, network). Redact it in case a url carried credentials.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=redact_credentials(_describe_git_failure(error)),
         ) from error
 
-    # The clone has succeeded, so from here on nothing may report the ingest as
-    # failed: a downstream problem is surfaced in the body instead.
-    inventory, inventory_document, inventory_error = _inventory_after_ingest(
-        repository, inventory_service
-    )
-    analysis, analysis_document, analysis_error = _analysis_after_inventory(
-        inventory_document, repository, analysis_service
-    )
-    discovery, discovery_document, discovery_error = _discovery_after_analysis(
-        inventory_document, analysis_document, repository, discovery_service
-    )
-    dependencies, dependency_document, dependencies_error = _dependencies_after_discovery(
-        discovery_document, analysis_document, repository, dependency_service
-    )
-    source_analysis, source_analysis_error = _source_analysis_after_dependencies(
-        inventory_document,
-        discovery_document,
-        dependency_document,
+    return _analyse(
         repository,
+        inventory_service,
+        analysis_service,
+        discovery_service,
+        dependency_service,
         source_analysis_service,
+        graph_service,
     )
 
-    return RepositoryIngestionResponse(
-        **IngestedRepositoryResponse.model_validate(repository).model_dump(),
-        inventory=inventory,
-        inventory_error=inventory_error,
-        manifest_analysis=analysis,
-        manifest_analysis_error=analysis_error,
-        component_discovery=discovery,
-        component_discovery_error=discovery_error,
-        dependency_resolution=dependencies,
-        dependency_resolution_error=dependencies_error,
-        source_code_analysis=source_analysis,
-        source_code_analysis_error=source_analysis_error,
+
+@router.post(
+    "/releases",
+    response_model=RepositoryIngestionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def ingest_release(
+    request: RepositoryReleaseRequest,
+    service: RepositoryIngestionService = Depends(get_repository_ingestion_service),
+    inventory_service: RepositoryInventoryService = Depends(
+        get_repository_inventory_service
+    ),
+    analysis_service: ManifestAnalysisService = Depends(
+        get_manifest_analysis_service
+    ),
+    discovery_service: ComponentDiscoveryService = Depends(
+        get_component_discovery_service
+    ),
+    dependency_service: DependencyResolutionService = Depends(
+        get_dependency_resolution_service
+    ),
+    source_analysis_service: SourceCodeAnalysisService = Depends(
+        get_source_code_analysis_service
+    ),
+    graph_service: GraphConstructionService = Depends(get_graph_construction_service),
+) -> RepositoryIngestionResponse:
+    """Clone one explicit revision and record it as its own snapshot.
+
+    The workspace is keyed by the revision, so analyzing `v1.2.0` leaves the
+    checkout and snapshot of `v1.0.0` untouched.
+    """
+
+    try:
+        repository = service.ingest_revision(
+            request.url, request.revision, request.branch
+        )
+    except InvalidRepositorySource as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+    except GitCommandError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=redact_credentials(_describe_git_failure(error)),
+        ) from error
+
+    return _analyse(
+        repository,
+        inventory_service,
+        analysis_service,
+        discovery_service,
+        dependency_service,
+        source_analysis_service,
+        graph_service,
     )
 
 
@@ -252,6 +329,56 @@ def list_repositories(
         IngestedRepositoryResponse.model_validate(repository)
         for repository in service.list_ingested()
     ]
+
+
+@router.get(
+    "/{repository_id}/snapshots",
+    response_model=list[SnapshotSummaryResponse],
+)
+def list_snapshots(
+    repository_id: str,
+    store: ArchitectureSnapshotStore = Depends(get_architecture_snapshot_store),
+) -> list[SnapshotSummaryResponse]:
+    """List a repository's architecture snapshots, oldest first.
+
+    Ordering uses the release date where one exists, then the commit date, then
+    the analysis timestamp; each row says which field placed it.
+    """
+
+    try:
+        history = store.history(repository_id)
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Graph store unavailable: {error}",
+        ) from error
+
+    return [SnapshotSummaryResponse.from_summary(item) for item in history]
+
+
+@router.get("/{repository_id}/snapshots/{snapshot_id}")
+def read_snapshot(
+    repository_id: str,
+    snapshot_id: str,
+    store: ArchitectureSnapshotStore = Depends(get_architecture_snapshot_store),
+) -> dict[str, Any]:
+    """Return one stored architecture snapshot with its evidence."""
+
+    try:
+        snapshot = store.read(repository_id, snapshot_id)
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Graph store unavailable: {error}",
+        ) from error
+
+    if snapshot is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No snapshot '{snapshot_id}' for repository '{repository_id}'.",
+        )
+
+    return snapshot.to_dict()
 
 
 @router.delete("/{repository_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -405,17 +532,35 @@ def _source_analysis_after_dependencies(
     dependencies: DependencyResolutionReport | None,
     repository: IngestedRepository,
     source_analysis_service: SourceCodeAnalysisService,
-) -> tuple[SourceCodeAnalysisSummaryResponse | None, str | None]:
-    """Analyze source code after the component and dependency reports exist."""
+) -> tuple[
+    SourceCodeAnalysisSummaryResponse | None,
+    SourceCodeAnalysisReport | None,
+    str | None,
+]:
+    """Analyze source code after the component and dependency reports exist.
+
+    A source analysis failure does not stop the pipeline: graph construction
+    runs with the source report absent and records an incomplete snapshot, so
+    the missing evidence is visible instead of silently looking like a release
+    with no source-level calls.
+    """
 
     if inventory is None:
-        return None, "skipped: no repository inventory to analyze source code from"
+        return (
+            None,
+            None,
+            "skipped: no repository inventory to analyze source code from",
+        )
 
     if discovery is None:
-        return None, "skipped: no component discovery to analyze source code from"
+        return None, None, "skipped: no component discovery to analyze source code from"
 
     if dependencies is None:
-        return None, "skipped: no dependency resolution to analyze source code from"
+        return (
+            None,
+            None,
+            "skipped: no dependency resolution to analyze source code from",
+        )
 
     try:
         path, report = source_analysis_service.run(
@@ -426,9 +571,99 @@ def _source_analysis_after_dependencies(
             repository.path.parent,
         )
     except SourceCodeAnalysisError as error:
+        return None, None, str(error)
+
+    return SourceCodeAnalysisSummaryResponse.from_report(path, report), report, None
+
+
+def _graph_after_source(
+    repository: IngestedRepository,
+    discovery: ComponentDiscoveryReport | None,
+    dependencies: DependencyResolutionReport | None,
+    source_analysis: SourceCodeAnalysisReport | None,
+    graph_service: GraphConstructionService,
+) -> tuple[GraphConstructionSummaryResponse | None, str | None]:
+    """Build and persist one snapshot for the analyzed revision.
+
+    The snapshot is written even when source evidence is missing, because an
+    incomplete snapshot is a fact a consumer can read; a missing one is not.
+    """
+
+    if discovery is None:
+        return None, "skipped: no component discovery to build a snapshot from"
+
+    if dependencies is None:
+        return None, "skipped: no dependency resolution to build a snapshot from"
+
+    try:
+        path, report = graph_service.run(
+            release=release_from_ingested(repository),
+            discovery=discovery,
+            dependencies=dependencies,
+            source=source_analysis,
+            workspace=repository.path.parent,
+        )
+    except GraphConstructionError as error:
         return None, str(error)
 
-    return SourceCodeAnalysisSummaryResponse.from_report(path, report), None
+    return GraphConstructionSummaryResponse.from_report(path, report), None
+
+
+def _analyse(
+    repository: IngestedRepository,
+    inventory_service: RepositoryInventoryService,
+    analysis_service: ManifestAnalysisService,
+    discovery_service: ComponentDiscoveryService,
+    dependency_service: DependencyResolutionService,
+    source_analysis_service: SourceCodeAnalysisService,
+    graph_service: GraphConstructionService,
+) -> RepositoryIngestionResponse:
+    """Run every recovery stage over a clone that has already succeeded.
+
+    The clone has succeeded, so from here on nothing may report the ingest as
+    failed: a downstream problem is surfaced in the body instead.
+    """
+
+    inventory, inventory_document, inventory_error = _inventory_after_ingest(
+        repository, inventory_service
+    )
+    analysis, analysis_document, analysis_error = _analysis_after_inventory(
+        inventory_document, repository, analysis_service
+    )
+    discovery, discovery_document, discovery_error = _discovery_after_analysis(
+        inventory_document, analysis_document, repository, discovery_service
+    )
+    dependencies, dependency_document, dependencies_error = _dependencies_after_discovery(
+        discovery_document, analysis_document, repository, dependency_service
+    )
+    source_analysis, source_report, source_analysis_error = (
+        _source_analysis_after_dependencies(
+            inventory_document,
+            discovery_document,
+            dependency_document,
+            repository,
+            source_analysis_service,
+        )
+    )
+    graph, graph_error = _graph_after_source(
+        repository, discovery_document, dependency_document, source_report, graph_service
+    )
+
+    return RepositoryIngestionResponse(
+        **IngestedRepositoryResponse.model_validate(repository).model_dump(),
+        inventory=inventory,
+        inventory_error=inventory_error,
+        manifest_analysis=analysis,
+        manifest_analysis_error=analysis_error,
+        component_discovery=discovery,
+        component_discovery_error=discovery_error,
+        dependency_resolution=dependencies,
+        dependency_resolution_error=dependencies_error,
+        source_code_analysis=source_analysis,
+        source_code_analysis_error=source_analysis_error,
+        graph_construction=graph,
+        graph_construction_error=graph_error,
+    )
 
 
 def _describe_git_failure(error: GitCommandError) -> str:

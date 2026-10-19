@@ -1,4 +1,5 @@
 import stat
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,8 @@ from app.components.architecture_recovery.repository_ingestion.errors import (
 from app.components.architecture_recovery.repository_ingestion.service import (
     RepositoryIngestionService,
     build_repository_id,
+    build_repository_key,
+    build_revision_repository_id,
 )
 from app.components.architecture_recovery.repository_ingestion.validation import (
     redact_credentials,
@@ -24,14 +27,34 @@ class StubGitClient:
     def __init__(self, commit: str = "0" * 40) -> None:
         self.commit = commit
         self.clones: list[tuple[str, str]] = []
+        self.revision_clones: list[str] = []
+        self.tag_dates: dict[str, datetime | None] = {}
+        self.commit_date_value = datetime(2025, 1, 10, tzinfo=UTC)
 
     def clone(self, url: str, branch: str, destination: Path) -> None:
         self.clones.append((url, branch))
-        destination.mkdir(parents=True, exist_ok=True)
-        (destination / "README.md").write_text("stub", encoding="utf-8")
+        self._write(destination)
+
+    def clone_at(self, url: str, revision: str, destination: Path) -> None:
+        self.revision_clones.append(revision)
+        self._write(destination)
 
     def head_commit(self, repository: Path) -> str:
         return self.commit
+
+    def commit_date(self, repository: Path, revision: str = "HEAD"):
+        return self.commit_date_value
+
+    def is_tag(self, repository: Path, revision: str) -> bool:
+        return revision in self.tag_dates
+
+    def tag_date(self, repository: Path, tag: str):
+        return self.tag_dates.get(tag)
+
+    @staticmethod
+    def _write(destination: Path) -> None:
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "README.md").write_text("stub", encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -207,6 +230,72 @@ def test_remove_rejects_unknown_or_unsafe_ids(
 
     with pytest.raises(RepositoryNotFound):
         service.remove(repository_id)
+
+
+def test_revision_ingestion_keeps_each_release_in_its_own_workspace(
+    tmp_path: Path,
+) -> None:
+    git = StubGitClient()
+    git.tag_dates = {
+        "v1.0.0": datetime(2025, 1, 15, tzinfo=UTC),
+        "v1.2.0": None,
+    }
+    service = RepositoryIngestionService(git_client=git, root=tmp_path)
+
+    first = service.ingest_revision("https://example.com/team/repo.git", "v1.0.0")
+    second = service.ingest_revision("https://example.com/team/repo.git", "v1.2.0")
+
+    assert first.id != second.id
+    assert first.path.exists() and second.path.exists()
+    assert git.revision_clones == ["v1.0.0", "v1.2.0"]
+
+    # One repository, two analyzed revisions.
+    assert first.repository_key == second.repository_key
+    assert first.repository_key == build_repository_key(
+        "https://example.com/team/repo.git"
+    )
+
+    assert first.release_tag == "v1.0.0"
+    assert first.release_date == datetime(2025, 1, 15, tzinfo=UTC)
+    assert first.release_date_source == "tagger"
+
+    # A lightweight tag carries no date of its own; the author date is labelled.
+    assert second.release_date == git.commit_date_value
+    assert second.release_date_source == "author"
+
+
+def test_revision_workspace_id_is_distinct_from_the_branch_workspace(
+    tmp_path: Path,
+) -> None:
+    git = StubGitClient()
+    service = RepositoryIngestionService(git_client=git, root=tmp_path)
+
+    branch = service.ingest("https://example.com/team/repo.git", "main")
+    tagged = service.ingest_revision("https://example.com/team/repo.git", "v1.0.0")
+
+    assert branch.id == build_repository_id(
+        "https://example.com/team/repo.git", "main"
+    )
+    assert tagged.id == build_revision_repository_id(
+        "https://example.com/team/repo.git", "v1.0.0"
+    )
+    assert branch.id != tagged.id
+
+
+def test_metadata_round_trips_the_release_fields(tmp_path: Path) -> None:
+    git = StubGitClient()
+    git.tag_dates = {"v1.0.0": datetime(2025, 1, 15, tzinfo=UTC)}
+    service = RepositoryIngestionService(git_client=git, root=tmp_path)
+
+    record = service.ingest_revision("https://example.com/team/repo.git", "v1.0.0")
+    listed = service.list_ingested()[0]
+
+    assert listed.repository_key == record.repository_key
+    assert listed.release_tag == "v1.0.0"
+    assert listed.revision == "v1.0.0"
+    assert listed.release_date == record.release_date
+    assert listed.release_date_source == "tagger"
+    assert listed.commit_date == record.commit_date
 
 
 def _has_entries(directory: Path) -> bool:
