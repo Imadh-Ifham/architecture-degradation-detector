@@ -2,7 +2,7 @@
 
 Backend for the _Detection of Architectural Degradation during the Maintenance Phase_ research system.
 
-> **Status:** in progress. Architecture recovery currently performs repository ingestion, repository inventory, manifest analysis, component discovery and dependency resolution; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
+> **Status:** in progress. Architecture recovery currently performs repository ingestion, repository inventory, manifest analysis, component discovery, dependency resolution and source code analysis; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
 
 ## Structure
 
@@ -17,7 +17,8 @@ backend/
     │   │   ├── repository_inventory/             # Inventory a working tree into repository_inventory.json
     │   │   ├── manifest_analysis/                # Parse manifests into manifest_analysis.json
     │   │   ├── component_discovery/              # Identify components into component_discovery.json
-    │   │   └── dependency_resolution/            # Resolve relationships into dependency_resolution.json
+    │   │   ├── dependency_resolution/            # Resolve relationships into dependency_resolution.json
+    │   │   └── source_code_analysis/             # Extract source-level calls into source_code_analysis.json
     │   ├── architecture_validation/
     │   ├── architecture_degradation_detection/
     │   └── degradation_scoring/
@@ -35,7 +36,7 @@ The remaining research components are intentionally empty. Their internal subcom
 | `GET` | `/` | API root: returns the service message and environment. |
 | `GET` | `/health/postgres` | Checks PostgreSQL connectivity. |
 | `GET` | `/health/neo4j` | Checks Neo4j connectivity. |
-| `POST` | `/repositories` | Clones `{url, branch}`, then inventories, analyzes, discovers components and resolves dependencies in the clone. |
+| `POST` | `/repositories` | Clones `{url, branch}`, then inventories, analyzes, discovers components, resolves dependencies and analyzes source code in the clone. |
 | `GET` | `/repositories` | Lists ingested repositories. |
 | `DELETE` | `/repositories/{id}` | Removes an ingested repository from the machine. |
 
@@ -235,5 +236,47 @@ Resolution is conservative:
 
 See the Online Boutique validation report in
 [`dependency_resolution/VALIDATION.md`](./app/components/architecture_recovery/dependency_resolution/VALIDATION.md).
+
+### Source code analysis
+
+The `source_code_analysis` subcomponent extracts source-level evidence of
+inter-service calls and writes `source_code_analysis.json` beside the other
+artifacts. It runs automatically after dependency resolution and adds a compact
+summary to the `POST /repositories` response.
+
+| Finding type | Source evidence |
+| ------------ | --------------- |
+| `grpc_service_call` | generated gRPC client construction and invocation |
+| `http_service_call` | HTTP client invocation |
+| `cache_client_usage` | Redis/cache client construction or operation |
+| `database_client_usage` | database client construction or configuration |
+
+Component identities come from component discovery. HTTP targets are resolved
+through a literal host, a configured environment key already mapped by dependency
+resolution, or the component's only configured endpoint. Cache and database
+client usage resolves only when dependency resolution already identified a
+matching infrastructure target.
+
+Evidence strength is explicit: `observed_invocation` means a client construction
+and an invocation were both found; `client_construction` means only the client
+was constructed or configured; `symbol_reference` is reserved for weaker
+symbol-only evidence. Static analysis never claims that a call executes at
+runtime.
+
+The stage is deliberately conservative:
+
+- generated code, tests, vendored/build output and standalone client/example
+  files are skipped before scanning;
+- imports, shared generated code and Protobuf definitions never create edges;
+- self-references are ignored;
+- multiple call sites between the same pair are aggregated into one finding per
+  finding type;
+- unresolved and ambiguous targets are preserved instead of inventing a target;
+- findings that corroborate a dependency-resolution relationship link to that
+  relationship id rather than replacing the manifest evidence.
+
+Supported languages are Go, Python, C#, JavaScript/TypeScript and Java. See the
+Online Boutique validation report in
+[`source_code_analysis/VALIDATION.md`](./app/components/architecture_recovery/source_code_analysis/VALIDATION.md).
 
 See the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the intended future architecture.
