@@ -2,7 +2,7 @@
 
 Backend for the _Detection of Architectural Degradation during the Maintenance Phase_ research system.
 
-> **Status:** in progress. Architecture recovery currently performs repository ingestion, repository inventory, manifest analysis, component discovery, dependency resolution and source code analysis; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
+> **Status:** in progress. Architecture recovery currently performs repository ingestion, repository inventory, manifest analysis, component discovery, dependency resolution, source code analysis and release-aware graph construction; database connectivity is wired up. Architecture extraction/validation/detection/scoring logic is not implemented yet.
 
 ## Structure
 
@@ -18,7 +18,8 @@ backend/
     │   │   ├── manifest_analysis/                # Parse manifests into manifest_analysis.json
     │   │   ├── component_discovery/              # Identify components into component_discovery.json
     │   │   ├── dependency_resolution/            # Resolve relationships into dependency_resolution.json
-    │   │   └── source_code_analysis/             # Extract source-level calls into source_code_analysis.json
+    │   │   ├── source_code_analysis/             # Extract source-level calls into source_code_analysis.json
+    │   │   └── graph_construction/               # Build version-scoped snapshots and publish them to Neo4j
     │   ├── architecture_validation/
     │   ├── architecture_degradation_detection/
     │   └── degradation_scoring/
@@ -36,8 +37,11 @@ The remaining research components are intentionally empty. Their internal subcom
 | `GET` | `/` | API root: returns the service message and environment. |
 | `GET` | `/health/postgres` | Checks PostgreSQL connectivity. |
 | `GET` | `/health/neo4j` | Checks Neo4j connectivity. |
-| `POST` | `/repositories` | Clones `{url, branch}`, then inventories, analyzes, discovers components, resolves dependencies and analyzes source code in the clone. |
+| `POST` | `/repositories` | Clones `{url, branch}`, then inventories, analyzes, discovers components, resolves dependencies, analyzes source code and builds a snapshot in the clone. |
+| `POST` | `/repositories/releases` | Clones one explicit `{url, revision}` (tag or commit SHA) and records it as its own snapshot. |
 | `GET` | `/repositories` | Lists ingested repositories. |
+| `GET` | `/repositories/{id}/snapshots` | Lists a repository's architecture snapshots, oldest first. |
+| `GET` | `/repositories/{id}/snapshots/{snapshot_id}` | Returns one snapshot with its elements, relationships and evidence. |
 | `DELETE` | `/repositories/{id}` | Removes an ingested repository from the machine. |
 
 ### Repository ingestion
@@ -278,5 +282,53 @@ The stage is deliberately conservative:
 Supported languages are Go, Python, C#, JavaScript/TypeScript and Java. See the
 Online Boutique validation report in
 [`source_code_analysis/VALIDATION.md`](./app/components/architecture_recovery/source_code_analysis/VALIDATION.md).
+
+### Graph construction and release history
+
+The `graph_construction` subcomponent assembles the recovered evidence into one
+**version-scoped architecture snapshot** per analyzed revision and publishes it
+to Neo4j. It writes `architecture_graph_construction.json` under
+`<repository-workspace>/graph_construction/<snapshot-id>/` and adds a compact
+summary to the ingest response.
+
+Release-aware analysis is explicit:
+
+```http
+POST /repositories/releases
+{ "url": "https://github.com/GoogleCloudPlatform/microservices-demo.git",
+  "revision": "v0.10.0" }
+```
+
+Each analyzed revision gets its own workspace, so analyzing `v1.2.0` never
+overwrites the checkout or the snapshot of `v1.0.0`. A tag is resolved to a
+commit and both are recorded, because a tag can be moved.
+
+| Identity | Meaning |
+| -------- | ------- |
+| `snapshot_id` | hash of repository id, resolved commit and analysis configuration; one revision has one snapshot |
+| `analysis_id` | one execution of the pipeline; a rerun keeps the snapshot and records the new run |
+| `logical_id` | the element's identity across releases, and only when its name is unique in that release |
+
+The persistence rules:
+
+- a new release creates a new snapshot; an earlier snapshot is never overwritten
+  or deleted;
+- rerunning one revision under the same configuration **reuses** its snapshot and
+  replaces only that snapshot's own elements and edges;
+- a moved tag produces a new snapshot because the commit, not the tag, is the
+  key;
+- repositories are isolated: every read and write is scoped by `repository_id`;
+- `status` is `complete`, `incomplete` or `failed`, so a missing element in a
+  failed scan is never read as a removed element;
+- history orders by release date, then commit date, then analysis timestamp, and
+  records which field placed the snapshot.
+
+Snapshots are stored under `(:ArchitectureSnapshot)` / `(:ArchitectureElement)`,
+separate from the validated graph's `(:Release)` / `(:Element)`, so recovery's
+evidence and a validation rollup can never overwrite each other. No degradation
+score is computed here.
+
+A two-release validation against Online Boutique is in
+[`graph_construction/VALIDATION.md`](./app/components/architecture_recovery/graph_construction/VALIDATION.md).
 
 See the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the intended future architecture.
