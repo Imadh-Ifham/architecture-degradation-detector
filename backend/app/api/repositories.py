@@ -7,16 +7,37 @@ Description:
     repository onto the machine, list what is present, and remove it again.
 
     A successful clone is followed immediately by a repository inventory,
-    manifest analysis, component discovery and dependency resolution, and each
-    stage's summary is included in the response. The subcomponents stay
-    independent: this transport layer is the only place that knows the order in
-    which they run.
+    manifest analysis, component discovery, dependency resolution and source
+    code analysis, and each stage's summary is included in the response. The
+    subcomponents stay independent: this transport layer is the only place that
+    knows the order in which they run.
 """
 
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.components.architecture_recovery.component_discovery import (
+    ComponentDiscoveryError,
+    ComponentDiscoveryReport,
+    ComponentDiscoveryService,
+    ComponentDiscoverySummaryResponse,
+    component_discovery_service_from_settings,
+)
+from app.components.architecture_recovery.dependency_resolution import (
+    DependencyResolutionError,
+    DependencyResolutionReport,
+    DependencyResolutionService,
+    DependencyResolutionSummaryResponse,
+    dependency_resolution_service_from_settings,
+)
+from app.components.architecture_recovery.manifest_analysis import (
+    ManifestAnalysisError,
+    ManifestAnalysisReport,
+    ManifestAnalysisService,
+    ManifestAnalysisSummaryResponse,
+    manifest_analysis_service_from_settings,
+)
 from app.components.architecture_recovery.repository_ingestion.errors import (
     InvalidRepositorySource,
     RepositoryNotFound,
@@ -38,30 +59,15 @@ from app.components.architecture_recovery.repository_inventory import (
     RepositoryInventorySummaryResponse,
     inventory_options_from_settings,
 )
-from app.components.architecture_recovery.component_discovery import (
-    ComponentDiscoveryError,
-    ComponentDiscoveryReport,
-    ComponentDiscoveryService,
-    ComponentDiscoverySummaryResponse,
-    component_discovery_service_from_settings,
-)
-from app.components.architecture_recovery.dependency_resolution import (
-    DependencyResolutionError,
-    DependencyResolutionService,
-    DependencyResolutionSummaryResponse,
-    dependency_resolution_service_from_settings,
-)
-from app.components.architecture_recovery.manifest_analysis import (
-    ManifestAnalysisError,
-    ManifestAnalysisReport,
-    ManifestAnalysisService,
-    ManifestAnalysisSummaryResponse,
-    manifest_analysis_service_from_settings,
+from app.components.architecture_recovery.source_code_analysis import (
+    SourceCodeAnalysisError,
+    SourceCodeAnalysisService,
+    SourceCodeAnalysisSummaryResponse,
+    source_code_analysis_service_from_settings,
 )
 from app.core.config import settings
 from app.domain.repository import IngestedRepository
 from app.infrastructure.git.client import GitClient, GitCommandError
-
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
 
@@ -81,6 +87,8 @@ class RepositoryIngestionResponse(IngestedRepositoryResponse):
     component_discovery_error: str | None = None
     dependency_resolution: DependencyResolutionSummaryResponse | None = None
     dependency_resolution_error: str | None = None
+    source_code_analysis: SourceCodeAnalysisSummaryResponse | None = None
+    source_code_analysis_error: str | None = None
 
 
 @lru_cache
@@ -146,6 +154,16 @@ def get_dependency_resolution_service() -> DependencyResolutionService:
     return dependency_resolution_service_from_settings()
 
 
+@lru_cache
+def get_source_code_analysis_service() -> SourceCodeAnalysisService:
+    """Provide the source code analysis service shared by all requests.
+
+    Declared as a FastAPI dependency so tests can override it.
+    """
+
+    return source_code_analysis_service_from_settings()
+
+
 @router.post(
     "",
     response_model=RepositoryIngestionResponse,
@@ -166,8 +184,11 @@ def ingest_repository(
     dependency_service: DependencyResolutionService = Depends(
         get_dependency_resolution_service
     ),
+    source_analysis_service: SourceCodeAnalysisService = Depends(
+        get_source_code_analysis_service
+    ),
 ) -> RepositoryIngestionResponse:
-    """Clone, inventory, analyze, discover components and resolve dependencies."""
+    """Clone, inventory, analyze, discover components, resolve and scan source."""
 
     try:
         repository = service.ingest(request.url, request.branch)
@@ -195,8 +216,15 @@ def ingest_repository(
     discovery, discovery_document, discovery_error = _discovery_after_analysis(
         inventory_document, analysis_document, repository, discovery_service
     )
-    dependencies, dependencies_error = _dependencies_after_discovery(
+    dependencies, dependency_document, dependencies_error = _dependencies_after_discovery(
         discovery_document, analysis_document, repository, dependency_service
+    )
+    source_analysis, source_analysis_error = _source_analysis_after_dependencies(
+        inventory_document,
+        discovery_document,
+        dependency_document,
+        repository,
+        source_analysis_service,
     )
 
     return RepositoryIngestionResponse(
@@ -209,6 +237,8 @@ def ingest_repository(
         component_discovery_error=discovery_error,
         dependency_resolution=dependencies,
         dependency_resolution_error=dependencies_error,
+        source_code_analysis=source_analysis,
+        source_code_analysis_error=source_analysis_error,
     )
 
 
@@ -336,28 +366,69 @@ def _dependencies_after_discovery(
     analysis: ManifestAnalysisReport | None,
     repository: IngestedRepository,
     dependency_service: DependencyResolutionService,
-) -> tuple[DependencyResolutionSummaryResponse | None, str | None]:
+) -> tuple[
+    DependencyResolutionSummaryResponse | None,
+    DependencyResolutionReport | None,
+    str | None,
+]:
     """Resolve relationships from the component discovery and analysis reports.
 
     Dependency resolution needs both upstream results, so it is skipped - with a
     reason - when either is missing. It runs after discovery because component
-    IDs are the endpoints of every relationship.
+    IDs are the endpoints of every relationship. The report itself is returned
+    because source code analysis consumes it directly.
     """
 
     if discovery is None:
-        return None, "skipped: no component discovery to derive dependencies from"
+        return (
+            None,
+            None,
+            "skipped: no component discovery to derive dependencies from",
+        )
 
     if analysis is None:
-        return None, "skipped: no manifest analysis to derive dependencies from"
+        return None, None, "skipped: no manifest analysis to derive dependencies from"
 
     try:
         path, report = dependency_service.run(
             discovery, analysis, repository.path.parent
         )
     except DependencyResolutionError as error:
+        return None, None, str(error)
+
+    return DependencyResolutionSummaryResponse.from_report(path, report), report, None
+
+
+def _source_analysis_after_dependencies(
+    inventory: RepositoryInventory | None,
+    discovery: ComponentDiscoveryReport | None,
+    dependencies: DependencyResolutionReport | None,
+    repository: IngestedRepository,
+    source_analysis_service: SourceCodeAnalysisService,
+) -> tuple[SourceCodeAnalysisSummaryResponse | None, str | None]:
+    """Analyze source code after the component and dependency reports exist."""
+
+    if inventory is None:
+        return None, "skipped: no repository inventory to analyze source code from"
+
+    if discovery is None:
+        return None, "skipped: no component discovery to analyze source code from"
+
+    if dependencies is None:
+        return None, "skipped: no dependency resolution to analyze source code from"
+
+    try:
+        path, report = source_analysis_service.run(
+            inventory,
+            discovery,
+            dependencies,
+            repository.path,
+            repository.path.parent,
+        )
+    except SourceCodeAnalysisError as error:
         return None, str(error)
 
-    return DependencyResolutionSummaryResponse.from_report(path, report), None
+    return SourceCodeAnalysisSummaryResponse.from_report(path, report), None
 
 
 def _describe_git_failure(error: GitCommandError) -> str:
