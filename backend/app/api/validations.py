@@ -68,6 +68,7 @@ from app.components.architecture_validation.validation_reasoning import (
 )
 from app.core.config import settings
 from app.domain.recovered_architecture import IncoherentArchitecture
+from app.domain.validated_architecture import ReleaseDateSource
 from app.infrastructure.ai import (
     TASK_PRIMARY_VERDICT,
     TASK_PRIMARY_VERDICT_FALLBACK,
@@ -78,6 +79,8 @@ from app.infrastructure.ai import (
     load_prompt,
 )
 from app.infrastructure.ai.providers.openai_compatible import OpenAICompatibleProvider
+from app.infrastructure.validated_graph import ValidatedGraphFileStore
+from app.infrastructure.git.release_dates import ReleaseDateReader
 from app.infrastructure.decision_log import JsonlDecisionStore
 from app.infrastructure.git.workspace_artifact_reader import (
     ArtifactUnavailableError,
@@ -348,6 +351,18 @@ class ValidationRunRequest(BaseModel):
         ),
     )
 
+    released_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When this release was actually cut. Optional: the tag's own date "
+            "is read from the ingestion workspace when it can be, and a "
+            "release whose date cannot be established publishes none rather "
+            "than a guess. Supply it when the repository is not cloned "
+            "locally, or to override what the tag says."
+        ),
+        examples=["2025-04-01T00:00:00Z"],
+    )
+
     @field_validator("release_id")
     @classmethod
     def must_be_orderable(cls, value: str) -> str:
@@ -521,8 +536,34 @@ def get_validation_service() -> ArchitectureValidationService:
         ),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
-        publishing=GraphPublishingService(),
+        publishing=GraphPublishingService(get_graph_file_store()),
     )
+
+
+@lru_cache(maxsize=1)
+def get_graph_file_store() -> ValidatedGraphFileStore:
+    """Where a run publishes the document the next component reads.
+
+    The only one of the three stores that is wired here. The relational record
+    and the graph projection are left unconfigured on purpose: a run on a
+    laptop with no databases should report that it wrote one store, not warn
+    twice about two it was never asked to write. Passing them is one argument
+    each when the databases are part of the deployment.
+    """
+
+    return ValidatedGraphFileStore(settings.validated_graph_root)
+
+
+@lru_cache(maxsize=1)
+def get_release_dates() -> ReleaseDateReader:
+    """Reads a release tag's date out of the ingestion workspace.
+
+    Wired here rather than injected into the component: reading git history is
+    the same category of thing as reading source code, which the component
+    also does not do, so the date arrives as a parameter of the run.
+    """
+
+    return ReleaseDateReader(settings.repositories_root, SOURCE_DIRECTORY_NAME)
 
 
 @router.get(
@@ -660,6 +701,31 @@ def describe_decision_sources(
     )
 
 
+def _resolve_release_date(
+    request: "ValidationRunRequest",
+) -> tuple[datetime | None, str | None]:
+    """When the release was cut, and which field said so.
+
+    The caller wins when they supplied one: they know something the repository
+    does not, and overriding a tag is the reason the field exists. Otherwise
+    the tag's own date, then the tagged commit's author date, read from the
+    workspace.
+
+    `None` for both when neither answered. Nothing is invented - a plausible
+    wrong date orders the consumer's timeline wrongly and cannot be told apart
+    from a right one. The committer date is never used at all: it is rewritten
+    by every rebase and reads as today.
+    """
+
+    if request.released_at is not None:
+        return request.released_at, ReleaseDateSource.CALLER
+
+    found = get_release_dates().read(request.repository_id, request.release_id)
+    if found is None:
+        return None, None
+    return found
+
+
 @router.post(
     "",
     response_model=ValidationRunResponse,
@@ -696,6 +762,8 @@ def run_validation(
     release resolves it.
     """
 
+    released_at, released_at_source = _resolve_release_date(request)
+
     try:
         run = service.run(
             request.repository_id,
@@ -704,6 +772,8 @@ def run_validation(
             adr_repository_id=request.adr_repository_id,
             verify=request.verify,
             arm=request.arm,
+            released_at=released_at,
+            released_at_source=released_at_source,
         )
     except NoDecisionsAvailable as error:
         # Not a fault in the request and not a fault here: there is nothing to

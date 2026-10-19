@@ -13,6 +13,7 @@ Description:
     and not a rehearsal of it.
 """
 
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,7 @@ from app.infrastructure.ai import (
     load_prompt,
 )
 from app.infrastructure.ai.providers.fake import FakeProvider
+from app.infrastructure.validated_graph import ValidatedGraphFileStore
 from app.infrastructure.decision_log import JsonlDecisionStore
 from app.infrastructure.git.workspace_artifact_reader import ArtifactUnavailableError
 from app.infrastructure.recovery_gateway.snapshot_file_reader import (
@@ -65,6 +67,12 @@ from app.infrastructure.recovery_gateway.snapshot_file_reader import (
 from app.main import app
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "validation"
+ARTIFACTS = Path(tempfile.mkdtemp(prefix="c2-api-artifacts-"))
+"""Where these runs publish, which is not the project's artifacts tree.
+
+A real file store rather than none: the route is exercised as it is wired, and
+publishing is now part of what a run does.
+"""
 SUBJECT = FIXTURES / "subject"
 SNAPSHOTS = Path(__file__).resolve().parents[2] / "data" / "snapshots"
 
@@ -154,7 +162,7 @@ def client():
         verification=unreachable_verifier(),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
-        publishing=GraphPublishingService(),
+        publishing=GraphPublishingService(ValidatedGraphFileStore(ARTIFACTS)),
     )
     app.dependency_overrides[get_validation_service] = lambda: service
 
@@ -255,7 +263,14 @@ class TestRunEndpoint:
         assert counts["merged_facts"] == 0
 
     def test_a_run_with_stages_still_stubbed_is_reported_as_incomplete(self, client):
-        """A client must never read a partial run as a finished one."""
+        """A client must never read a partial run as a finished one.
+
+        `published_ref` is no longer part of that claim. Publishing is gated
+        on the six stages that produce facts, and the only unbuilt stage is
+        the review queue - downstream of every fact - so an incomplete run
+        now publishes a document that is itself complete. The status and the
+        pending stage are what say the run is not finished.
+        """
 
         body = client.post(
             "/validations",
@@ -264,7 +279,7 @@ class TestRunEndpoint:
 
         assert body["status"] == "incomplete"
         assert body["model_calls"] == 0
-        assert body["published_ref"] is None
+        assert body["published_ref"] is not None
         assert any(stage["status"] == "pending" for stage in body["stages"])
 
     def test_an_unknown_release_is_a_conflict_rather_than_a_server_error(self, client):
@@ -519,7 +534,7 @@ class TestARepositoryNobodyIngested:
             verification=unreachable_verifier(),
             classification=ClassificationService(),
             review=ArchitectReviewService(),
-            publishing=GraphPublishingService(),
+            publishing=GraphPublishingService(ValidatedGraphFileStore(ARTIFACTS)),
         )
         app.dependency_overrides[get_validation_service] = lambda: service
 

@@ -110,7 +110,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Publishes the validated architecture as a graph the next component reads.",
         research_module="M8",
         uses_model=False,
-        implemented=False,
+        implemented=True,
     ),
 )
 

@@ -26,6 +26,7 @@ Description:
 
 import uuid
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from time import perf_counter
 
@@ -59,6 +60,23 @@ from .observation_normalization import ObservationNormalizationService
 from .ports import RecoveredArchitectureReader
 from .validation_reasoning import ValidationReasoningService
 from .validation_reasoning._arbiter import decide
+
+FACT_PRODUCING_STAGES = frozenset(
+    {
+        "observation_normalization",
+        "decision_knowledge",
+        "evidence_retrieval",
+        "validation_reasoning",
+        "independent_verification",
+        "classification",
+    }
+)
+"""The stages whose failure would make the published graph incomplete.
+
+Everything up to and including classification. A stage after it can stall
+without a fact being lost, which is why publishing is gated on these six
+rather than on the run as a whole.
+"""
 
 STAGE_ORDER = (
     "observation_normalization",
@@ -318,6 +336,38 @@ def _verification_mode(
     return VerificationMode.UNAVAILABLE
 
 
+_NO_MODELS: tuple[str | None, str | None, tuple[str, ...]] = (None, None, ())
+"""What a run that called no model reports as its provenance.
+
+Three nulls rather than empty strings. A run with no reasoner is not a run
+whose reasoner was called "", and this stamp is read six months later by
+somebody deciding whether a result can be reproduced or has to be discarded.
+"""
+
+
+def _run_provenance(
+    verdicts: list[PrimaryVerdict], judged: list[tuple]
+) -> tuple[str | None, str | None, tuple[str, ...]]:
+    """Which models actually answered, and under which prompt versions.
+
+    Taken from the verdicts rather than from configuration, because the two
+    differ exactly when it matters: a run that fell down the ladder was
+    answered by something other than the configured reasoner, and a stamp
+    naming the configured one would describe a run that did not happen.
+    """
+
+    answered = [v for v in verdicts if v.produced_by is VerdictSource.MODEL]
+    checks = [check for _, check, _ in judged if check is not None]
+    versions = {v.prompt_version for v in verdicts if v.prompt_version}
+    versions |= {check.prompt_version for check in checks if check.prompt_version}
+
+    return (
+        answered[0].model_id if answered else None,
+        checks[0].model_id if checks else None,
+        tuple(sorted(versions)),
+    )
+
+
 def _release_confidence(classified: list[ClassifiedFact]) -> float:
     """How much of this release's validation can be relied on, as one number.
 
@@ -430,6 +480,8 @@ class ArchitectureValidationService:
         adr_repository_id: str | None = None,
         verify: bool = True,
         arm: str = VerificationArm.INFORMED,
+        released_at: datetime | None = None,
+        released_at_source: str | None = None,
     ) -> ValidationRunResult:
         """Validate one release of one repository.
 
@@ -476,26 +528,31 @@ class ArchitectureValidationService:
         facts, stage, style = self._normalise(architecture)
         stages.append(stage)
 
-        classified, reasoning_stages, verification_mode = self._validate_each(
+        classified, reasoning_stages, verification_mode, models = self._validate_each(
             facts, repository_id, decisions, architecture, verify, arm
         )
         stages.extend(reasoning_stages)
 
         stages.append(self._queue_for_review(classified))
 
-        published_ref, stage = self._publish(
-            run_id, repository_id, release_id, classified, stages, architecture
-        )
-        stages.append(stage)
-
-        return ValidationRunResult(
+        # Built before publishing rather than after, because the publisher is
+        # handed the run itself. A document assembled from loose arguments
+        # would be a second description of a run that already exists.
+        #
+        # The status is the one the stages so far add up to, not a marker for
+        # "mid-publish". The run record is written during this call, so a
+        # placeholder here reaches a row: the first real run stored
+        # `status: publishing` while the screen said `incomplete`, which is an
+        # internal value escaping into the record. Publishing's own outcome is
+        # on its own stage row, so nothing is lost by stating what is already
+        # true.
+        result = ValidationRunResult(
             run_id=run_id,
             repository_id=repository_id,
             release_id=release_id,
             status=_run_status(stages),
             stages=tuple(stages),
             facts=tuple(classified),
-            published_ref=published_ref,
             model_calls=sum(fact.model_calls for fact in classified),
             validation_confidence=_release_confidence(classified),
             style_resolved=style[0],
@@ -503,6 +560,22 @@ class ArchitectureValidationService:
             verification_arm=_arm_reported(arm, verification_mode),
             verification_mode=verification_mode,
             decision_mode=decisions.mode,
+            generated_at=datetime.now(UTC),
+            released_at=released_at,
+            released_at_source=released_at_source if released_at else None,
+            reasoner_model=models[0],
+            verifier_model=models[1],
+            prompt_versions=models[2],
+        )
+
+        published_ref, stage = self._publish(result, architecture)
+        stages.append(stage)
+
+        return replace(
+            result,
+            status=_run_status(stages),
+            stages=tuple(stages),
+            published_ref=published_ref,
         )
 
     def decision_sources(self, request: SourceRequest) -> dict:
@@ -749,7 +822,7 @@ class ArchitectureValidationService:
             # `performed` nor `unavailable` is true of this run - and
             # `not_requested` would blame the architect for a skip the empty
             # architecture caused. The stage note carries the real reason.
-            return classified, [stage.record() for stage in group], None
+            return classified, [stage.record() for stage in group], None, _NO_MODELS
 
         # A stage after the one that stalled was never reached, so it reports
         # itself skipped with the reason rather than as a clean pass over
@@ -784,7 +857,7 @@ class ArchitectureValidationService:
             reasoning.record(),
             verification.record(),
             classification.record(),
-        ], mode
+        ], mode, _run_provenance(verdicts, judged)
 
     def _queue_for_review(self, classified: list[ClassifiedFact]) -> StageRecord:
         with _Stage("architect_review") as stage:
@@ -798,34 +871,65 @@ class ArchitectureValidationService:
             stage.counts = {"queued": len(queued) if ran else 0}
             return stage.record()
 
-    def _publish(
-        self,
-        run_id: str,
-        repository_id: str,
-        release_id: str,
-        classified: list[ClassifiedFact],
-        stages: list[StageRecord],
-        architecture: RecoveredArchitecture,
-    ):
+    def _publish(self, run: ValidationRunResult, architecture: RecoveredArchitecture):
+        """Write the run down, and report which stores took it.
+
+        The file is the contract, and a failure to write it fails the run. The
+        record and the projection are additional: a store that was unreachable
+        is a warning naming the store rather than a failed run, because the
+        deliverable is already on disk by then and every row and node in both
+        stores is rebuildable from it.
+        """
+
         with _Stage("graph_publishing") as stage:
-            interim = ValidationRunResult(
-                run_id=run_id,
-                repository_id=repository_id,
-                release_id=release_id,
-                status="publishing",
-                stages=tuple(stages),
-                facts=tuple(classified),
-                model_calls=sum(fact.model_calls for fact in classified),
+            if not architecture.elements:
+                # The consuming component requires at least one element, so an
+                # empty graph is not a smaller answer - it is an invalid
+                # document. A release recovery reported nothing for is a real
+                # state and it is reported as one.
+                stage.skip("nothing to publish: the architecture has no elements")
+                return None, stage.record()
+
+            lost = [
+                record.name
+                for record in run.stages
+                if record.name in FACT_PRODUCING_STAGES
+                and record.status in (StageStatus.PENDING, StageStatus.FAILED)
+            ]
+            if lost:
+                # Publishing a partial run is the one failure the consumer
+                # cannot detect: the document would parse, carry fewer facts
+                # than the release has, and read as an architecture with less
+                # in it. So nothing is written and `latest` still resolves to
+                # the last release that finished.
+                #
+                # Only the stages that produce facts count. A stage *after*
+                # classification stalling leaves the facts complete - and
+                # requiring the whole pipeline would make this one
+                # undemonstrable until the last stage exists, which is the
+                # thing the component is built not to need.
+                stage.skip(
+                    f"not published: {lost[0]} did not complete, and a partial "
+                    "graph reads as a smaller architecture"
+                )
+                return None, stage.record()
+
+            published, ran = _attempt(
+                stage, self._publishing.publish, run, architecture
             )
-            published_ref, ran = _attempt(
-                stage, self._publishing.publish, interim, architecture
-            )
-            if ran:
-                stage.counts = {
-                    "nodes": len(architecture.elements),
-                    "edges": len(classified),
-                }
-            return published_ref, stage.record()
+            if not ran:
+                return None, stage.record()
+
+            stage.counts = {
+                "nodes": len(architecture.elements),
+                "edges": len(run.facts),
+            }
+            stage.note = "written to " + ", ".join(published.stores)
+            # Named rather than counted. "the graph store was unreachable" and
+            # "this release has no dependencies" look identical on a screen,
+            # and only one of them is a finding.
+            stage.warnings = published.warnings
+            return published.reference, stage.record()
 
 
 __all__ = ["ArchitectureValidationService", "STAGE_ORDER"]

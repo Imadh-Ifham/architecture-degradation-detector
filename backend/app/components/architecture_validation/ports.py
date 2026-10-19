@@ -7,9 +7,15 @@ Description:
     Protocol. Implementations live under `app/infrastructure/`; nothing in this
     package imports from there, and the wiring happens once in the API layer.
 
-    Six protocols is the complete list of ways validation touches anything
-    outside itself. A seventh is worth questioning before it is written - it
+    Eight protocols is the complete list of ways validation touches anything
+    outside itself. A ninth is worth questioning before it is written - it
     usually means a subcomponent has started doing another component's job.
+
+    The last two arrived together, with publishing, and they are the only two
+    writes in the component that are allowed to fail. A release date is
+    deliberately **not** among them: reading git history is the same category
+    of thing as reading source code, which this component also does not do, so
+    the date arrives as a parameter of a run rather than through a port.
 
     Protocols rather than base classes, so an implementation never has to
     import this module either. Both sides stay independent and either can be
@@ -101,10 +107,49 @@ class ReviewQueueRepository(Protocol):
 
 
 class ValidatedGraphPublisher(Protocol):
-    """Where the validated graph goes once it is built."""
+    """Where the validated graph goes once it is built.
+
+    The one write in this component that may not fail. Everything downstream
+    reads this document, and the two stores below are both rebuilt from it, so
+    a run that could not write it has produced nothing.
+    """
 
     def publish(self, document: ValidatedArchitectureGraph) -> str:
         """Publish the document and return a reference to it."""
+        ...
+
+
+class ValidationRunRecorder(Protocol):
+    """The relational record of one completed run.
+
+    Separate from the projection below because the two fail differently and
+    are reported separately. A row written and a graph write refused is two
+    outcomes, and the stage note has to say which.
+
+    May fail. The published document is already on disk by the time this is
+    called and every row is derivable from it, so an unreachable database
+    makes a record late rather than lost.
+    """
+
+    def record(
+        self, run: object, document: ValidatedArchitectureGraph
+    ) -> None:
+        """Store the run, its stages and its facts. Idempotent per run id."""
+        ...
+
+
+class GraphProjection(Protocol):
+    """The validated graph, projected into the graph store.
+
+    Idempotent per run: a re-run replaces its own edges rather than adding a
+    second set beside them. Two runs' edges on one release double every count
+    read off the graph, with no error and a graph that still draws.
+
+    May fail, for the same reason as the recorder.
+    """
+
+    def project(self, document: ValidatedArchitectureGraph) -> None:
+        """Merge this release's subgraph and sweep the previous run's edges."""
         ...
 
 

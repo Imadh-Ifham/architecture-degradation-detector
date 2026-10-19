@@ -933,6 +933,45 @@ class ClassifiedFact:
     source_tier: SourceTier | None
     evidence_refs: tuple[str, ...]
     model_calls: int
+    source_element_id: str = ""
+    target_element_id: str = ""
+    relationship: str = ""
+    attributes: dict = field(default_factory=dict)
+    """Which relationship this verdict is about, in recovery's own ids.
+
+    Carried here because the published graph puts every verdict on the edge it
+    describes, and the publisher is handed classified facts and nothing else.
+    Without these it would have to be given the observed facts as well and
+    join the two lists by `fact_id` - and a join between two lists that are
+    supposed to describe the same thing is exactly what publishing the verdict
+    on the edge exists to avoid.
+    """
+
+    verdict: "PrimaryVerdict | None" = None
+    verification: "Verification | None" = None
+    """Both model outputs, kept rather than reduced to a word.
+
+    The reasoning sentence and the objections are the only parts of the output
+    a model actually produced, and a result that cannot show them is an
+    assertion rather than evidence. They are also what the relational model
+    exists for: *did the two models fail on the same facts* is a join between
+    the two, and it is impossible once either is reduced to its verdict.
+
+    They do not reach the consuming component. The published edge carries the
+    three badge fields below and nothing else - which is a decision about what
+    crosses a boundary, not about what is worth storing.
+    """
+
+    produced_by: str = ""
+    verification_outcome: str | None = None
+    arbiter_agreement: str | None = None
+    """Which of the three judges produced this, and what the other two said.
+
+    A fact that reaches a consumer without them can still be read, but a study
+    that averages a rule-only verdict with a three-judge one is averaging two
+    different things. They are set here rather than left on the verdict
+    because the verdict does not cross the component boundary and this does.
+    """
 
 
 @dataclass(frozen=True)
@@ -1067,6 +1106,41 @@ class ValidationRunResult:
 
     On the run because it changes how every number under it should be read,
     which is why the summary card states it in words above the counts.
+    """
+
+    generated_at: datetime | None = None
+    """When this run produced its answer, which is not when the release was cut.
+
+    Both are published and they are routinely weeks apart. A consumer ordering
+    releases by this one would be ordering them by when somebody happened to
+    run the validator.
+    """
+
+    released_at: datetime | None = None
+    released_at_source: str | None = None
+    """When the release this run validated was actually cut, and from where.
+
+    A parameter of the run rather than something read here: reading git
+    history is the same category of thing as reading source code, which this
+    component also does not do. `None` is published as `None` - a plausible
+    wrong date orders a timeline wrongly and cannot be told apart from a right
+    one.
+
+    `released_at_source` is one of `tagger`, `author` or `caller`, and it is
+    published so that a suspicious ordering downstream is traceable to the
+    field that produced it. The committer date is deliberately never one of
+    them: it is rewritten by every rebase and reads as today.
+    """
+
+    reasoner_model: str | None = None
+    verifier_model: str | None = None
+    prompt_versions: tuple[str, ...] = ()
+    """Which models answered and under which prompts, as the run observed it.
+
+    Not the configured models. The two differ exactly when it matters: a run
+    that fell down the ladder was answered by something other than the
+    configured reasoner, and a result that cannot say what produced it is an
+    anecdote rather than a measurement.
     """
 
     decision_mode: str | None = None

@@ -27,6 +27,7 @@ import inspect
 import json
 import re
 import shutil
+import tempfile
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,10 @@ import pytest
 
 from app.components.architecture_validation.architect_review import (
     ArchitectReviewService,
+)
+from app.infrastructure.validated_graph import ValidatedGraphFileStore
+from app.components.architecture_validation.graph_publishing.models import (
+    PublishedGraph,
 )
 from app.components.architecture_validation.classification import (
     ClassificationService,
@@ -88,6 +93,7 @@ from app.components.architecture_validation.observation_normalization import (
 )
 from app.components.architecture_validation.pipeline import IMPLEMENTED_STAGES
 from app.components.architecture_validation.service import (
+    FACT_PRODUCING_STAGES,
     STAGE_ORDER,
     ArchitectureValidationService,
 )
@@ -260,9 +266,12 @@ class StubPublishing:
     def __init__(self) -> None:
         self.published = None
 
-    def publish(self, run, architecture) -> str:
+    def publish(self, run, architecture) -> PublishedGraph:
         self.published = run
-        return f"artifacts/validated/{run.release_id}.graph.json"
+        return PublishedGraph(
+            reference=f"artifacts/validated/{run.release_id}.graph.json",
+            stores=("file",),
+        )
 
 
 def _decision():
@@ -545,6 +554,16 @@ def unreachable_verifier():
     )
 
 
+ARTIFACTS = Path(tempfile.mkdtemp(prefix="c2-gate-artifacts-"))
+"""Where the gate's runs publish, which is not the project's artifacts tree.
+
+A real file store rather than a stub, because M8 is built and the thing worth
+asserting is that a run writes a document a consumer can load. Under the OS
+temporary directory so a test run never touches the published artifacts of a
+real one.
+"""
+
+
 def build_unimplemented(release="v0.10.0"):
     """Assemble the pipeline from the real subcomponents, stubs and all.
 
@@ -565,7 +584,7 @@ def build_unimplemented(release="v0.10.0"):
         verification=unreachable_verifier(),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
-        publishing=GraphPublishingService(),
+        publishing=GraphPublishingService(ValidatedGraphFileStore(ARTIFACTS)),
     )
 
 
@@ -620,7 +639,6 @@ class TestStagesNotBuiltYet:
         result = build_unimplemented().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
-        order = [stage.name for stage in result.stages]
         stages = {stage.name: stage for stage in result.stages}
         stalled = next(
             stage.name for stage in result.stages
@@ -628,17 +646,32 @@ class TestStagesNotBuiltYet:
         )
 
         assert stalled not in IMPLEMENTED_STAGES
-        for name in order[order.index(stalled) + 1 :]:
-            assert stages[name].status is not StageStatus.COMPLETED
-            assert stages[name].note
+        for name in FACT_PRODUCING_STAGES:
+            if name == stalled:
+                continue
+            assert stages[name].note or stages[name].status is StageStatus.COMPLETED
 
-    def test_an_incomplete_run_makes_no_model_calls_and_publishes_nothing(self):
+    def test_an_incomplete_run_makes_no_model_calls_and_still_publishes(self):
+        """It published nothing while M8 was unwritten, and the assertion has
+        expired rather than been loosened.
+
+        Publishing is gated on the six stages that produce facts, not on the
+        run as a whole. The only stage still unbuilt is the review queue,
+        which is downstream of every fact - so the document carries the whole
+        release and withholding it would make M8 undemonstrable until M7
+        exists, which is exactly what this component is built not to need.
+
+        What it still asserts is the part that was always the point: a run
+        with no model reachable costs nothing and says so.
+        """
+
         result = build_unimplemented().run(
             repository_id="online-boutique", release_id="v0.10.0"
         )
 
         assert result.model_calls == 0
-        assert result.published_ref is None
+        assert result.status == "incomplete"
+        assert result.published_ref is not None
 
     def test_a_subcomponent_that_breaks_is_not_reported_as_unbuilt(self):
         """Pending means nobody has written it. A stage that raises anything
@@ -670,6 +703,13 @@ class TestStagesNotBuiltYet:
         is read from the run rather than named here - it is the first stage in
         order that is not built, whichever group that happens to be in. Naming
         it was the part that expired twice.
+
+        And M8 retired the *every later stage* half for good. Publishing is
+        gated on the stages that produce facts rather than on the run, so it
+        completes after a stalled review queue and completes correctly: the
+        document carries every fact of the release. The stage order is a
+        reporting order, not a dependency chain, and the one dependency that
+        matters is asserted directly in `test_graph_publishing.py`.
         """
 
         result = build_unimplemented().run(
@@ -1849,15 +1889,17 @@ class TestTheM4Gate:
         assert self.stage(second).counts["from_cache"] == 15
         assert ai.call_count == calls_after_first
 
-    def test_six_of_eight_stages_are_implemented(self):
+    def test_seven_of_eight_stages_are_implemented(self):
         """How far the component has got, asserted so that promoting a stage
         is a deliberate edit that shows up in a diff rather than a number
         that drifts."""
 
-        assert len(IMPLEMENTED_STAGES) == 6
+        assert len(IMPLEMENTED_STAGES) == 7
         assert "validation_reasoning" in IMPLEMENTED_STAGES
         assert "independent_verification" in IMPLEMENTED_STAGES
         assert "classification" in IMPLEMENTED_STAGES
+        assert "graph_publishing" in IMPLEMENTED_STAGES
+        assert "architect_review" not in IMPLEMENTED_STAGES
 
 
 def _superseded_record():
