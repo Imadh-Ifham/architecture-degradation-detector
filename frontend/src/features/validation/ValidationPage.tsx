@@ -43,6 +43,7 @@ import {
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
 import { useWorkspace } from '../../workspace/useWorkspace'
+import ModelComparison from './ModelComparison'
 
 export default function ValidationPage() {
   const { repository, release, run, isRecovered, isRunning } = useWorkspace()
@@ -121,6 +122,7 @@ export default function ValidationPage() {
         <>
           <Outcome document={document} />
           <Judges document={document} run={run} />
+          <ModelComparison document={document} />
           {run ? (
             <Stages run={run} describedBy={pipeline.data?.stages ?? []} />
           ) : (
@@ -457,7 +459,7 @@ function Elsewhere() {
     {
       to: '/canvas',
       title: 'Canvas',
-      body: 'The same result as a picture, with the verdict drawn on the dependency it is about.',
+      body: 'The validated architecture graph — the artifact the next phase reads — with the verdict drawn on the dependency it is about.',
     },
     {
       to: '/decisions',

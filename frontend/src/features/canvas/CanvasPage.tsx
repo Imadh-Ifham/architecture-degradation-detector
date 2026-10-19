@@ -32,9 +32,20 @@ import {
 import { listSnapshots, readPublishedGraph, readSnapshot } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
 import { useWorkspace } from '../../workspace/useWorkspace'
+import Handover from './Handover'
 import { provenanceGraph, recoveredGraph, validatedGraph } from './graphs'
 
 type View = 'recovered' | 'validated' | 'provenance'
+
+/** What each graph is, in one line, above the drawing it describes. */
+const CAPTION: Record<View, string> = {
+  recovered:
+    'The system as recovery found it. No verdict has been reached about anything here yet.',
+  validated:
+    'The same system with a verdict on every dependency. This is the artifact the next phase reads.',
+  provenance:
+    'The same graph again, showing which verdicts a language model was involved in reaching.',
+}
 
 export default function CanvasPage() {
   const { repository, repositoryKey, release, run } = useWorkspace()
@@ -116,9 +127,9 @@ export default function CanvasPage() {
         title={
           <Tabs
             tabs={[
-              { id: 'recovered', label: 'As recovered' },
-              { id: 'validated', label: 'With verdicts' },
-              { id: 'provenance', label: 'Where a model was used' },
+              { id: 'recovered', label: 'Recovered architecture' },
+              { id: 'validated', label: 'Validated architecture' },
+              { id: 'provenance', label: 'Model involvement' },
             ]}
             active={view}
             onChange={setView}
@@ -149,15 +160,24 @@ export default function CanvasPage() {
         )}
 
         {!isLoading && drawing && (
-          <GraphCanvas
-            nodes={drawing.nodes}
-            edges={drawing.edges}
-            selected={selected}
-            onSelect={setSelected}
-            legend={<Legend view={view} />}
-          />
+          <>
+            <p className="mb-6 max-w-prose text-sm leading-relaxed text-ink-3">
+              {CAPTION[view]}
+            </p>
+            <GraphCanvas
+              nodes={drawing.nodes}
+              edges={drawing.edges}
+              selected={selected}
+              onSelect={setSelected}
+              legend={<Legend view={view} />}
+            />
+          </>
         )}
       </Card>
+
+      {view === 'validated' && published.data && (
+        <Handover document={published.data} publishedRef={run?.published_ref} />
+      )}
     </>
   )
 }
