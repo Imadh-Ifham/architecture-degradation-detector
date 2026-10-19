@@ -96,6 +96,23 @@ class WorkspaceIndex:
 
         return matches[0]
 
+    def find(
+        self, repository_id: str, release_id: str | None = None
+    ) -> IngestedRepository | None:
+        """The ingested revision, or nothing when it is not on this machine.
+
+        A clone can be removed while the architecture recovery stored for it
+        stays in the graph. The architecture is still readable and still
+        true; what is gone is the working tree, and only the parts of a
+        screen that quote a file need that. So a caller that can do without
+        the tree asks here, and one that cannot asks `resolve`.
+        """
+
+        try:
+            return self.resolve(repository_id, release_id)
+        except WorkspaceUnavailable:
+            return None
+
     def _describe(self) -> tuple[str, ...]:
         return tuple(
             f"{record.repository_key} @ {record.release_id}"

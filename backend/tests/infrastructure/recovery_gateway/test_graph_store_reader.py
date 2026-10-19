@@ -261,13 +261,43 @@ class TestResolvingARelease:
 
         assert "v0.10.0" in str(error.value)
 
-    def test_an_uningested_repository_says_so(self, tmp_path):
+    def test_a_repository_the_store_never_saw_says_so(self, tmp_path):
+        """The store is the authority on what has been analysed, not the
+        workspace: a clone can be removed and its architecture remain."""
+
         reader = GraphStoreReader(FakeStore(snapshot()), tmp_path)
 
         with pytest.raises(GraphContractError) as error:
             reader.read("nothing-here", RELEASE)
 
-        assert "nothing is ingested" in str(error.value)
+        assert "no architecture for release" in str(error.value)
+
+    def test_a_removed_clone_still_reads(self, tmp_path):
+        """What a removed working tree costs is the file paths, not the
+        architecture. Refusing here would make a readable result unreadable
+        to protect a detail most screens do not ask for."""
+
+        reader = GraphStoreReader(FakeStore(snapshot()), tmp_path)
+        architecture = reader.read(REPOSITORY_KEY, RELEASE)
+
+        assert len(architecture.elements) == 3
+        assert all(not element.source_paths for element in architecture.elements)
+
+    def test_a_store_that_is_down_is_a_conflict_not_a_crash(self, root):
+        """A driver error reaching a screen as a 500 says nothing anybody can
+        act on. This says which store, and what to do instead."""
+
+        class Unreachable:
+            def history(self, repository_id):
+                raise RuntimeError("connection refused")
+
+            def read(self, repository_id, snapshot_id):
+                raise RuntimeError("connection refused")
+
+        with pytest.raises(GraphContractError) as error:
+            GraphStoreReader(Unreachable(), root).read(REPOSITORY_KEY, RELEASE)
+
+        assert "could not be read" in str(error.value)
 
 
 class TestTheVocabulary:

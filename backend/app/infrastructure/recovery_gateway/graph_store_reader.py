@@ -52,7 +52,7 @@ from .graph_translation import (
 )
 from .inventory_file_reader import InventoryFileArchitectureReader
 from .inventory_schema import InventoryContractError
-from .workspace import WorkspaceIndex, WorkspaceUnavailable
+from .workspace import WorkspaceIndex
 
 
 class GraphContractError(ValueError):
@@ -96,7 +96,9 @@ class GraphStoreReader:
         """Return the architecture recovery stored for one release."""
 
         snapshot, workspace_id = self._snapshot(repository_id, release_id)
-        paths, manifests = self._paths(workspace_id, release_id)
+        paths, manifests = (
+            self._paths(workspace_id, release_id) if workspace_id else ({}, ())
+        )
 
         return translate_snapshot(
             snapshot,
@@ -111,8 +113,8 @@ class GraphStoreReader:
     def manifest_paths(self, repository_id: str) -> tuple[str, ...]:
         """Every manifest recovery classified, for the decision sources."""
 
-        record = self._workspace.resolve(repository_id)
-        return self._manifests(record.id)
+        record = self._workspace.find(repository_id)
+        return self._manifests(record.id) if record else ()
 
     def released_at(
         self, repository_id: str, release_id: str
@@ -127,7 +129,7 @@ class GraphStoreReader:
 
         try:
             snapshot, _ = self._snapshot(repository_id, release_id)
-        except (GraphContractError, WorkspaceUnavailable):
+        except GraphContractError:
             return None
 
         return released_at(snapshot)
@@ -149,16 +151,29 @@ class GraphStoreReader:
 
     def _snapshot(
         self, repository_id: str, release_id: str
-    ) -> tuple[ArchitectureSnapshot, str]:
-        """The stored snapshot for one release, and the workspace behind it."""
+    ) -> tuple[ArchitectureSnapshot, str | None]:
+        """The stored snapshot for one release, and the workspace behind it.
 
-        try:
-            record = self._workspace.resolve(repository_id, release_id)
-        except WorkspaceUnavailable as error:
-            raise GraphContractError(str(error)) from error
+        The workspace is optional. A clone can be removed while the
+        architecture stored for it remains, and that architecture is still a
+        true account of the release - what is lost is the working tree, which
+        only the parts of a screen that quote a file need. Refusing here would
+        make a readable result unreadable to protect a detail most callers do
+        not ask for.
+        """
 
-        summary = self._summary(record.repository_key, release_id)
-        snapshot = self._store.read(record.repository_key, summary.snapshot_id)
+        # The release's own clone first, then any clone of the same
+        # repository, then the id as given. The middle step is what makes a
+        # release whose working tree was removed still readable: recovery
+        # stores architecture under the repository's identity, and any clone
+        # of it knows that identity even when the release's own is gone.
+        record = self._workspace.find(repository_id, release_id) or self._workspace.find(
+            repository_id
+        )
+        key = record.repository_key if record else repository_id
+
+        summary = self._summary(key, release_id)
+        snapshot = self._read(key, summary.snapshot_id)
 
         if snapshot is None:
             # history() named it, so this is the store losing a snapshot
@@ -168,7 +183,15 @@ class GraphStoreReader:
                 f"release '{release_id}', and the store does not hold it."
             )
 
-        return snapshot, record.id
+        # Paths come from a working tree at the **same commit** or not at
+        # all. The commit is the test rather than the release name: one clone
+        # is often recorded twice, once under a tag and once under its commit,
+        # and refusing on the name would throw away a tree that is the right
+        # one. A tree at a different commit is a different file, and quoting a
+        # line from it would be worse than quoting none.
+        at_same_commit = record is not None and record.commit == snapshot.release.commit_sha
+
+        return snapshot, record.id if record and at_same_commit else None
 
     def _summary(self, repository_key: str, release_id: str) -> SnapshotSummary:
         """The newest analysis of one release.
@@ -180,7 +203,7 @@ class GraphStoreReader:
         that was taken is recorded on the architecture's provenance.
         """
 
-        history = self._store.history(repository_key)
+        history = self._history(repository_key)
         matching = [
             item
             for item in history
@@ -195,6 +218,35 @@ class GraphStoreReader:
             )
 
         return max(matching, key=lambda item: item.analysis_timestamp)
+
+    def _history(self, repository_key: str) -> Sequence[SnapshotSummary]:
+        """Recovery's history, or a conflict naming why it could not be read.
+
+        The exception is deliberately broad. Whatever the store raises - the
+        database refusing a connection, a driver error, a timeout - a caller
+        does the same thing about it, and the alternative is a stack trace
+        reaching a screen as a 500 that says nothing anybody can act on.
+        """
+
+        try:
+            return self._store.history(repository_key)
+        except Exception as error:  # noqa: BLE001 - see the docstring
+            raise GraphContractError(
+                "Recovery's architecture store could not be read "
+                f"({type(error).__name__}: {error}). Start it, or point the "
+                "run at a recorded architecture instead."
+            ) from error
+
+    def _read(self, repository_key: str, snapshot_id: str):
+        """One snapshot, with the same treatment of a store that is down."""
+
+        try:
+            return self._store.read(repository_key, snapshot_id)
+        except Exception as error:  # noqa: BLE001 - see `_history`
+            raise GraphContractError(
+                "Recovery's architecture store could not be read "
+                f"({type(error).__name__}: {error})."
+            ) from error
 
     def _paths(
         self, workspace_id: str, release_id: str

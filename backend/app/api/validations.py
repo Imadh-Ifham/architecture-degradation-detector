@@ -50,6 +50,7 @@ from app.components.architecture_validation.classification import Classification
 from app.components.architecture_validation.decision_knowledge import (
     DEFAULT_MODE,
     DecisionKnowledgeService,
+    DecisionSourceError,
     NoDecisionsAvailable,
     SourceRequest,
 )
@@ -427,9 +428,12 @@ def get_architecture_graph_store():
     from app.infrastructure.neo4j.architecture_snapshot_store import (
         Neo4jArchitectureSnapshotStore,
     )
-    from app.infrastructure.neo4j.database import get_neo4j_session
+    from app.infrastructure.neo4j.database import driver
 
-    return Neo4jArchitectureSnapshotStore(get_neo4j_session)
+    # The driver's own `session`, which is a context manager per operation.
+    # The request-scoped dependency beside it yields one already open, and
+    # the store opens its own.
+    return Neo4jArchitectureSnapshotStore(driver.session)
 
 
 @lru_cache
@@ -772,6 +776,7 @@ def describe_decision_sources(
         architecture = reader.read(repository_id, release_id)
     except (
         ArtifactUnavailableError,
+        DecisionSourceError,
         GraphContractError,
         InventoryContractError,
         SnapshotContractError,
@@ -790,11 +795,16 @@ def describe_decision_sources(
                 manifest_paths=architecture.manifest_paths,
             )
         )
-    except ArtifactUnavailableError as error:
+    except (ArtifactUnavailableError, DecisionSourceError) as error:
         # The sources read the repository, so this route needs the checkout as
         # well as the recording. Answered rather than raised: a user asking
         # which mode to pick before ingesting anything has made a mistake with
         # an obvious fix, and the sentence that says so is the whole answer.
+        #
+        # A source that cannot read a file it found is the same kind of
+        # answer. One unparseable document in a repository must not turn
+        # "what could this be validated against?" into a crash: the question
+        # is asked before anything runs, and the refusal belongs to the run.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
@@ -908,6 +918,7 @@ def run_validation(
         ) from error
     except (
         ArtifactUnavailableError,
+        DecisionSourceError,
         GraphContractError,
         InventoryContractError,
         SnapshotContractError,
@@ -1125,3 +1136,40 @@ def _review_item(item) -> dict:
         "status": str(item.status),
         "created_at": item.created_at,
     }
+
+
+@router.get(
+    "/graph",
+    summary="The published graph for one release",
+    response_description=(
+        "The validated architecture as the node-link document the next "
+        "component reads, exactly as it was published."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "That release has not been validated, which is a "
+            "state rather than a fault: it has its own screen."
+        }
+    },
+)
+def read_published_graph(repository_id: str, release_id: str):
+    """Return the document the most recent completed run published.
+
+    Read from the file rather than rebuilt from the run record, so the screen
+    and the next component are looking at the same bytes. A release nobody has
+    validated is a 404 with a sentence, not an empty graph: an empty graph and
+    a graph of a system with nothing in it are different claims.
+    """
+
+    document = get_graph_file_store().read(repository_id, release_id)
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No validated graph for '{release_id}'. Run a validation for "
+                "that release first."
+            ),
+        )
+
+    return document

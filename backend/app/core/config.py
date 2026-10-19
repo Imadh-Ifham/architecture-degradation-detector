@@ -29,7 +29,6 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-
 #: Committed, non-sensitive configuration. Resolved relative to this file so
 #: the configured values are found regardless of the process working directory.
 CONFIG_INI_PATH = Path(__file__).resolve().parents[2] / "config.ini"
@@ -121,11 +120,13 @@ class Settings(BaseSettings):
     # Local workspace holding ingested (cloned) repositories.
     repositories_root: Path = Path(gettempdir()) / "add-repositories"
 
-    # Where the architecture validation component reads its input from; see
-    # the [validation] section of config.ini. Never a silent fallback between
-    # the two: whichever answered is stamped on the run's provenance, so a
-    # result always says which input produced it.
-    architecture_source: str = "snapshot"
+    # Where the architecture validation component reads its input from.
+    # `graph` is recovery's own store and works for any repository that has
+    # been ingested; `snapshot` and `inventory` read a recording and only
+    # answer for releases somebody recorded. Never a silent fallback between
+    # them: whichever answered is stamped on the run's provenance, so a result
+    # always says which input produced it.
+    architecture_source: str = "graph"
     # Derived rather than configured, because it is the same relative location
     # on every machine and an absolute path does not belong in a committed file.
     snapshot_root: Path = BACKEND_ROOT / "data" / "snapshots"
