@@ -4,8 +4,9 @@ Pure data, no I/O. Internal models use ``extra="forbid"`` and are immutable. Mod
 port (``CanonicalRelease``...) and the enums that appear in the contracts (``Scope``,
 ``Worsening``, ``TestMethod``, ``ArchitectureStyle``...) live in ``app/domain/``.
 
-Lineage and instance-track models are added by the tasks that build them (T-08, T-09). The
-graph (``ArchGraph``) is used only by M2, so it lives in ``detection/models.py``.
+Lineages (T-08) and instance tracks (T-09) are here because the series builder, M4 and the event
+export read them too. The graph (``ArchGraph``) is used only by M2, so it
+lives in ``detection/models.py``.
 """
 
 from enum import StrEnum
@@ -14,7 +15,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.canonical_release import CanonicalRelease, IntentEntry
-from app.domain.degradation_event import Scope, TestMethod, Worsening
+from app.domain.degradation_event import Lifecycle, Scope, TestMethod, Worsening
 
 
 class MetricLevel(StrEnum):
@@ -65,6 +66,27 @@ class MetricDef(InternalModel):
     worsening: Worsening | None = None
 
 
+# Metrics that count the detectors' output. Their names are shared vocabulary: M2 computes them,
+# the series builder breaks their series where a detector did not run, M4 maps ``ap_count.X``
+# back to anti-pattern X.
+AP_COUNT_PREFIX = "ap_count."
+AP_INVOLVEMENT_SHARE = "ap_involvement_share"
+
+
+def ap_count(anti_pattern_type: str) -> str:
+    """Name of the metric that counts one anti-pattern type's instances in a release."""
+    return f"{AP_COUNT_PREFIX}{anti_pattern_type}"
+
+
+def counted_type(metric: str) -> str | None:
+    """The anti-pattern type an ``ap_count.<Type>`` metric counts; None for any other metric."""
+    return metric.removeprefix(AP_COUNT_PREFIX) if metric.startswith(AP_COUNT_PREFIX) else None
+
+
+def is_anti_pattern_metric(name: str) -> bool:
+    return name.startswith(AP_COUNT_PREFIX) or name == AP_INVOLVEMENT_SHARE
+
+
 class MetricObservation(InternalModel):
     release_id: str
     element_id: str | None  # None for a system-level metric
@@ -91,6 +113,135 @@ class ReleaseDetection(InternalModel):
     # Detector ids that ran on this release. A type missing here was not checked, so its absence
     # from ``instances`` says nothing (M3 must not resolve an instance track on it).
     detectors_run: tuple[str, ...] = ()
+
+
+# --- M3 output: element lineages -----------------------------------------------------------
+
+
+class AlignMethod(StrEnum):
+    """How an element was linked to its predecessor in the previous release."""
+
+    EXACT = "EXACT"  # same id
+    ALIAS = "ALIAS"  # the new element lists the old id in ``aliases``
+    SIMILARITY = "SIMILARITY"  # name + neighbours + size, one-to-one (Hungarian)
+
+
+class LineageEventType(StrEnum):
+    RENAME = "RENAME"
+    SPLIT = "SPLIT"  # post-PP1
+    MERGE = "MERGE"  # post-PP1
+
+
+class LineageMember(InternalModel):
+    # Position on this run's timeline, for building series. Never part of the identity.
+    ordinal: int = Field(ge=0)
+    release_id: str
+    element_id: str
+
+
+class Lineage(InternalModel):
+    """One element through time, across renames. Its members are consecutive releases.
+
+    ``lineage_id`` is ``LIN-<element_id>@<release_id>`` of the first member: unique, readable,
+    and unchanged when later releases are added. A lineage never crosses a change of ``kind``
+    and never spans a release it is missing from (the element that comes back starts a new one).
+    """
+
+    lineage_id: str
+    kind: str
+    members: tuple[LineageMember, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_members_consecutive(self) -> Self:
+        ordinals = [member.ordinal for member in self.members]
+        if ordinals != list(range(ordinals[0], ordinals[0] + len(ordinals))):
+            raise ValueError("lineage members must be in consecutive releases")
+        return self
+
+
+class LineageEvent(InternalModel):
+    """A change of identity inside a lineage, kept as evidence for M5."""
+
+    lineage_id: str
+    event_type: LineageEventType
+    release_id: str  # the release where the new identity first appears
+    from_element_ids: tuple[str, ...]
+    to_element_ids: tuple[str, ...]
+    method: AlignMethod
+    similarity: float | None = Field(default=None, ge=0, le=1)  # SIMILARITY only
+
+
+# --- M3 output: anti-pattern instance tracks -----------------------------------------------
+
+
+class InstanceTransition(StrEnum):
+    """What happened to a tracked instance since the previous release (by member count)."""
+
+    INTRODUCED = "INTRODUCED"  # first release of the track
+    GREW = "GREW"
+    SHRANK = "SHRANK"
+    PERSISTED = "PERSISTED"  # same number of members (they may have been swapped)
+
+
+class TrackEnd(StrEnum):
+    """Why a track has no occurrence after its last one."""
+
+    OPEN = "OPEN"  # present in the last release of the timeline
+    RESOLVED = "RESOLVED"  # the next release ran the detector and the instance was gone
+    # The next release did not run the detector: nobody looked, so it is not a resolution.
+    UNCHECKED = "UNCHECKED"
+
+
+class InstanceOccurrence(InternalModel):
+    """One M2 instance as one step of a track."""
+
+    # Position on this run's timeline, for building series. Never part of the identity.
+    ordinal: int = Field(ge=0)
+    release_id: str
+    local_instance_id: str
+    members: tuple[str, ...]  # element ids in this release
+    member_lineages: tuple[str, ...]  # lineage id of each member, same order as ``members``
+    measures: dict[str, float | None] = Field(default_factory=dict)
+    transition: InstanceTransition
+    jaccard: float | None = Field(default=None, ge=0, le=1)  # with the previous occurrence
+
+    @model_validator(mode="after")
+    def _check_lineages_match_members(self) -> Self:
+        if len(self.member_lineages) != len(self.members):
+            raise ValueError("member_lineages must give one lineage id per member")
+        return self
+
+
+class InstanceTrack(InternalModel):
+    """One anti-pattern instance through time. Its occurrences are consecutive releases.
+
+    ``track_id`` is ``AP-<local_instance_id>@<release_id>`` of the first occurrence (e.g.
+    ``AP-CyclicDependency:inventory@v1.1.0``): unique, readable and unchanged when releases are
+    added, so the ``event_key`` built from it is stable across runs.
+
+    ``lifecycle`` is the state at the end of the window (Sas, Avgeriou & Uyumaz 2022). Tracking
+    sets ``introduced``, ``persistent`` or ``resolved``, or None when the track ends on a release
+    that did not check its type; ``growing`` replaces ``persistent`` once M4 has found a
+    significant worsening trend in an instance measure.
+    """
+
+    track_id: str
+    anti_pattern_type: str
+    catalog: str
+    scope: Scope
+    occurrences: tuple[InstanceOccurrence, ...] = Field(min_length=1)
+    end: TrackEnd
+    ended_at: str | None = None  # release where it was found gone, or not checked
+    lifecycle: Lifecycle | None
+
+    @model_validator(mode="after")
+    def _check_track(self) -> Self:
+        ordinals = [occurrence.ordinal for occurrence in self.occurrences]
+        if ordinals != list(range(ordinals[0], ordinals[0] + len(ordinals))):
+            raise ValueError("track occurrences must be in consecutive releases")
+        if (self.end is TrackEnd.OPEN) != (self.ended_at is None):
+            raise ValueError("ended_at is set exactly when the track is not OPEN")
+        return self
 
 
 # --- M3 output: series across releases ----------------------------------------------------

@@ -21,18 +21,20 @@ import structlog
 from networkx.algorithms.community import greedy_modularity_communities, modularity
 
 from app.components.degradation_detection.detection import metric_registry as m
-from app.components.degradation_detection.detection.metric_registry import (
-    MetricRegistry,
-    ap_count,
-    is_anti_pattern_metric,
-)
+from app.components.degradation_detection.detection.metric_registry import MetricRegistry
 from app.components.degradation_detection.detection.models import (
     C1_METRIC_UNDECLARED,
     SIZE_UNIT_MIXED,
     ArchGraph,
 )
 from app.components.degradation_detection.detection.thresholds import robust_z
-from app.components.degradation_detection.models import AntiPatternInstance, MetricObservation
+from app.components.degradation_detection.models import (
+    AP_INVOLVEMENT_SHARE,
+    AntiPatternInstance,
+    MetricObservation,
+    ap_count,
+    is_anti_pattern_metric,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -223,7 +225,7 @@ def count_anti_patterns(
             raise ValueError(f"{anti_pattern_type} ran but {name} is not declared")
         values[name] = float(sum(1 for i in found if i.anti_pattern_type == anti_pattern_type))
     involved = {member for i in found for member in i.members}
-    values[m.AP_INVOLVEMENT_SHARE] = len(involved) / g.n if detectors_run and g.n else None
+    values[AP_INVOLVEMENT_SHARE] = len(involved) / g.n if detectors_run and g.n else None
     return tuple(
         MetricObservation(
             release_id=g.release_id,

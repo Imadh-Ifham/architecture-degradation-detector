@@ -222,3 +222,76 @@ def test_detect_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> 
 
     assert result.exit_code == 1
     assert "no releases" in result.output
+
+
+# --- c3 align ---------------------------------------------------------------------------------
+
+
+def test_align_prints_lineages_tracks_and_writes_the_alignment_sample(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path, tmp_path: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+    out = tmp_path / "shopfront" / "alignment_sample.csv"
+
+    result = CliRunner().invoke(app, ["align", "--system", "shopfront", "--out", str(out)])
+
+    assert result.exit_code == 0, result.output
+    rename = next(line for line in result.output.splitlines() if "RENAME" in line)
+    assert rename.split() == [
+        "v1.4.0",
+        "RENAME",
+        "ALIAS",
+        "LIN-order-svc@v1.0.0",
+        "order-svc",
+        "order-service",
+    ]
+    tracks = {line.split()[0]: line.split()[1:] for line in result.output.splitlines()}
+    assert tracks["AP-CyclicDependency:inventory@v1.1.0"] == [  # S1, one track through S4
+        "v1.1.0",
+        "v1.9.0",
+        "OPEN",
+        "persistent",
+        "3>3>3>4>4>4>5>5>5",
+    ]
+    assert tracks["AP-SharedPersistence:orders_db@v1.2.0"][-1] == "2>2>3>3>4>4>5>5"  # S9
+    assert "10 releases, 15 lineages, 1 renames, 1 decisions, 14 instance tracks" in result.output
+    lines = out.read_bytes().decode("utf-8").split("\n")
+    assert len([line for line in lines if line]) == 2  # header + the S4 alias link
+    assert lines[1].startswith("v1.3.0,v1.4.0,order-svc,order-service,service,ALIAS,LINKED")
+
+
+def test_align_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> None:
+    result = CliRunner().invoke(app, ["align", "--system", "nowhere"])
+
+    assert result.exit_code == 1
+    assert "no releases" in result.output
+
+
+# --- c3 series --------------------------------------------------------------------------------
+
+
+def test_series_writes_the_series_table(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path, tmp_path: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+    out = tmp_path / "shopfront" / "series.csv"
+
+    result = CliRunner().invoke(app, ["series", "--system", "shopfront", "--out", str(out)])
+
+    assert result.exit_code == 0, result.output
+    rows = out.read_bytes().decode("utf-8").split("\n")
+    assert rows[0] == "scope,subject_id,metric,ordinal,release_id,value"
+    s1 = [
+        r
+        for r in rows
+        if r.startswith("INSTANCE,AP-CyclicDependency:inventory@v1.1.0,member_count")
+    ]
+    assert [r.rsplit(",", 1)[1] for r in s1] == ["3", "3", "3", "4", "4", "4", "5", "5", "5"]
+    assert "series: " in result.output and f"wrote {out}" in result.output
+
+
+def test_series_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> None:
+    result = CliRunner().invoke(app, ["series", "--system", "nowhere"])
+
+    assert result.exit_code == 1
+    assert "no releases" in result.output
