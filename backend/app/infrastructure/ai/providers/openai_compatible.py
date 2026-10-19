@@ -76,11 +76,12 @@ def strictify(schema: dict) -> dict:
             for name, definition in (result.get("properties") or {}).items()
         }
         result["properties"] = properties
-        # Declaration order, not alphabetical. Sorting is deterministic but it
-        # is not the order the fields were declared in, and a caller that
-        # declares its reasoning field before its conclusion is relying on
-        # that order to get the reasoning generated first. A provider that
-        # reads `required` rather than `properties` would undo it silently.
+        # Declaration order, not alphabetical. Sorting is deterministic but
+        # it is not the order the caller declared, and a schema whose two
+        # field lists disagree about order is a schema no reader can check
+        # against the file it came from. It buys nothing from this provider -
+        # emission order was measured to be the model's own - so this keeps
+        # the request faithful to the declaration rather than relying on it.
         result["required"] = list(properties)
         result["additionalProperties"] = False
 

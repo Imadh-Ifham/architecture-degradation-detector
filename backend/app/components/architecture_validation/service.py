@@ -42,6 +42,7 @@ from .evidence_retrieval import EvidenceRetrievalService
 from .graph_publishing import GraphPublishingService
 from .independent_verification import IndependentVerificationService
 from .models import (
+    ArbiterAgreement,
     ClassifiedFact,
     PrimaryVerdict,
     StageRecord,
@@ -49,6 +50,10 @@ from .models import (
     ValidationRunResult,
     Verdict,
     VerdictSource,
+    Verification,
+    VerificationArm,
+    VerificationMode,
+    VerificationOutcome,
 )
 from .observation_normalization import ObservationNormalizationService
 from .ports import RecoveredArchitectureReader
@@ -65,6 +70,23 @@ STAGE_ORDER = (
     "architect_review",
     "graph_publishing",
 )
+
+
+VERIFICATION_NOTES = {
+    VerificationMode.PERFORMED: "verification: performed by a second model",
+    VerificationMode.NOT_REQUESTED: "verification: not requested on this run",
+    VerificationMode.UNAVAILABLE: (
+        "verification: the verifying model could not be reached. This is not "
+        "agreement - the reasoner was deliberately not used in its place"
+    ),
+}
+"""One sentence per mode, written here rather than at each reader.
+
+The stage note and the summary card say the same thing because they read the
+same string. The `unavailable` sentence says what was *not* done on purpose:
+an audience that sees a missing check reads it as an unfinished feature
+unless the output says it was refused.
+"""
 
 
 class _Stage:
@@ -125,6 +147,175 @@ def _attempt(stage: _Stage, call, *arguments):
     except NotImplementedError as error:
         stage.pending(str(error) or None)
         return None, False
+
+
+def _verification_counts(judged: list[tuple], verify: bool, arm: str) -> dict:
+    """What the second model said across the run, and the one number that matters.
+
+    `unavailable` is counted separately from `uncertain` and that separation
+    is the point: a verifier that could not be reached produced nothing, and a
+    verifier that answered unusably produced an uncertainty. Summing them
+    would make a dead free tier indistinguishable from a confused model - the
+    first is a result about the afternoon, the second is a result about the
+    model.
+
+    Every key is always present, and all of them are zero on a run that did
+    not ask. A counts dictionary whose shape depends on the mode makes every
+    reader branch, and the mode is already published for the reader who cares.
+
+    **`agreed_while_arbiter_disagreed` is the component's headline number.**
+    The facts where the verifier endorsed the reasoner *and* the deterministic
+    table disagreed with both are a measured lower bound on correlated model
+    failure, and no single-model or two-model pipeline can produce it. It is
+    counted here whether or not anybody asks for it, because a number that is
+    only computed on request is a number nobody has.
+
+    On this corpus it will be **zero**, because the corpus contains no
+    violations for the models to be wrong about. That has to be reported as
+    *not observed on a corpus too clean to produce it* and never as *no
+    correlated failure*.
+
+    **The blind keys arrive only on a run that asked for the blind arm**, and
+    `anchoring_delta` carries one caveat that the arithmetic hides. The
+    informed arm's `agreed` means *the verifier found no fault in the
+    argument*; the blind arm's means *the verifier reached the same verdict*.
+    Those are two different questions, so the difference is an indication of
+    how much being shown the answer moves the second model, and not a
+    measurement of one quantity under two conditions. It is still the only
+    number in the component that bounds the anchoring at all, and on this
+    corpus it will be zero for want of anything to disagree about.
+    """
+
+    empty = {
+        "verifications": 0,
+        "agreed": 0,
+        "disagreed": 0,
+        "uncertain": 0,
+        "objections": 0,
+        "unavailable": 0,
+        "agreed_while_arbiter_disagreed": 0,
+    }
+    if not verify:
+        return empty
+
+    answered = [check for _, check, _ in judged if check is not None]
+    counts = {
+        "verifications": len(answered),
+        "agreed": sum(1 for c in answered if c.outcome is VerificationOutcome.AGREE),
+        "disagreed": sum(
+            1 for c in answered if c.outcome is VerificationOutcome.DISAGREE
+        ),
+        "uncertain": sum(
+            1 for c in answered if c.outcome is VerificationOutcome.UNCERTAIN
+        ),
+        "objections": sum(len(c.objections) for c in answered),
+        "unavailable": sum(
+            1
+            for _, check, _ in judged
+            if check is None and arm is not VerificationArm.BLIND
+        ),
+        "agreed_while_arbiter_disagreed": sum(
+            1
+            for verdict, check, _ in judged
+            if check is not None
+            and check.outcome is VerificationOutcome.AGREE
+            and verdict.arbiter_agreement is ArbiterAgreement.DISAGREED
+        ),
+    }
+
+    if arm in (VerificationArm.BLIND, VerificationArm.BOTH):
+        counts.update(_blind_counts(judged, counts["agreed"]))
+    return counts
+
+
+def _blind_counts(judged: list[tuple], informed_agreed: int) -> dict:
+    """The blind arm's tally, the delta, and the facts it is really there for.
+
+    `unanchored_cover` is the one that earns the arm its place. M4's arbiter
+    speaks only the closed constraint vocabulary, so where a decision was
+    recovered from prose it **abstains** - and on those facts an informed
+    agreement is not a check at all, because the only thing that looked at
+    them had already been shown the answer. A blind verdict is still a
+    language model, so it does not make those facts verified; it is simply the
+    one opinion present that did not see the primary's.
+
+    `agrees_with` raises if the two arms saw different evidence, which is
+    deliberate: a delta across two packages compares cleanly and means
+    nothing.
+    """
+
+    answered = [(verdict, blind) for verdict, _, blind in judged if blind is not None]
+    agreed = sum(1 for verdict, blind in answered if blind.agrees_with(verdict))
+
+    return {
+        "blind_verdicts": len(answered),
+        "blind_agreed": agreed,
+        "blind_unavailable": sum(1 for _, _, blind in judged if blind is None),
+        "anchoring_delta": informed_agreed - agreed,
+        "unanchored_cover": sum(
+            1
+            for verdict, blind in answered
+            if verdict.arbiter_agreement is ArbiterAgreement.NOT_CHECKED
+        ),
+    }
+
+
+def _arm_reported(arm: str, mode: str | None) -> str | None:
+    """What the verifier was shown, or null when it was shown nothing.
+
+    Null on a run that did not verify and on one nobody asked to verify: a
+    question that did not arise has no answer, and reporting `informed` over a
+    check that never happened describes one that did.
+
+    **Not** null on an `unavailable` run. The arm was chosen and attempted,
+    and *we tried to show it the verdict and could not reach it* is more
+    informative than silence.
+    """
+
+    if mode is None or mode == VerificationMode.NOT_REQUESTED:
+        return None
+    return arm
+
+
+def _verification_mode(
+    verify: bool, arm: str, reasoned: int, judged: list[tuple]
+) -> str | None:
+    """Which of the three honest things this run can say about verification.
+
+    `None` when no fact reached the stage. An uncovered release has nothing to
+    verify, and both `performed` and `unavailable` would be false claims about
+    it - the same shape as a style that was never resolved.
+
+    A run where some facts were verified and some were not is `performed`.
+    The per-fact detail is in the counts; the mode answers whether the second
+    model was part of this run at all, and it was.
+
+    **Which answers count depends on the arm**, and getting that wrong would
+    be a quiet lie: a blind-only run has no informed opinion on any fact *by
+    request*, and reading those absent verifications as failures would report
+    a working run as `unavailable`.
+    """
+
+    if reasoned == 0:
+        # Checked before the flag on purpose. A run with nothing to verify did
+        # not decline the check, whatever was asked for, and saying
+        # `not_requested` would attach the architect's name to a skip the
+        # architecture caused.
+        return None
+    if not verify:
+        return VerificationMode.NOT_REQUESTED
+
+    informed = [check for _, check, _ in judged]
+    blind = [verdict for _, _, verdict in judged]
+    answered = {
+        VerificationArm.INFORMED: informed,
+        VerificationArm.BLIND: blind,
+        VerificationArm.BOTH: informed + blind,
+    }[VerificationArm(arm)]
+
+    if any(answer is not None for answer in answered):
+        return VerificationMode.PERFORMED
+    return VerificationMode.UNAVAILABLE
 
 
 def _reasoning_counts(verdicts: list[PrimaryVerdict]) -> dict:
@@ -211,6 +402,8 @@ class ArchitectureValidationService:
         release_id: str,
         decision_mode: str = DEFAULT_MODE,
         adr_repository_id: str | None = None,
+        verify: bool = True,
+        arm: str = VerificationArm.INFORMED,
     ) -> ValidationRunResult:
         """Validate one release of one repository.
 
@@ -223,9 +416,23 @@ class ArchitectureValidationService:
         on the result. A mode that would supply nothing stops the run here,
         before any stage, because a validation with nothing to validate
         against publishes a graph that reads exactly like a clean one.
+
+        `verify` turns the second model off for this run. It defaults to true,
+        and turning it off is published as a skip with *that* reason rather
+        than as an absent stage - a check nobody ran, rendered identically to
+        a check that passed, is the one unacceptable way to make this
+        optional. The verdicts themselves are not re-paid for on a later
+        verifying run, because the cache is keyed on the evidence rather than
+        on the run.
+
+        `arm` chooses what the verifier is shown. `informed` is the default
+        and the demonstration mode. `both` is three model calls a fact and is
+        a measurement mode: the gap between the two agreement rates is the
+        anchoring effect, measured instead of conceded.
         """
 
         run_id = uuid.uuid4().hex[:12]
+        arm = VerificationArm(arm)
         architecture = self._architecture_reader.read(repository_id, release_id)
 
         decisions = self._knowledge.establish(
@@ -243,8 +450,8 @@ class ArchitectureValidationService:
         facts, stage, style = self._normalise(architecture)
         stages.append(stage)
 
-        classified, reasoning_stages = self._validate_each(
-            facts, repository_id, decisions, architecture
+        classified, reasoning_stages, verification_mode = self._validate_each(
+            facts, repository_id, decisions, architecture, verify, arm
         )
         stages.extend(reasoning_stages)
 
@@ -266,6 +473,8 @@ class ArchitectureValidationService:
             model_calls=sum(fact.model_calls for fact in classified),
             style_resolved=style[0],
             style_source=style[1],
+            verification_arm=_arm_reported(arm, verification_mode),
+            verification_mode=verification_mode,
             decision_mode=decisions.mode,
         )
 
@@ -326,8 +535,14 @@ class ArchitectureValidationService:
         return None
 
     def _validate_each(
-        self, facts, repository_id: str, decisions, architecture
-    ) -> tuple[list[ClassifiedFact], list[StageRecord]]:
+        self,
+        facts,
+        repository_id: str,
+        decisions,
+        architecture,
+        verify: bool = True,
+        arm: str = VerificationArm.INFORMED,
+    ) -> tuple[list[ClassifiedFact], list[StageRecord], str | None]:
         """Resolve, reason about and classify every fact.
 
         The five per-fact stages are reported once for the whole pass rather
@@ -345,6 +560,16 @@ class ArchitectureValidationService:
         counts = {"resolved": 0, "uncovered": 0, "ambiguous": 0, "reasoned": 0}
         classified: list[ClassifiedFact] = []
         verdicts: list[PrimaryVerdict] = []
+        judged: list[tuple[PrimaryVerdict, Verification | None, object]] = []
+        """Each reasoned fact's verdict, its verification and its blind verdict.
+
+        Grouped rather than kept as parallel lists because both numbers this
+        component exists to produce - agreement where the deterministic table
+        disagreed, and the gap between the informed and blind arms - are
+        properties of one fact's judgements *together*. Lists indexed in
+        parallel desync the moment one gains an entry another did not, and the
+        resulting figures would still look entirely plausible.
+        """
 
         with knowledge, evidence, reasoning, verification, classification:
             for fact in facts:
@@ -394,12 +619,33 @@ class ArchitectureValidationService:
                     break
                 verdicts.append(verdict)
 
-                checked, ran = _attempt(
-                    verification, self._verification.verify, verdict, package
-                )
-                if not ran:
-                    break
+                blind = None
+                if verify and arm in (VerificationArm.INFORMED, VerificationArm.BOTH):
+                    checked, ran = _attempt(
+                        verification, self._verification.verify, verdict, package
+                    )
+                    if not ran:
+                        break
+                elif verify:
+                    # A blind-only run. There is no informed opinion by
+                    # request, which is not the same as one being unavailable.
+                    checked = None
+                else:
+                    # Not asked for. `None` travels on exactly as an
+                    # unreachable verifier's would, so classification caps the
+                    # confidence by the one path it already has - and the
+                    # reason the two are distinguishable is the stage note and
+                    # the run's mode, never the per-fact value.
+                    checked = None
 
+                if verify and arm in (VerificationArm.BLIND, VerificationArm.BOTH):
+                    blind, ran = _attempt(
+                        verification, self._verification.verify_blind, package
+                    )
+                    if not ran:
+                        break
+
+                judged.append((verdict, checked, blind))
                 counts["reasoned"] += 1
                 result, ran = _attempt(
                     classification,
@@ -435,7 +681,7 @@ class ArchitectureValidationService:
             )
         evidence.counts = {"packages": counts["resolved"]}
         reasoning.counts = _reasoning_counts(verdicts)
-        verification.counts = {"verifications": counts["reasoned"]}
+        verification.counts = _verification_counts(judged, verify, arm)
         classification.counts = {"facts": len(classified)}
 
         if not facts:
@@ -445,7 +691,11 @@ class ArchitectureValidationService:
             for stage in group:
                 if stage.status is StageStatus.COMPLETED:
                     stage.skip("normalisation produced no facts to validate")
-            return classified, [stage.record() for stage in group]
+            # No mode: nothing reached verification, so neither
+            # `performed` nor `unavailable` is true of this run - and
+            # `not_requested` would blame the architect for a skip the empty
+            # architecture caused. The stage note carries the real reason.
+            return classified, [stage.record() for stage in group], None
 
         # A stage after the one that stalled was never reached, so it reports
         # itself skipped with the reason rather than as a clean pass over
@@ -464,13 +714,23 @@ class ArchitectureValidationService:
             if verification.status is StageStatus.COMPLETED:
                 verification.skip("nothing to verify")
 
+        mode = _verification_mode(verify, arm, counts["reasoned"], judged)
+        if verification.status is StageStatus.COMPLETED and mode is not None:
+            verification.note = VERIFICATION_NOTES[mode]
+        if mode in (VerificationMode.NOT_REQUESTED, VerificationMode.UNAVAILABLE):
+            # Skipped rather than completed, because nothing was verified -
+            # and with the reason attached, because "nobody asked for this
+            # check" and "this check could not run" are different findings
+            # about a run and only the second one is actionable.
+            verification.skip(VERIFICATION_NOTES[mode])
+
         return classified, [
             knowledge.record(),
             evidence.record(),
             reasoning.record(),
             verification.record(),
             classification.record(),
-        ]
+        ], mode
 
     def _queue_for_review(self, classified: list[ClassifiedFact]) -> StageRecord:
         with _Stage("architect_review") as stage:

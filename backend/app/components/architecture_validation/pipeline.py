@@ -86,7 +86,7 @@ PIPELINE: tuple[StageDescription, ...] = (
         role="Re-examines a verdict as a challenge to it, using a different model.",
         research_module="M5",
         uses_model=True,
-        implemented=False,
+        implemented=True,
     ),
     StageDescription(
         name="classification",

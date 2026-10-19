@@ -28,15 +28,9 @@ from pathlib import Path
 import pytest
 
 from app.components.architecture_validation._release import release_sort_key
-from app.components.architecture_validation.decision_knowledge import (
-    DecisionKnowledgeService,
-    SourceRequest,
-)
+from app.components.architecture_validation.decision_knowledge import SourceRequest
 from app.components.architecture_validation.decision_knowledge.sources.base import (
     decision_record,
-)
-from app.components.architecture_validation.evidence_retrieval import (
-    EvidenceRetrievalService,
 )
 from app.components.architecture_validation.models import (
     ArbiterAgreement,
@@ -53,9 +47,6 @@ from app.components.architecture_validation.models import (
     Span,
     Verdict,
     VerdictSource,
-)
-from app.components.architecture_validation.observation_normalization import (
-    ObservationNormalizationService,
 )
 from app.components.architecture_validation.validation_reasoning import (
     ArbiterOnlyRefused,
@@ -78,12 +69,16 @@ from app.infrastructure.ai import (
 from app.infrastructure.ai.prompt_library import load_prompt
 from app.infrastructure.ai.providers.fake import FakeProvider
 from app.infrastructure.ai.providers.openai_compatible import strictify
-from app.infrastructure.decision_log import JsonlDecisionStore
-from app.infrastructure.recovery_gateway import SnapshotFileReader
-
-FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "validation"
-SUBJECT = FIXTURES / "subject"
-SNAPSHOTS = Path(__file__).resolve().parents[3] / "data" / "snapshots"
+from tests.components.architecture_validation.corpus import (
+    REPOSITORY,
+    architecture,
+    facts,
+    knowledge,
+    package,
+    recorded_fact,
+    resolution_for,
+    service,
+)
 
 ARBITER = (
     Path(__file__).resolve().parents[3]
@@ -94,7 +89,6 @@ ARBITER = (
     / "_arbiter.py"
 )
 
-REPOSITORY = "online-boutique"
 RELEASES = ("v0.9.0", "v0.10.0")
 AT = datetime(2026, 10, 15, 9, 0, tzinfo=UTC)
 
@@ -103,35 +97,6 @@ POLICY = "kustomize/components/network-policies/network-policy-cartservice.yaml"
 TEMPLATE = load_prompt("primary_verdict.v1.md")
 """The real prompt file, read once. R3 is not tested against a stand-in:
 the file and the renderer are two halves of one artifact and they drift."""
-
-
-class WorkspaceReader:
-    """Reads the generated subject tree in place of an ingested checkout."""
-
-    def read_text(self, repository_id, release_id, path):
-        return (SUBJECT / release_id / path).read_text(encoding="utf-8")
-
-    def list_paths(self, repository_id, release_id, pattern):
-        root = SUBJECT / release_id
-        return sorted(
-            str(match.relative_to(root)).replace("\\", "/")
-            for match in root.glob(pattern)
-            if match.is_file()
-        )
-
-
-def architecture(release: str = "v0.10.0"):
-    return SnapshotFileReader(SNAPSHOTS).read(REPOSITORY, release)
-
-
-def facts(release: str = "v0.10.0"):
-    return ObservationNormalizationService().normalise(architecture(release)).facts
-
-
-def knowledge() -> DecisionKnowledgeService:
-    return DecisionKnowledgeService(
-        WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
-    )
 
 
 def governed(release: str):
@@ -147,31 +112,6 @@ def governed(release: str):
         resolution = store.resolve(observed, REPOSITORY)
         if resolution.governing is not None:
             yield observed, resolution
-
-
-def service() -> EvidenceRetrievalService:
-    return EvidenceRetrievalService(WorkspaceReader())
-
-
-def recorded_fact(subject="frontend", object_="cartservice", release="v0.10.0"):
-    """One of the real facts, picked by the names a person would use."""
-
-    return next(
-        observed
-        for observed in facts(release)
-        if observed.subject.name == subject and observed.object.name == object_
-    )
-
-
-def resolution_for(observed):
-    return knowledge().resolve(observed, REPOSITORY)
-
-
-def package(subject="frontend", object_="cartservice", release="v0.10.0"):
-    """A real sealed package, out of M3 and over the committed corpus."""
-
-    observed = recorded_fact(subject, object_, release)
-    return service().assemble(observed, resolution_for(observed), architecture(release))
 
 
 def fact(subject="frontend", object_="cartservice", release="v0.10.0", **attributes):
@@ -506,13 +446,20 @@ class TestTheRenderedPrompt:
 
 
 class TestTheVerdictSchema:
-    """The shape of the answer, and why its field order is load-bearing."""
+    """The shape of the answer, and what its field order does and does not buy.
+
+    The order was believed to make the model reason before concluding. The
+    live spike measured otherwise, so these two tests assert what the request
+    says and claim nothing about what the model does with it. Nothing in the
+    component rests on the ordering: coherence between a conclusion and the
+    reasoning under it is a guard's job, after the answer arrives.
+    """
 
     def test_the_reasoning_and_the_citations_are_declared_before_the_verdict(self):
-        """Constrained decoding generates fields in declaration order, so this
-        is what makes the model commit to its reasoning and to the evidence it
-        rests on before it names a conclusion - a reasoning trace at the cost
-        of no extra call."""
+        """A statement about the schema, and only about the schema. It is what
+        a reader expects of an answer meant to reason and then conclude, and
+        it is free - but the provider returns its conclusion first whatever
+        the schema declares."""
 
         properties = list(verdict_schema()["properties"])
 
@@ -522,8 +469,9 @@ class TestTheVerdictSchema:
     def test_strictifying_it_does_not_reorder_the_fields(self):
         """The helper existed; that it preserves declaration order did not.
         Alphabetically `cited_evidence_refs` sorts first, so a sorted
-        `required` list would hand the provider a different order from the one
-        the schema declares - and nothing in the output would say so."""
+        `required` list would hand the provider a schema whose two field lists
+        disagree - which no reader could check against the file it came from,
+        and which nothing in the output would report."""
 
         strict = strictify(verdict_schema())
 
