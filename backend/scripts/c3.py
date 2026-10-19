@@ -15,6 +15,7 @@ only when a command needs them, so every other command works without a ``.env``.
 """
 
 import json
+import re
 import subprocess
 import uuid
 from collections import Counter
@@ -45,6 +46,7 @@ from app.components.degradation_detection.ingestion.models import (
 )
 from app.components.degradation_detection.models import DetectionCatalog, Timeline
 from app.components.degradation_detection.ports import AnalysisRunRepository, ReleaseRepository
+from app.components.degradation_detection.service import new_run_id
 from app.components.degradation_detection.stub import StubService
 from app.components.degradation_detection.stub.models import DEFAULT_SEED
 from app.components.degradation_detection.tracking import TrackingService
@@ -64,6 +66,8 @@ SCHEMA_DIR = BACKEND_ROOT / "schemas"
 STUB_SYSTEM_DIR = BACKEND_ROOT / "data" / "samples" / "shopfront"
 SERIES_FIXTURE_DIR = BACKEND_ROOT / "tests" / "fixtures" / "series"
 OUT_DIR = BACKEND_ROOT / "out"
+# A run id names its folder under out/, so it may hold nothing that leaves it.
+RUN_ID_PATTERN = re.compile(r"RUN-[A-Za-z0-9_-]{1,64}")
 
 CONTRACTS: dict[str, type[BaseModel]] = {
     "c3_input.schema.json": ReleasePackageV1,
@@ -434,6 +438,12 @@ def _write_outputs(out: Path, files: dict[str, bytes]) -> None:
     typer.echo(f"wrote {len(files)} files to {out}")
 
 
+def _check_run_id(value: str | None) -> str | None:
+    if value is not None and not RUN_ID_PATTERN.fullmatch(value):
+        raise typer.BadParameter(f"{value!r} is not RUN-<letters, digits, - or _> (at most 64)")
+    return value
+
+
 @app.command("run")
 def run(
     system: Annotated[str, typer.Option(help="System id, as ingested.")],
@@ -445,18 +455,36 @@ def run(
             help="Ingest these packages first (a file or a directory); unchanged ones are skipped.",
         ),
     ] = None,
+    run_id: Annotated[
+        str | None,
+        typer.Option(
+            "--run-id",
+            callback=_check_run_id,
+            help="Name the run (RUN-<letters, digits, - or _>); default: a new random id.",
+        ),
+    ] = None,
     config: ConfigFile = DEFAULT_CONFIG_PATH,
     catalog: CatalogFile = DEFAULT_CATALOG_PATH,
 ) -> None:
     """Analyse every release of a system under one stored analysis run, and write events.json,
     series.csv, report.md and plots/ to out/<run_id>/."""
     cfg = _load_config_or_exit(config, catalog)
+    runs = run_repository()
+    if run_id is not None and runs.load(run_id) is not None:
+        typer.echo(f"run {run_id!r} is already stored; choose another --run-id")
+        raise typer.Exit(code=1)
     releases = release_repository()
     if ingest_path is not None:
         packages = _read_packages(ingest_path, cfg.ingest.max_package_bytes)
         typer.echo(_summary_line(IngestService(releases, SystemClock(), cfg).ingest(packages)))
 
-    service = DegradationDetectionService(releases, run_repository(), SystemClock(), cfg)
+    service = DegradationDetectionService(
+        releases,
+        runs,
+        SystemClock(),
+        cfg,
+        new_run_id=new_run_id if run_id is None else (lambda: run_id),
+    )
     try:
         result = service.run(system, code_version=code_version())
     except LookupError as exc:

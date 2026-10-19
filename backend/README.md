@@ -27,6 +27,8 @@ backend/
 
 The remaining research components are intentionally empty. Their internal subcomponents will be created in a later task.
 
+Degradation detection (C3): install, one-command demo and CLI are in [`app/components/degradation_detection/README.md`](./app/components/degradation_detection/README.md).
+
 ## Endpoints
 
 | Method | Path | Purpose |

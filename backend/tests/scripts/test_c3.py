@@ -414,6 +414,50 @@ def test_run_unknown_system_fails(
     assert memory_runs.runs == {}
 
 
+def test_run_takes_a_fixed_run_id(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    stub_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """The demo names its run, so report and evaluation can find it and event ids repeat."""
+    result = CliRunner().invoke(
+        app, ["run", "--system", "shopfront", "--ingest", str(stub_dir), "--run-id", "RUN-demo"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert list(memory_runs.runs) == ["RUN-demo"]
+    assert (tmp_path / "out" / "RUN-demo" / "events.json").exists()
+
+
+def test_run_refuses_a_run_id_already_stored(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    stub_dir: Path,
+) -> None:
+    args = ["run", "--system", "shopfront", "--ingest", str(stub_dir), "--run-id", "RUN-demo"]
+    CliRunner().invoke(app, args)
+
+    result = CliRunner().invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "run 'RUN-demo' is already stored" in result.output
+    assert list(memory_runs.runs) == ["RUN-demo"]
+
+
+@pytest.mark.parametrize("run_id", ["demo", "RUN-", "RUN-../x", "RUN-a b", "RUN-" + "a" * 65])
+def test_run_rejects_a_malformed_run_id(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    run_id: str,
+) -> None:
+    """The run id names a folder under out/, so it may not leave it."""
+    result = CliRunner().invoke(app, ["run", "--system", "shopfront", "--run-id", run_id])
+
+    assert result.exit_code == 2
+    assert memory_runs.runs == {}
+
+
 def test_report_re_renders_a_stored_run(
     memory_repo: InMemoryReleaseRepository,
     memory_runs: InMemoryAnalysisRunRepository,
