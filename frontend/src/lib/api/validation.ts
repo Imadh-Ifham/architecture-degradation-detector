@@ -140,3 +140,84 @@ export function decideReview(
     options,
   )
 }
+
+/** One node of the published graph: an element with its validation rollup. */
+export interface ValidatedNode {
+  id: string
+  name: string
+  canonical: string
+  kind: string
+  size: number | null
+  size_unit: string | null
+  /** The document's own name for it; absent on a node nothing judged. */
+  validation_rollup?: ValidationRollup
+}
+
+export interface ValidationRollup {
+  confirmed: number
+  contradicted: number
+  uncovered: number
+  needs_review: number
+}
+
+/** What produced the document, including which models answered. */
+export interface RunStamp {
+  run_id: string
+  generated_at: string
+  mode: string
+  reasoner_model: string | null
+  verifier_model: string | null
+  prompt_versions: string[]
+}
+
+/** One edge: a dependency with the verdict reached about it. */
+export interface ValidatedEdge {
+  fact_id: string
+  source: string
+  target: string
+  relationship: string
+  bucket: string
+  confidence: number
+  governing_decision: string | null
+  evidence_refs: string[]
+  source_tier: string | null
+  model_calls: number
+  produced_by: string
+  verification_outcome: string | null
+  arbiter_agreement: string | null
+  attributes: Record<string, unknown>
+}
+
+export interface PublishedGraph {
+  graph: {
+    schema_version: string
+    repository_id: string
+    release_id: string
+    released_at: string | null
+    architecture_style: string
+    validation_confidence: number
+    architecture_style_source: string
+    released_at_source: string | null
+    run: RunStamp
+    summary: Record<string, number | string>
+  }
+  nodes: ValidatedNode[]
+  links: ValidatedEdge[]
+}
+
+/**
+ * The document the most recent completed run published.
+ *
+ * A 404 means that release has not been validated, which is a state with its
+ * own screen rather than a failure.
+ */
+export function readPublishedGraph(
+  repositoryId: string,
+  releaseId: string,
+  options?: RequestOptions,
+) {
+  return get<PublishedGraph>('/validations/graph', {
+    ...options,
+    query: { repository_id: repositoryId, release_id: releaseId },
+  })
+}

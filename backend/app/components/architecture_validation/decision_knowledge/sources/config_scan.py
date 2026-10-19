@@ -28,6 +28,15 @@ Description:
     116 of those, all saying the same thing, and the resolver can reach the
     same answer by preferring a specific permission over the general refusal.
 
+    **One unreadable manifest is skipped and named; all of them is fatal.**
+    Recovery classifies anything that looks like configuration, so a
+    repository is free to contain a fixture with a yaml-ish name that was
+    never a rule - and refusing the whole release over one of those makes the
+    component unusable on repositories that have one. A release where nothing
+    parses is the other claim entirely: "no rules here" would then be
+    indistinguishable from a release whose rules were all withdrawn, which is
+    the confusion this check exists to prevent.
+
     The third extractor is the one whose constraint fits loosely. "A workload
     obtains its identity through the shared component" is not quite "A reaches
     B only through C", and the vocabulary is closed on purpose, so it is
@@ -75,7 +84,7 @@ class ConfigurationScan:
     def collect(self, request: SourceRequest) -> SourceOutcome:
         """Reconstruct every rule this release's configuration states."""
 
-        documents = self._manifest_documents(request)
+        documents, unreadable = self._manifest_documents(request)
 
         records = (
             self._communication_rules(documents, request)
@@ -87,11 +96,25 @@ class ConfigurationScan:
         if not records:
             reason = "no policies, contracts or identity manifests in this release"
 
+        if unreadable:
+            # Named rather than counted. "3 files were skipped" sends somebody
+            # looking; the paths tell them where, and whether any of them was
+            # a file that should have held a rule.
+            listed = ", ".join(f"'{path}'" for path in unreadable[:3])
+            more = f" and {len(unreadable) - 3} more" if len(unreadable) > 3 else ""
+            skipped = (
+                f"{len(unreadable)} manifest(s) are not readable YAML and were "
+                f"skipped: {listed}{more}"
+            )
+            reason = f"{reason}; {skipped}" if reason else skipped
+
         return SourceOutcome(
             source=self.name, ran=True, records=tuple(records), reason=reason
         )
 
-    def _manifest_documents(self, request: SourceRequest) -> list[tuple[str, dict]]:
+    def _manifest_documents(
+        self, request: SourceRequest
+    ) -> tuple[list["_Document"], list[str]]:
         """Every YAML document in the release's manifests, with its path.
 
         One manifest file can hold several documents, and the identity rule
@@ -100,6 +123,8 @@ class ConfigurationScan:
         """
 
         documents: list[_Document] = []
+        unreadable: list[str] = []
+
         for path in sorted(request.manifest_paths):
             text = self._reader.read_text(
                 request.code_repository_id, request.release_id, path
@@ -107,17 +132,28 @@ class ConfigurationScan:
             try:
                 loaded = list(yaml.safe_load_all(text))
                 composed = list(yaml.compose_all(text))
-            except yaml.YAMLError as error:
-                raise DecisionSourceError(
-                    f"'{path}' is not readable YAML, so this release cannot be "
-                    "scanned. A document that will not parse looks exactly like "
-                    "a rule that was withdrawn."
-                ) from error
+            except yaml.YAMLError:
+                unreadable.append(path)
+                continue
 
             for data, node in zip(loaded, composed):
                 if isinstance(data, dict):
                     documents.append(_located(path, data, node))
-        return documents
+
+        # Every manifest failing is a different claim from one failing. One
+        # unreadable file is a file - recovery classifies anything that looks
+        # like configuration, and a repository is free to contain a fixture
+        # with a yaml-ish name that was never a rule. All of them unreadable
+        # means the release cannot be read at all, and reporting "no rules"
+        # for it would be indistinguishable from a release that states none.
+        if request.manifest_paths and not documents and unreadable:
+            raise DecisionSourceError(
+                f"none of this release's {len(unreadable)} manifests are "
+                "readable YAML, so it cannot be scanned. A release that will "
+                "not parse looks exactly like one whose rules were withdrawn."
+            )
+
+        return documents, unreadable
 
     def _communication_rules(
         self, documents: list["_Document"], request: SourceRequest

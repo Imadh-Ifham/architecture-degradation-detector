@@ -13,37 +13,6 @@
 
 import ReservedPage from '../../components/ReservedPage'
 
-export function FindingsPage() {
-  return (
-    <ReservedPage
-      eyebrow="judged"
-      title="Findings"
-      description="Every dependency with a verdict on it, and the evidence each verdict rests on."
-      shows={[
-        'One row per dependency: what was concluded, how confident the system is, and what it was judged against.',
-        'The quoted lines a verdict cites, in the file they came from, so a claim can be checked rather than taken.',
-        'Which conclusions a model produced, which a deterministic rule produced, and where the two disagreed.',
-        'The queue of findings held back for a person to decide, and what confirming one changes.',
-      ]}
-      reads={[
-        {
-          endpoint: 'POST /validations',
-          note: 'The run. Already called by the pipeline screen; this screen reads the same result.',
-        },
-        {
-          endpoint: 'GET /validations/reviews',
-          note: 'The findings held back for a person, oldest first.',
-        },
-        {
-          endpoint: 'POST /validations/reviews/{item_id}',
-          note: 'Records a decision. It does not re-run anything — the run is a separate act.',
-        },
-      ]}
-      folder="src/features/findings/"
-    />
-  )
-}
-
 export function DriftPage() {
   return (
     <ReservedPage

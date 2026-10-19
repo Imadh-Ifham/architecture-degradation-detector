@@ -33,16 +33,15 @@ import {
 import { listSnapshots, readSnapshot } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
 import { useWorkspace } from '../../workspace/useWorkspace'
-import ArchitectureCanvas from './ArchitectureCanvas'
+import GraphCanvas, { GraphKey } from '../../components/graph/GraphCanvas'
+import { recoveredGraph } from '../canvas/graphs'
 
 type View = 'diagram' | 'elements' | 'dependencies'
 
 export default function ArchitecturePage() {
-  const { repository } = useWorkspace()
-  const key = repository?.repository_id ?? repository?.id ?? ''
+  const { repository, repositoryKey: key, release } = useWorkspace()
 
   const [view, setView] = useState<View>('diagram')
-  const [snapshotId, setSnapshotId] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
 
   const history = useRequest(
@@ -51,7 +50,10 @@ export default function ArchitecturePage() {
     Boolean(key),
   )
 
-  const chosen = snapshotId ?? history.data?.[history.data.length - 1]?.snapshot_id ?? null
+  // The release is the workspace's, so every screen is looking at the same
+  // one; this only has to turn it into the id the store reads by.
+  const chosen =
+    history.data?.find((item) => item.release_id === release)?.snapshot_id ?? null
 
   const snapshot = useRequest(
     (options) => readSnapshot(key, chosen ?? '', options),
@@ -90,24 +92,7 @@ export default function ArchitecturePage() {
         eyebrow="recovered"
         title="Architecture"
         description="The system as the analysis found it — every element, and every dependency it could trace to evidence."
-        action={
-          history.data && history.data.length > 0 ? (
-            <select
-              value={chosen ?? ''}
-              onChange={(event) => {
-                setSnapshotId(event.target.value)
-                setSelected(null)
-              }}
-              className="rounded-control border border-line-strong bg-raised px-3.5 py-2 font-mono text-sm text-ink focus:border-ai focus:outline-none"
-            >
-              {history.data.map((item) => (
-                <option key={item.snapshot_id} value={item.snapshot_id}>
-                  {item.release_id}
-                </option>
-              ))}
-            </select>
-          ) : undefined
-        }
+        action={release ? <Pill>{release}</Pill> : undefined}
       />
 
       {history.error && <ErrorState message={history.error} onRetry={history.reload} />}
@@ -174,11 +159,17 @@ export default function ArchitecturePage() {
             {snapshot.isLoading && <Spinner label="reading the stored architecture" />}
 
             {!snapshot.isLoading && view === 'diagram' && (
-              <ArchitectureCanvas
-                elements={elements}
-                relationships={relationships}
+              <GraphCanvas
+                {...recoveredGraph(snapshot.data)}
                 selected={selected}
                 onSelect={setSelected}
+                legend={
+                  <>
+                    <GraphKey tone="ok">confirmed in source</GraphKey>
+                    <GraphKey>declared in configuration</GraphKey>
+                    <GraphKey dashed>cache, database or broker</GraphKey>
+                  </>
+                }
               />
             )}
 

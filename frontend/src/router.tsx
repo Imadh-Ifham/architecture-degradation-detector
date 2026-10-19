@@ -14,15 +14,14 @@
 import { createBrowserRouter } from 'react-router'
 import AppLayout from './layouts/AppLayout'
 import ArchitecturePage from './features/architecture/ArchitecturePage'
+import CanvasPage from './features/canvas/CanvasPage'
+import FindingsPage from './features/findings/FindingsPage'
+import ValidationPage from './features/validation/ValidationPage'
 import DecisionsPage from './features/decisions/DecisionsPage'
 import PipelinePage from './features/pipeline/PipelinePage'
 import RepositoriesPage from './features/repositories/RepositoriesPage'
 import NotFound from './pages/NotFound'
-import {
-  DriftPage,
-  FindingsPage,
-  PrioritiesPage,
-} from './features/reserved/reservedPages'
+import { DriftPage, PrioritiesPage } from './features/reserved/reservedPages'
 
 export const router = createBrowserRouter([
   {
@@ -33,7 +32,9 @@ export const router = createBrowserRouter([
       { path: 'repositories', element: <RepositoriesPage /> },
       { path: 'architecture', element: <ArchitecturePage /> },
       { path: 'decisions', element: <DecisionsPage /> },
+      { path: 'validation', element: <ValidationPage /> },
       { path: 'findings', element: <FindingsPage /> },
+      { path: 'canvas', element: <CanvasPage /> },
       { path: 'drift', element: <DriftPage /> },
       { path: 'priorities', element: <PrioritiesPage /> },
       { path: '*', element: <NotFound /> },

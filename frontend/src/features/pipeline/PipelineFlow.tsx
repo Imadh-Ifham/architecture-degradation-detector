@@ -19,7 +19,12 @@
 
 import { PHASES, type PhaseId } from '../../layouts/navigation'
 
-export type PhaseState = 'waiting' | 'running' | 'done' | 'reserved'
+export type PhaseState =
+  | 'blocked'
+  | 'waiting'
+  | 'running'
+  | 'done'
+  | 'reserved'
 
 const NODE_WIDTH = 200
 const NODE_HEIGHT = 92
@@ -134,13 +139,14 @@ function Phase({
   const x = index * (NODE_WIDTH + GAP)
 
   const body = {
-    waiting: 'fill-panel stroke-line',
+    blocked: 'fill-sunken stroke-line',
+    waiting: 'fill-panel stroke-line-strong',
     running: 'fill-ai-wash stroke-ai',
     done: 'fill-panel stroke-ok/70',
     reserved: 'fill-panel stroke-line [stroke-dasharray:4_4]',
   }[state]
 
-  const labelTone = state === 'waiting' || state === 'reserved' ? 'fill-ink-2' : 'fill-ink'
+  const labelTone = state === 'done' || state === 'running' ? 'fill-ink' : 'fill-ink-2'
 
   return (
     <g className="cursor-pointer" onClick={onSelect} role="button" tabIndex={0}>
@@ -187,7 +193,8 @@ function Phase({
       >
         {
           {
-            waiting: 'waiting',
+            blocked: 'needs the phase before it',
+            waiting: 'ready to run',
             running: 'running',
             done: 'complete',
             reserved: 'screen not built',
@@ -219,6 +226,17 @@ function StateMark({ x, y, state }: { x: number; y: number; state: PhaseState })
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    )
+  }
+
+  if (state === 'blocked') {
+    // A lock rather than an empty circle: waiting and cannot-yet are
+    // different states, and only one of them is about to change by itself.
+    return (
+      <g className="stroke-ink-4" strokeWidth="1.4" fill="none">
+        <rect x={x - 5} y={y - 2} width="10" height="8" rx="1.5" />
+        <path d={`M ${x - 3} ${y - 2} v -2.5 a 3 3 0 0 1 6 0 v 2.5`} />
+      </g>
     )
   }
 
