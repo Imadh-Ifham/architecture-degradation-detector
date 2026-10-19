@@ -5,8 +5,8 @@ Date: 2026-10-13
 Description:
     Reconstructs the architecture of a system as it actually is (the as-is
     model used by every later research stage). Exposes repository ingestion,
-    repository inventory, manifest analysis, component discovery and dependency
-    resolution.
+    repository inventory, manifest analysis, component discovery, dependency
+    resolution and source code analysis.
 """
 
 from app.components.architecture_recovery.component_discovery.service import (
@@ -24,6 +24,9 @@ from app.components.architecture_recovery.repository_ingestion.service import (
 from app.components.architecture_recovery.repository_inventory.service import (
     RepositoryInventoryService,
 )
+from app.components.architecture_recovery.source_code_analysis.service import (
+    SourceCodeAnalysisService,
+)
 
 __all__ = [
     "ComponentDiscoveryService",
@@ -31,4 +34,5 @@ __all__ = [
     "ManifestAnalysisService",
     "RepositoryIngestionService",
     "RepositoryInventoryService",
+    "SourceCodeAnalysisService",
 ]
