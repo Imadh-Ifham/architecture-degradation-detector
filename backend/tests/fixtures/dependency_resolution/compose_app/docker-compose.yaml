@@ -1,0 +1,28 @@
+services:
+  frontend:
+    build: ./services/frontend
+    environment:
+      CHECKOUT_SERVICE_ADDR: checkout:5050
+      CHECKOUT_STATUS_URL: http://checkout:5050/health
+      UNKNOWN_SERVICE_ADDR: unknown-service:9999
+      DB_PASSWORD: hunter2
+    depends_on:
+      checkout:
+        condition: service_started
+      missing-service: {}
+  checkout:
+    build: ./services/checkout
+    environment:
+      PAYMENT_SERVICE_ADDR: payment:50051
+      CART_SERVICE_ADDR: cart:7070
+      REDIS_ADDR: redis://redis-cart:6379
+      DATABASE_URL: postgres://user:supersecret@db:5432/app
+    depends_on:
+      payment:
+        condition: service_started
+  payment:
+    build: ./services/payment
+  cart:
+    build: ./services/cart
+  redis-cart:
+    image: redis:alpine
