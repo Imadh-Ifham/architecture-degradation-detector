@@ -1,6 +1,7 @@
 """OversizedElement: robust z of size above the configured limit, within the release."""
 
 from app.components.degradation_detection.config import DetectionConfig, OversizedConfig
+from app.components.degradation_detection.detection.metric_registry import instance_measure
 from app.components.degradation_detection.detection.universal.oversized_element import (
     OversizedElement,
 )
@@ -21,7 +22,7 @@ def test_declaration() -> None:
     assert DETECTOR.scope is Scope.ELEMENT
     assert DETECTOR.required_fields == frozenset()
     assert DETECTOR.driving_metrics == ("size_rz",)
-    assert DETECTOR.instance_measures == ("size_rz",)
+    assert DETECTOR.instance_measures == (instance_measure("size_rz", "robust_z"),)
 
 
 def test_outlier_is_oversized() -> None:

@@ -52,6 +52,12 @@ trend:
 
 cp: {enabled: false, penalty_c: 2.0, min_size: 2}             # post-PP1
 
+baseline:                                        # comparison only: never decides degradation
+  static:                                        # flags an element above a fixed threshold
+    rules:                                       # at the last release (plan T-13)
+      - {metric: "fan_in", above: 10}
+      - {metric: "size", above: 10000}
+
 context: {enabled: false, buffer_days: 90, strict: false}     # false = trend-only baseline [D-28]
 
 retrieval:                                       # post-PP1

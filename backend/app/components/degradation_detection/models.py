@@ -14,12 +14,14 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.analysis_run import StoredRun
 from app.domain.canonical_release import CanonicalRelease, IntentEntry
-from app.domain.degradation_event import Lifecycle, Scope, TestMethod, Worsening
+from app.domain.degradation_event import Lifecycle, Scope, TestMethod, TimeAxis, Worsening
 
 
 class MetricLevel(StrEnum):
     ELEMENT = "element"
+    INSTANCE = "instance"  # a detector's measure of one of its instances
     SYSTEM = "system"
 
 
@@ -102,6 +104,46 @@ class AntiPatternInstance(InternalModel):
     scope: Scope
     members: tuple[str, ...]
     measures: dict[str, float | None] = Field(default_factory=dict)
+
+
+class DetectorInfo(InternalModel):
+    """What M4 needs to know about one detector: what it measures and which metrics drive it."""
+
+    anti_pattern_type: str
+    catalog: str
+    scope: Scope
+    # Element or system metrics whose worsening trend counts as this anti-pattern getting worse.
+    driving_metrics: tuple[str, ...]
+    instance_measures: tuple[MetricDef, ...]  # level INSTANCE, each with its worsening direction
+
+    def measure(self, name: str) -> MetricDef:
+        for measure in self.instance_measures:
+            if measure.name == name:
+                return measure
+        raise KeyError(f"{name!r} is not an instance measure of {self.anti_pattern_type}")
+
+
+class DetectionCatalog(InternalModel):
+    """The metrics M2 declares and the detectors it can run: M4's source of worsening directions.
+
+    The same for every release of a run. It lists every detector the catalog enables for some
+    style, whether or not it ran on a given release.
+    """
+
+    metrics: tuple[MetricDef, ...]  # element and system level
+    detectors: tuple[DetectorInfo, ...]
+
+    def metric(self, level: MetricLevel, name: str) -> MetricDef:
+        for metric in self.metrics:
+            if metric.level is level and metric.name == name:
+                return metric
+        raise KeyError(f"{level.value} metric {name!r} is not declared")
+
+    def detector(self, anti_pattern_type: str) -> DetectorInfo:
+        for detector in self.detectors:
+            if detector.anti_pattern_type == anti_pattern_type:
+                return detector
+        raise KeyError(f"detector {anti_pattern_type!r} is not in the catalog")
 
 
 class ReleaseDetection(InternalModel):
@@ -271,32 +313,70 @@ class Series(InternalModel):
 
 
 class TrendResult(InternalModel):
+    """One tested series: Mann-Kendall, Sen's slope, its BH q-value and its metric's direction.
+
+    ``points`` is the whole series, nulls kept. The test used only the non-null points (``n``
+    of them), on their ordinals as the time axis [D-05].
+    """
+
     scope: Scope
     subject_id: str
     metric: str
-    n: int
+    unit: str
+    worsening: Worsening
+    points: tuple[SeriesPoint, ...]
+    n: int = Field(ge=2)
     s: int
-    var_s: float | None = None
-    z: float | None = None
-    tau: float
-    p_value: float
-    q_value: float | None = None  # set by Benjamini-Hochberg across the run
+    var_s: float | None = None  # NORMAL method only
+    z: float | None = None  # NORMAL method only
+    tau: float = Field(ge=-1, le=1)
+    p_value: float = Field(ge=0, le=1)  # two-sided [D-01]
+    q_value: float = Field(ge=0, le=1)  # Benjamini-Hochberg across the run [D-02, D-26]
     method: TestMethod
-    sen_slope: float | None = None
-    intercept: float | None = None
-    is_worsening: bool = False
-    is_significant: bool = False
+    time_axis: TimeAxis
+    sen_slope: float
+    intercept: float
+    is_worsening: bool  # the sign of S is the metric's worsening direction
+    is_significant: bool  # the gated value (q, or p if configured) is at most alpha
+
+    @property
+    def tested_points(self) -> tuple[SeriesPoint, ...]:
+        return tuple(point for point in self.points if point.value is not None)
 
 
 class EventCandidate(InternalModel):
+    """One anti-pattern getting worse, as M4 found it: what the event export turns into a
+    ``DegradationEventV2``.
+
+    ``subject_id`` is the lineage id (ELEMENT), the track id (INSTANCE) or the system id
+    (SYSTEM). ``instance_id`` is the track of the anti-pattern instance behind the event, when
+    there is one; ``members`` are its members' element ids in the window's last release.
+    """
+
     event_key: str
     scope: Scope
     subject_id: str
     anti_pattern_type: str
     catalog: str
+    element_id: str | None = None  # ELEMENT: the element's id in the window's last release
+    lineage_id: str | None = None  # ELEMENT
+    instance_id: str | None = None
+    members: tuple[str, ...] = ()
+    lifecycle: Lifecycle | None = None
     start_release: str
     end_release: str
-    n_releases: int
-    low_confidence_releases: tuple[str, ...] = ()
-    trends: tuple[TrendResult, ...]
-    trend_strength: float
+    n_releases: int = Field(ge=1)
+    low_confidence_releases: tuple[str, ...] = ()  # DOWNWEIGHTED releases in the window [D-07]
+    trends: tuple[TrendResult, ...] = Field(min_length=1)
+    trend_strength: float = Field(ge=0, le=1)  # max |tau|: evidence strength, not severity
+
+
+# --- the whole run (component service) -----------------------------------------------------
+
+
+class RunResult(InternalModel):
+    """One analysis run, as stored, and the files to write under ``out/<run_id>/``:
+    ``events.json`` for C4, ``series.csv``, ``report.md`` and ``plots/<event_id>.png``."""
+
+    stored: StoredRun
+    files: dict[str, bytes]

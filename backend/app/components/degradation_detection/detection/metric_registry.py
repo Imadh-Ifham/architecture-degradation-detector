@@ -57,6 +57,17 @@ def _system(name: str, unit: str, worsening: Worsening = _UP) -> MetricDef:
     return MetricDef(name=name, level=MetricLevel.SYSTEM, unit=unit, worsening=worsening)
 
 
+def instance_measure(name: str, unit: str, worsening: Worsening = _UP) -> MetricDef:
+    """A detector's measure of one instance (``member_count``...), declared by the detector.
+
+    Not part of the registry: a detector brings its own measures, so adding one never edits this
+    file. A measure named like a registry metric (OversizedElement's ``size_rz``) must declare
+    the same unit and direction; ``test_detector_declarations_agree_with_the_metric_registry``
+    checks it.
+    """
+    return MetricDef(name=name, level=MetricLevel.INSTANCE, unit=unit, worsening=worsening)
+
+
 class MetricRegistry:
     """An ordered set of metric declarations; the order is the order observations come out in."""
 
@@ -99,6 +110,10 @@ class MetricRegistry:
     @property
     def names(self) -> tuple[str, ...]:
         return tuple(self._defs)
+
+    @property
+    def defs(self) -> tuple[MetricDef, ...]:
+        return tuple(self._defs.values())
 
     @property
     def element_metrics(self) -> tuple[MetricDef, ...]:

@@ -23,6 +23,8 @@ ALLOWED = {
     "ingestion/normalise.py",
     # ...and warns when it changes between releases, without acting on its value.
     "ingestion/ordering.py",
+    # Event export pass-through: copies the style into DegradationEventV2 for C4.
+    "events/emitter.py",
 }
 
 

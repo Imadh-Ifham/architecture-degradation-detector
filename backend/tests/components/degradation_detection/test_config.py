@@ -49,6 +49,11 @@ def test_default_file_holds_the_plan_defaults() -> None:
     assert cfg.metrics.c1_passthrough[0].name == "c1.lcom"
     assert cfg.metrics.c1_passthrough[0].worsening is Worsening.INCREASE
     assert cfg.review.note_required_for == (Verdict.REJECTED, Verdict.NEEDS_INVESTIGATION)
+    # Plan T-13: the fixed thresholds the static baseline is compared against.
+    assert [(r.metric, r.above) for r in cfg.baseline.static.rules] == [
+        ("fan_in", 10),
+        ("size", 10000),
+    ]
 
 
 def test_default_file_and_built_in_defaults_are_the_same() -> None:
@@ -108,6 +113,8 @@ def test_config_is_immutable() -> None:
         "metrics:\n  c1_passthrough: [{name: lcom, unit: lcom, worsening: INCREASE}]\n",
         "metrics:\n  c1_passthrough: [{name: c1.lcom, unit: lcom, worsening: UP}]\n",
         "detection:\n  modularity: {algorithm: louvain}\n",
+        "baseline:\n  static:\n    rules: [{metric: size, above: 1}, {metric: size, above: 2}]\n",
+        "baseline:\n  static:\n    rules: [{metric: fan_in}]\n",
     ],
     ids=[
         "alpha-zero",
@@ -120,6 +127,8 @@ def test_config_is_immutable() -> None:
         "passthrough-without-c1-prefix",
         "unknown-worsening",
         "randomised-modularity",
+        "baseline-metric-twice",
+        "baseline-rule-without-threshold",
     ],
 )
 def test_invalid_values_fail(tmp_path: Path, text: str) -> None:

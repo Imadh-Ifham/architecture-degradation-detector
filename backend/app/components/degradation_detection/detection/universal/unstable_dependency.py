@@ -15,7 +15,7 @@ from app.components.degradation_detection.detection.models import (
     ReleaseContext,
     local_instance_id,
 )
-from app.components.degradation_detection.models import AntiPatternInstance
+from app.components.degradation_detection.models import AntiPatternInstance, MetricDef
 from app.domain.degradation_event import Scope
 
 BAD_EDGE_COUNT = "bad_edge_count"
@@ -28,7 +28,7 @@ class UnstableDependency:
     scope: Scope = Scope.ELEMENT
     required_fields: frozenset[str] = frozenset()
     driving_metrics: tuple[str, ...] = (m.UNSTABLE_DEP_RATIO,)
-    instance_measures: tuple[str, ...] = (BAD_EDGE_COUNT,)
+    instance_measures: tuple[MetricDef, ...] = (m.instance_measure(BAD_EDGE_COUNT, "count"),)
 
     def detect(self, g: ArchGraph, ctx: ReleaseContext) -> list[AntiPatternInstance]:
         ratio = ctx.element_values(m.UNSTABLE_DEP_RATIO)

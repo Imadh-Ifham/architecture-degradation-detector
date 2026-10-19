@@ -12,7 +12,7 @@ from app.components.degradation_detection.detection.models import (
     ReleaseContext,
     local_instance_id,
 )
-from app.components.degradation_detection.models import AntiPatternInstance
+from app.components.degradation_detection.models import AntiPatternInstance, MetricDef
 from app.domain.degradation_event import Scope
 
 MEMBER_COUNT = "member_count"
@@ -26,7 +26,10 @@ class CyclicDependency:
     scope: Scope = Scope.INSTANCE
     required_fields: frozenset[str] = frozenset()
     driving_metrics: tuple[str, ...] = (m.SCC_SIZE,)
-    instance_measures: tuple[str, ...] = (MEMBER_COUNT, INTERNAL_EDGE_COUNT)
+    instance_measures: tuple[MetricDef, ...] = (
+        m.instance_measure(MEMBER_COUNT, "count"),
+        m.instance_measure(INTERNAL_EDGE_COUNT, "count"),
+    )
 
     def detect(self, g: ArchGraph, ctx: ReleaseContext) -> list[AntiPatternInstance]:
         instances = []

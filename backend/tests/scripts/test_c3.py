@@ -1,6 +1,7 @@
 """`c3 schemas export`: JSON Schemas are generated from the Pydantic models, never hand-edited."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,10 @@ from app.components.degradation_detection.config import C3Config
 from app.components.degradation_detection.stub import StubService
 from scripts import c3
 from scripts.c3 import SCHEMA_DIR, app, render_schemas
-from tests.components.degradation_detection.fakes import InMemoryReleaseRepository
+from tests.components.degradation_detection.fakes import (
+    InMemoryAnalysisRunRepository,
+    InMemoryReleaseRepository,
+)
 
 EXPECTED_FILES = {"c3_input.schema.json", "c3_output.schema.json", "c3_audit.schema.json"}
 
@@ -295,3 +299,205 @@ def test_series_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> 
 
     assert result.exit_code == 1
     assert "no releases" in result.output
+
+
+def test_trends_prints_the_worsening_trends_and_candidates_and_writes_the_events(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path, tmp_path: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+    out = tmp_path / "events.json"
+
+    result = CliRunner().invoke(
+        app, ["trends", "--system", "shopfront", "--run-id", "RUN-cli", "--out", str(out)]
+    )
+
+    assert result.exit_code == 0, result.output
+    events = json.loads(out.read_bytes().decode("utf-8"))
+    assert events, "the stub has planted worsening trends"
+    assert {e["run_id"] for e in events} == {"RUN-cli"}
+    assert any(
+        e["scope"] == "INSTANCE" and e["anti_pattern_type"] == "CyclicDependency" for e in events
+    )
+    assert "series tested" in result.output
+    assert "AP-CyclicDependency:inventory@v1.1.0" in result.output
+    assert f"{len(events)} events (run RUN-cli); wrote {out}" in result.output
+
+
+def test_trends_default_run_id_is_new_and_names_the_output_folder(
+    memory_repo: InMemoryReleaseRepository,
+    stub_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+    monkeypatch.setattr(c3, "OUT_DIR", tmp_path)
+
+    result = CliRunner().invoke(app, ["trends", "--system", "shopfront"])
+
+    assert result.exit_code == 0, result.output
+    [written] = list(tmp_path.glob("RUN-*/events.json"))
+    run_id = written.parent.name
+    assert {e["run_id"] for e in json.loads(written.read_text(encoding="utf-8"))} == {run_id}
+
+
+def test_trends_unknown_system_fails(memory_repo: InMemoryReleaseRepository) -> None:
+    result = CliRunner().invoke(app, ["trends", "--system", "nowhere"])
+
+    assert result.exit_code == 1
+    assert "no releases" in result.output
+
+
+# --- c3 run / report / baseline (T-13) ---------------------------------------------------------
+
+
+@pytest.fixture
+def memory_runs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> InMemoryAnalysisRunRepository:
+    """In-memory run store, a fixed code version, and out/ under the test's tmp dir."""
+    runs = InMemoryAnalysisRunRepository()
+    monkeypatch.setattr(c3, "run_repository", lambda: runs)
+    monkeypatch.setattr(c3, "code_version", lambda: "test-sha")
+    monkeypatch.setattr(c3, "OUT_DIR", tmp_path / "out")
+    return runs
+
+
+def test_run_ingests_analyses_and_writes_every_output(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    stub_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Plan T-13 acceptance: one command, from an empty store, reproduces everything."""
+    result = CliRunner().invoke(app, ["run", "--system", "shopfront", "--ingest", str(stub_dir)])
+
+    assert result.exit_code == 0, result.output
+    [run] = memory_runs.runs.values()
+    assert run.status.value == "COMPLETED" and run.code_version == "test-sha"
+    out = tmp_path / "out" / run.run_id
+    events = json.loads((out / "events.json").read_text(encoding="utf-8"))
+    assert events and {e["run_id"] for e in events} == {run.run_id}
+    assert (out / "series.csv").exists()
+    assert (
+        (out / "report.md")
+        .read_text(encoding="utf-8")
+        .startswith(f"# C3 analysis run {run.run_id}")
+    )
+    assert {p.name for p in (out / "plots").glob("*.png")} == {
+        f"{e['event_id']}.png" for e in events
+    }
+    assert "10 stored" in result.output  # the ingest summary
+    assert f"run {run.run_id} COMPLETED" in result.output
+    assert f"{len(events)} events" in result.output
+    assert f"wrote {len(events) + 3} files to {out}" in result.output
+
+
+def test_run_without_ingest_reads_the_store(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    stub_dir: Path,
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+
+    result = CliRunner().invoke(app, ["run", "--system", "shopfront"])
+
+    assert result.exit_code == 0, result.output
+    assert "stored" not in result.output  # nothing ingested by this command
+    assert len(memory_runs.runs) == 1
+
+
+def test_run_unknown_system_fails(
+    memory_repo: InMemoryReleaseRepository, memory_runs: InMemoryAnalysisRunRepository
+) -> None:
+    result = CliRunner().invoke(app, ["run", "--system", "nowhere"])
+
+    assert result.exit_code == 1
+    assert "no releases" in result.output
+    assert memory_runs.runs == {}
+
+
+def test_run_takes_a_fixed_run_id(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    stub_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """The demo names its run, so report and evaluation can find it and event ids repeat."""
+    result = CliRunner().invoke(
+        app, ["run", "--system", "shopfront", "--ingest", str(stub_dir), "--run-id", "RUN-demo"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert list(memory_runs.runs) == ["RUN-demo"]
+    assert (tmp_path / "out" / "RUN-demo" / "events.json").exists()
+
+
+def test_run_refuses_a_run_id_already_stored(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    stub_dir: Path,
+) -> None:
+    args = ["run", "--system", "shopfront", "--ingest", str(stub_dir), "--run-id", "RUN-demo"]
+    CliRunner().invoke(app, args)
+
+    result = CliRunner().invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "run 'RUN-demo' is already stored" in result.output
+    assert list(memory_runs.runs) == ["RUN-demo"]
+
+
+@pytest.mark.parametrize("run_id", ["demo", "RUN-", "RUN-../x", "RUN-a b", "RUN-" + "a" * 65])
+def test_run_rejects_a_malformed_run_id(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    run_id: str,
+) -> None:
+    """The run id names a folder under out/, so it may not leave it."""
+    result = CliRunner().invoke(app, ["run", "--system", "shopfront", "--run-id", run_id])
+
+    assert result.exit_code == 2
+    assert memory_runs.runs == {}
+
+
+def test_report_re_renders_a_stored_run(
+    memory_repo: InMemoryReleaseRepository,
+    memory_runs: InMemoryAnalysisRunRepository,
+    stub_dir: Path,
+    tmp_path: Path,
+) -> None:
+    CliRunner().invoke(app, ["run", "--system", "shopfront", "--ingest", str(stub_dir)])
+    [run_id] = memory_runs.runs
+    report = tmp_path / "out" / run_id / "report.md"
+    first = report.read_bytes()
+    report.unlink()
+
+    result = CliRunner().invoke(app, ["report", "--run-id", run_id])
+
+    assert result.exit_code == 0, result.output
+    assert report.read_bytes() == first
+
+
+def test_report_unknown_run_fails(
+    memory_repo: InMemoryReleaseRepository, memory_runs: InMemoryAnalysisRunRepository
+) -> None:
+    result = CliRunner().invoke(app, ["report", "--run-id", "RUN-missing"])
+
+    assert result.exit_code == 1
+    assert "RUN-missing" in result.output
+
+
+def test_baseline_prints_the_static_flags_at_the_last_release(
+    memory_repo: InMemoryReleaseRepository, stub_dir: Path
+) -> None:
+    CliRunner().invoke(app, ["ingest", str(stub_dir)])
+
+    result = CliRunner().invoke(app, ["baseline", "--system", "shopfront"])
+
+    assert result.exit_code == 0, result.output
+    assert any(
+        line.split()[:3] == ["v1.9.0", "legacy-auth", "fan_in"]
+        for line in result.output.splitlines()
+    )
+
+
+def test_code_version_names_the_commit() -> None:
+    assert re.fullmatch(r"[0-9a-f]{7,40}(-dirty)?|unknown", c3.code_version())

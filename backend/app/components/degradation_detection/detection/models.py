@@ -16,6 +16,7 @@ from app.components.degradation_detection.config import DetectionConfig
 from app.components.degradation_detection.models import (
     AntiPatternInstance,
     InternalModel,
+    MetricDef,
     MetricObservation,
 )
 from app.domain.canonical_release import DatastoreAccess, ElementSnapshot
@@ -143,7 +144,9 @@ class AntiPatternDetector(Protocol):
     scope: Scope
     required_fields: frozenset[str]  # optional package fields it needs, e.g. "datastore_access"
     driving_metrics: tuple[str, ...]
-    instance_measures: tuple[str, ...]  # exactly the keys of every instance's ``measures``
+    # Exactly the keys of every instance's ``measures``, each with its unit and worsening
+    # direction (level INSTANCE), so M4 can test the series M3 builds from them.
+    instance_measures: tuple[MetricDef, ...]
 
     def detect(self, g: ArchGraph, ctx: ReleaseContext) -> list[AntiPatternInstance]: ...
 
@@ -153,6 +156,6 @@ def local_instance_id(anti_pattern_type: str, key: str) -> str:
 
     Keyed on content (the smallest member, or the shared datastore), not on discovery order, so
     it is stable for a given graph. It is not an identity across releases: M3 assigns
-    ``AP-<TYPE>-NNNN`` track ids.
+    ``AP-<local_instance_id>@<first release_id>`` track ids.
     """
     return f"{anti_pattern_type}:{key}"

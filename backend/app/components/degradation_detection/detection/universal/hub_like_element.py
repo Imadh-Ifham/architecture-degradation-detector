@@ -16,7 +16,7 @@ from app.components.degradation_detection.detection.models import (
     local_instance_id,
 )
 from app.components.degradation_detection.detection.thresholds import upper_iqr_fence
-from app.components.degradation_detection.models import AntiPatternInstance
+from app.components.degradation_detection.models import AntiPatternInstance, MetricDef
 from app.domain.degradation_event import Scope
 
 DEGREE = "degree"
@@ -29,7 +29,7 @@ class HubLikeElement:
     scope: Scope = Scope.ELEMENT
     required_fields: frozenset[str] = frozenset()
     driving_metrics: tuple[str, ...] = (m.FAN_IN_NORM, m.FAN_OUT_NORM)
-    instance_measures: tuple[str, ...] = (DEGREE,)
+    instance_measures: tuple[MetricDef, ...] = (m.instance_measure(DEGREE, "count"),)
 
     def detect(self, g: ArchGraph, ctx: ReleaseContext) -> list[AntiPatternInstance]:
         fan_in = _counts(ctx.element_values(m.FAN_IN))

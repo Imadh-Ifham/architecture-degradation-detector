@@ -209,6 +209,38 @@ class ChangePointConfig(InternalModel):
     min_size: PositiveInt = 2
 
 
+# --- comparison baseline (T-13) --------------------------------------------------------------
+
+
+class StaticRule(InternalModel):
+    """Flag an element whose ``metric`` is above ``above`` at the last release."""
+
+    metric: str  # an element metric declared by M2; checked against its registry at run start
+    above: float
+
+
+class StaticBaselineConfig(InternalModel):
+    """What a fixed-threshold tool would flag (plan T-13). Comparison only: C3 decides
+    degradation by a trend, never by these thresholds [locked decision 2]."""
+
+    rules: tuple[StaticRule, ...] = (
+        StaticRule(metric="fan_in", above=10),
+        StaticRule(metric="size", above=10_000),
+    )
+
+    @field_validator("rules")
+    @classmethod
+    def _check_one_rule_per_metric(cls, value: tuple[StaticRule, ...]) -> tuple[StaticRule, ...]:
+        metrics = [rule.metric for rule in value]
+        if len(set(metrics)) != len(metrics):
+            raise ValueError("a metric has more than one static rule")
+        return value
+
+
+class BaselineConfig(InternalModel):
+    static: StaticBaselineConfig = StaticBaselineConfig()
+
+
 # --- M5 to M7 (post-PP1) ---------------------------------------------------------------------
 
 
@@ -263,6 +295,7 @@ class C3Config(InternalModel):
     tracking: TrackingConfig = TrackingConfig()
     trend: TrendConfig = TrendConfig()
     cp: ChangePointConfig = ChangePointConfig()
+    baseline: BaselineConfig = BaselineConfig()
     context: ContextConfig = ContextConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
     llm: LlmConfig = LlmConfig()

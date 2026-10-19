@@ -1,5 +1,6 @@
 """SharedPersistence: one instance per datastore that two or more elements access."""
 
+from app.components.degradation_detection.detection.metric_registry import instance_measure
 from app.components.degradation_detection.detection.microservices.shared_persistence import (
     SharedPersistence,
 )
@@ -17,7 +18,7 @@ def test_declaration() -> None:
     assert DETECTOR.scope is Scope.INSTANCE
     assert DETECTOR.required_fields == frozenset({"datastore_access"})
     assert DETECTOR.driving_metrics == ()
-    assert DETECTOR.instance_measures == ("services_per_store",)
+    assert DETECTOR.instance_measures == (instance_measure("services_per_store", "count"),)
 
 
 def test_two_services_on_one_datastore_are_one_instance() -> None:

@@ -76,8 +76,13 @@ class DetectorRegistry:
     @property
     def detector_ids(self) -> tuple[str, ...]:
         """Every detector the catalog enables for some style, in output order."""
+        return tuple(detector.id for detector in self.detectors)
+
+    @property
+    def detectors(self) -> tuple[AntiPatternDetector, ...]:
+        """Every detector the catalog enables for some style, in output order."""
         enabled = set().union(*self._enabled.values())
-        return tuple(d for d in self._detectors if d in enabled)
+        return tuple(d for d in self._detectors.values() if d.id in enabled)
 
     def for_release(self, release: CanonicalRelease) -> tuple[AntiPatternDetector, ...]:
         return self.detectors_for(

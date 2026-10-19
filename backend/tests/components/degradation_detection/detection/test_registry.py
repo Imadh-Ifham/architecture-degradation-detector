@@ -21,7 +21,7 @@ from app.components.degradation_detection.detection.registry import (
     DetectorRegistry,
     available_fields,
 )
-from app.components.degradation_detection.models import AntiPatternInstance
+from app.components.degradation_detection.models import AntiPatternInstance, MetricDef
 from app.domain.canonical_release import ElementSnapshot
 from app.domain.degradation_event import Scope
 from app.domain.release_package import ArchitectureStyle
@@ -178,7 +178,7 @@ class Dummy:
     scope: Scope = Scope.SYSTEM
     required_fields: frozenset[str] = frozenset()
     driving_metrics: tuple[str, ...] = ()
-    instance_measures: tuple[str, ...] = ()
+    instance_measures: tuple[MetricDef, ...] = ()
 
     def detect(self, g: ArchGraph, ctx: ReleaseContext) -> list[AntiPatternInstance]:
         return [
