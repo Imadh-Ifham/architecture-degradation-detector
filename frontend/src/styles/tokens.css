@@ -1,0 +1,68 @@
+/**
+ * Design tokens.
+ *
+ * The only place a colour, a radius, a font or a spacing step is decided.
+ * Every component reads these through Tailwind utilities, so re-skinning the
+ * whole application is editing this file and nothing else.
+ *
+ * The rule only works if it is absolute: one hard-coded colour anywhere else
+ * and the next person has to grep instead of edit.
+ */
+
+@theme {
+  /* Surfaces, darkest to lightest. */
+  --color-field: #0b0d0e;
+  --color-panel: #111415;
+  --color-raised: #171b1c;
+  --color-sunken: #0e1112;
+  --color-line: #23292a;
+  --color-line-strong: #333b3c;
+
+  /* Ink, strongest to faintest. */
+  --color-ink: #f2f5f4;
+  --color-ink-2: #a3acab;
+  --color-ink-3: #6c7675;
+  --color-ink-4: #434c4c;
+
+  /* Signals. Each one means a state and nothing else means it. */
+  --color-ok: #3fb950;
+  --color-warn: #d29922;
+  --color-bad: #f85149;
+  --color-ai: #a371f7;
+
+  /* Signal washes, for a filled pill or a highlighted row. */
+  --color-ok-wash: #3fb9501f;
+  --color-warn-wash: #d299221f;
+  --color-bad-wash: #f851491f;
+  --color-ai-wash: #a371f722;
+
+  /* Type. One engineering superfamily: sans for prose, mono for data. */
+  --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", monospace;
+
+  /* Form. A drawing instrument has no soft corners. */
+  --radius-card: 10px;
+  --radius-control: 6px;
+
+  /* Motion. Long enough to follow, short enough not to wait for. */
+  --ease-flow: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+/*
+ * Reduced motion is honoured globally rather than per component: the pipeline
+ * animation is the one place motion carries meaning, and it falls back to the
+ * same states arriving without the travel between them.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

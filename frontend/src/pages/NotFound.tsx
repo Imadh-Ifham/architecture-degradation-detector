@@ -1,17 +1,21 @@
 import { Link } from 'react-router'
+import { Button, Card, EmptyState, PageHeading } from '../components/ui'
 
 export default function NotFound() {
   return (
-    <section className="space-y-3">
-      <h1 className="text-2xl font-semibold tracking-tight text-white">
-        Page not found
-      </h1>
-      <p className="text-slate-400">
-        The page you are looking for does not exist.
-      </p>
-      <Link to="/" className="text-sm text-sky-400 transition hover:text-sky-300">
-        Back to home
-      </Link>
-    </section>
+    <>
+      <PageHeading eyebrow="404" title="No such page" />
+      <Card>
+        <EmptyState
+          title="Nothing is here"
+          body="The address does not match any screen in this application."
+          action={
+            <Link to="/">
+              <Button>Back to the pipeline</Button>
+            </Link>
+          }
+        />
+      </Card>
+    </>
   )
 }

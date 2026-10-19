@@ -50,23 +50,42 @@ The base URL is configurable through `VITE_API_BASE_URL` (default `/api`). Copy
 | `npm run preview` | Preview the production build. |
 | `npm run lint` | Run Oxlint. |
 
+## Working on the frontend
+
+**Read [`docs/frontend-guide.html`](./docs/frontend-guide.html) first.** It is the
+reference for everyone adding a screen: the branch model, the layout, what is
+reserved for which area, and the rules. Open it in a browser.
+
+The short version: `feature/frontend-layout` is the develop branch of the
+frontend. Branch from it, build your screen in your own folder under
+`src/features/`, and merge back into it.
+
 ## Structure
 
 ```
 src/
 ├── components/
-│   ├── BackendStatus.tsx        # shows the backend message + environment
-│   └── RepositoryIngestion.tsx  # ingest and remove repositories
+│   ├── ui/               # the shared primitives every screen is built from
+│   ├── ConnectionBadge   # backend reachability, in the instrument bar
+│   └── ReservedPage      # the placeholder a screen stands behind until it is built
+├── features/             # one folder per screen; nothing outside imports into one
+│   ├── pipeline/         # the home screen: the flow, and the stages inside a phase
+│   ├── repositories/     # adding a system, and what the analysis found
+│   ├── architecture/     # the diagram, the elements, the dependencies
+│   ├── decisions/        # what the architecture is judged against
+│   └── reserved/         # the screens nobody has built yet
 ├── layouts/
-│   └── RootLayout.tsx     # app shell (header + <Outlet />)
+│   ├── AppLayout.tsx     # rail, instrument bar, work surface
+│   └── navigation.ts     # the pages, and the phases of the analysis
 ├── lib/
-│   └── api.ts             # typed HTTP client for the backend
-├── pages/
-│   ├── Home.tsx           # home page (ingestion form + backend status)
-│   └── NotFound.tsx       # 404 route
-├── index.css              # Tailwind entry point
-├── main.tsx               # entry point (RouterProvider)
-└── router.tsx             # createBrowserRouter route config
+│   ├── api/              # one module per area of the backend; the only place a URL lives
+│   └── useRequest.ts     # loading, error and retry, once rather than per screen
+├── styles/
+│   └── tokens.css        # every colour, radius and font. The re-skin point
+├── workspace/            # which repository and release the application is looking at
+├── index.css             # Tailwind entry, base styles, the pipeline's keyframes
+├── main.tsx
+└── router.tsx            # one route per page, including the reserved ones
 ```
 
 See the root [`ARCHITECTURE.md`](../ARCHITECTURE.md) for the intended future architecture.
