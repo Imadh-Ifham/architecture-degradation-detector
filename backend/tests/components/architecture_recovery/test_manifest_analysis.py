@@ -526,6 +526,33 @@ def test_kubernetes_redacts_sensitive_container_environment(
     assert entries["API_TOKEN"]["from_secret"] == "undeclared-secret"
 
 
+def test_kubernetes_turns_environment_addresses_into_configured_endpoints() -> None:
+    result = analyze(KubernetesAnalyzer(), "kubernetes/endpoint-env.yaml")
+
+    endpoints = [item for item in result.endpoints if item.scope == "environment"]
+
+    assert {(item.host, item.port, item.protocol) for item in endpoints} == {
+        ("checkout", 5050, None),
+        ("checkout", 5050, "http"),
+    }
+
+    references = [
+        item
+        for item in result.relationships
+        if item.type is RelationshipType.REFERS_TO_SERVICE
+    ]
+
+    assert len(references) == 2
+    assert all(
+        item.origin is RelationshipOrigin.CONFIGURED_ENDPOINT for item in references
+    )
+
+    blob = serialized(result)
+
+    assert "hunter2" not in blob
+    assert "LOG_LEVEL" in blob
+
+
 def test_kubernetes_reads_containers_nested_in_a_cronjob(kubernetes_result) -> None:
     container = resource_named(kubernetes_result, "sweeper", ResourceKind.CONTAINER)
 

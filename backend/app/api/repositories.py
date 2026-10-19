@@ -6,10 +6,11 @@ Description:
     Exposes the repository ingestion subcomponent over HTTP: clone a
     repository onto the machine, list what is present, and remove it again.
 
-    A successful clone is followed immediately by a repository inventory, and
-    the summary is included in the response. The two subcomponents stay
-    independent: this transport layer is the only place that knows the
-    inventory runs after an ingestion.
+    A successful clone is followed immediately by a repository inventory,
+    manifest analysis, component discovery and dependency resolution, and each
+    stage's summary is included in the response. The subcomponents stay
+    independent: this transport layer is the only place that knows the order in
+    which they run.
 """
 
 from functools import lru_cache
@@ -39,9 +40,16 @@ from app.components.architecture_recovery.repository_inventory import (
 )
 from app.components.architecture_recovery.component_discovery import (
     ComponentDiscoveryError,
+    ComponentDiscoveryReport,
     ComponentDiscoveryService,
     ComponentDiscoverySummaryResponse,
     component_discovery_service_from_settings,
+)
+from app.components.architecture_recovery.dependency_resolution import (
+    DependencyResolutionError,
+    DependencyResolutionService,
+    DependencyResolutionSummaryResponse,
+    dependency_resolution_service_from_settings,
 )
 from app.components.architecture_recovery.manifest_analysis import (
     ManifestAnalysisError,
@@ -71,6 +79,8 @@ class RepositoryIngestionResponse(IngestedRepositoryResponse):
     manifest_analysis_error: str | None = None
     component_discovery: ComponentDiscoverySummaryResponse | None = None
     component_discovery_error: str | None = None
+    dependency_resolution: DependencyResolutionSummaryResponse | None = None
+    dependency_resolution_error: str | None = None
 
 
 @lru_cache
@@ -126,6 +136,16 @@ def get_component_discovery_service() -> ComponentDiscoveryService:
     return component_discovery_service_from_settings()
 
 
+@lru_cache
+def get_dependency_resolution_service() -> DependencyResolutionService:
+    """Provide the dependency resolution service shared by all requests.
+
+    Declared as a FastAPI dependency so tests can override it.
+    """
+
+    return dependency_resolution_service_from_settings()
+
+
 @router.post(
     "",
     response_model=RepositoryIngestionResponse,
@@ -143,8 +163,11 @@ def ingest_repository(
     discovery_service: ComponentDiscoveryService = Depends(
         get_component_discovery_service
     ),
+    dependency_service: DependencyResolutionService = Depends(
+        get_dependency_resolution_service
+    ),
 ) -> RepositoryIngestionResponse:
-    """Clone `request.url` at `request.branch`, then inventory and analyze it."""
+    """Clone, inventory, analyze, discover components and resolve dependencies."""
 
     try:
         repository = service.ingest(request.url, request.branch)
@@ -169,8 +192,11 @@ def ingest_repository(
     analysis, analysis_document, analysis_error = _analysis_after_inventory(
         inventory_document, repository, analysis_service
     )
-    discovery, discovery_error = _discovery_after_analysis(
+    discovery, discovery_document, discovery_error = _discovery_after_analysis(
         inventory_document, analysis_document, repository, discovery_service
+    )
+    dependencies, dependencies_error = _dependencies_after_discovery(
+        discovery_document, analysis_document, repository, dependency_service
     )
 
     return RepositoryIngestionResponse(
@@ -181,6 +207,8 @@ def ingest_repository(
         manifest_analysis_error=analysis_error,
         component_discovery=discovery,
         component_discovery_error=discovery_error,
+        dependency_resolution=dependencies,
+        dependency_resolution_error=dependencies_error,
     )
 
 
@@ -270,28 +298,66 @@ def _discovery_after_analysis(
     analysis: ManifestAnalysisReport | None,
     repository: IngestedRepository,
     discovery_service: ComponentDiscoveryService,
-) -> tuple[ComponentDiscoverySummaryResponse | None, str | None]:
+) -> tuple[
+    ComponentDiscoverySummaryResponse | None,
+    ComponentDiscoveryReport | None,
+    str | None,
+]:
     """Discover components from the inventory and the manifest analysis.
 
     Component discovery needs both upstream results, so it is skipped - with a
     reason - when either is missing, rather than reporting components derived from
-    half the evidence.
+    half the evidence. The report itself is returned because dependency
+    resolution consumes it directly instead of reading it back from disk.
     """
 
     if inventory is None:
-        return None, "skipped: no repository inventory to derive components from"
+        return (
+            None,
+            None,
+            "skipped: no repository inventory to derive components from",
+        )
 
     if analysis is None:
-        return None, "skipped: no manifest analysis to derive components from"
+        return None, None, "skipped: no manifest analysis to derive components from"
 
     try:
         path, report = discovery_service.run(
             inventory, analysis, repository.path.parent
         )
     except ComponentDiscoveryError as error:
+        return None, None, str(error)
+
+    return ComponentDiscoverySummaryResponse.from_report(path, report), report, None
+
+
+def _dependencies_after_discovery(
+    discovery: ComponentDiscoveryReport | None,
+    analysis: ManifestAnalysisReport | None,
+    repository: IngestedRepository,
+    dependency_service: DependencyResolutionService,
+) -> tuple[DependencyResolutionSummaryResponse | None, str | None]:
+    """Resolve relationships from the component discovery and analysis reports.
+
+    Dependency resolution needs both upstream results, so it is skipped - with a
+    reason - when either is missing. It runs after discovery because component
+    IDs are the endpoints of every relationship.
+    """
+
+    if discovery is None:
+        return None, "skipped: no component discovery to derive dependencies from"
+
+    if analysis is None:
+        return None, "skipped: no manifest analysis to derive dependencies from"
+
+    try:
+        path, report = dependency_service.run(
+            discovery, analysis, repository.path.parent
+        )
+    except DependencyResolutionError as error:
         return None, str(error)
 
-    return ComponentDiscoverySummaryResponse.from_report(path, report), None
+    return DependencyResolutionSummaryResponse.from_report(path, report), None
 
 
 def _describe_git_failure(error: GitCommandError) -> str:
