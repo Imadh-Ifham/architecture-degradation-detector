@@ -1,0 +1,46 @@
+{
+  "data_provenance": "manual-mapping",
+  "note": "Hand-made element -> source path mapping for Online Boutique (C4-ADR-011). Each service's folder as src/<service>/**. To be replaced by C2's source_paths pass-through (M8, stand-in A4).",
+  "system_id": "online-boutique",
+  "repository": "https://github.com/GoogleCloudPlatform/microservices-demo",
+  "checked_at_commit": "38e7348eb289eb5b87c0c6e8cb19ced0449dc389",
+  "checked_at_tag": "v0.10.7",
+  "elements": {
+    "adservice": [
+      "src/adservice/**"
+    ],
+    "cartservice": [
+      "src/cartservice/**"
+    ],
+    "checkoutservice": [
+      "src/checkoutservice/**"
+    ],
+    "currencyservice": [
+      "src/currencyservice/**"
+    ],
+    "emailservice": [
+      "src/emailservice/**"
+    ],
+    "frontend": [
+      "src/frontend/**"
+    ],
+    "loadgenerator": [
+      "src/loadgenerator/**"
+    ],
+    "paymentservice": [
+      "src/paymentservice/**"
+    ],
+    "productcatalogservice": [
+      "src/productcatalogservice/**"
+    ],
+    "recommendationservice": [
+      "src/recommendationservice/**"
+    ],
+    "shippingservice": [
+      "src/shippingservice/**"
+    ],
+    "shoppingassistantservice": [
+      "src/shoppingassistantservice/**"
+    ]
+  }
+}

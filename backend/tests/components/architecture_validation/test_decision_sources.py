@@ -176,9 +176,9 @@ class TestTheConfigurationScan:
 
         assert scan(release).records == scan(release).records
 
-    def test_a_document_that_will_not_parse_raises(self):
-        """Absence closes a validity interval, so a swallowed parse failure
-        would read as a rule having been withdrawn."""
+    def test_a_release_where_nothing_parses_raises(self):
+        """Absence closes a validity interval, so a release silently read as
+        holding no rules would read as every rule having been withdrawn."""
 
         reader = DictReader({"kustomize/broken.yaml": "kind: [unclosed\n"})
         request = SourceRequest(
@@ -188,8 +188,46 @@ class TestTheConfigurationScan:
             manifest_paths=("kustomize/broken.yaml",),
         )
 
-        with pytest.raises(DecisionSourceError, match="broken.yaml"):
+        with pytest.raises(DecisionSourceError, match="readable YAML"):
             ConfigurationScan(reader).collect(request)
+
+    def test_one_document_that_will_not_parse_is_skipped_and_named(self):
+        """Recovery classifies anything that looks like configuration, so a
+        repository is free to hold a fixture with a yaml-ish name that was
+        never a rule. Refusing the whole release over one of those makes the
+        component unusable on repositories that have one - and the subject
+        system has one.
+
+        It is named rather than counted: "a file was skipped" sends somebody
+        looking, and the path tells them whether it was one that should have
+        held a rule."""
+
+        policy = yaml.safe_dump(
+            {
+                "kind": "NetworkPolicy",
+                "metadata": {"name": "b"},
+                "spec": {
+                    "podSelector": {"matchLabels": {"app": "b"}},
+                    "ingress": [
+                        {"from": [{"podSelector": {"matchLabels": {"app": "a"}}}]}
+                    ],
+                },
+            }
+        )
+        reader = DictReader(
+            {"policy.yaml": policy, ".deploystack/test": "kind: [unclosed\n"}
+        )
+        request = SourceRequest(
+            code_repository_id="r",
+            release_id="v1.0.0",
+            extracted_at=EXTRACTED_AT,
+            manifest_paths=("policy.yaml", ".deploystack/test"),
+        )
+
+        outcome = ConfigurationScan(reader).collect(request)
+
+        assert outcome.records, "the readable policy still produced its rule"
+        assert ".deploystack/test" in (outcome.reason or "")
 
 
 class TestPermissionDirection:

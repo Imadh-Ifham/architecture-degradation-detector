@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package common;
+
+message Money {
+  int64 units = 1;
+}
+
+message ChargeRequest {
+  Money amount = 1;
+}
+
+message ChargeResponse {
+  bool accepted = 1;
+}
+
+service PaymentService {
+  rpc Charge(ChargeRequest) returns (ChargeResponse);
+}

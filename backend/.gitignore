@@ -13,3 +13,7 @@ htmlcov/
 artifacts/
 
 temp
+
+# Build output, including the MSBuild caches a C# fixture regenerates
+obj/
+bin/

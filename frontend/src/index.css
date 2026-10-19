@@ -1,1 +1,63 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: var(--color-field);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Digits that sit in a column have to line up, everywhere, without a class. */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--color-ai-wash);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-ai);
+  outline-offset: 2px;
+}
+
+/* A faint grid, so the page reads as a drawing surface rather than a slab. */
+.surface-grid {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--color-line) 1px,
+    transparent 0
+  );
+  background-size: 28px 28px;
+}
+
+/*
+ * The pipeline's two motions. They live here because the pipeline is the only
+ * place in the application where motion carries meaning rather than decorates.
+ */
+@keyframes pipe-flow {
+  to {
+    stroke-dashoffset: -30;
+  }
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.3;
+    transform: scale(0.75);
+  }
+}
+
+@keyframes stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}

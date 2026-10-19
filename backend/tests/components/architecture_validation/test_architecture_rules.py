@@ -179,24 +179,24 @@ class TestOrchestration:
 
         assert STAGE_ORDER == SUBCOMPONENTS
 
-    @pytest.mark.parametrize("name", sorted(set(SUBCOMPONENTS) - IMPLEMENTED))
-    def test_an_unimplemented_subcomponent_raises_rather_than_returning_nothing(self, name):
-        """Asserted rather than assumed.
+    def test_every_subcomponent_is_built(self):
+        """What the pair below used to be half of.
 
-        A half-written subcomponent that silently returns None looks identical
-        to one not yet started, and the difference matters while most of them
-        are stubs.
+        For seven weeks this was a parametrised test over the subcomponents
+        *not* in IMPLEMENTED, asserting each one raised `NotImplementedError`
+        rather than silently returning None - because a half-written
+        subcomponent and an unstarted one look identical from the outside, and
+        the difference mattered while most of them were stubs.
 
-        As each subcomponent is built, its name moves into IMPLEMENTED - so
-        this test and the next one together record how far the component has
-        got, and neither can be satisfied by accident.
+        There are none left, so the parametrisation was empty and the test was
+        permanently skipped, which is a worse state than either passing or
+        failing. This is the invariant that replaced it. The raising rule
+        still applies to whoever adds a ninth: the test below asserts that
+        every name in IMPLEMENTED really does work, so a new stub has to be
+        declared unimplemented or it fails there.
         """
 
-        service_class = _service_class(name)
-        entry = _entry_method(service_class)
-        stub = service_class(*[None] * _init_arity(service_class))
-        with pytest.raises(NotImplementedError):
-            getattr(stub, entry)(*[None] * _arity(service_class, entry))
+        assert IMPLEMENTED == set(SUBCOMPONENTS)
 
     @pytest.mark.parametrize("name", sorted(IMPLEMENTED))
     def test_an_implemented_subcomponent_no_longer_raises(self, name):
@@ -260,9 +260,11 @@ class TestObservationNormalizationHasNoIO:
         # Constructible with nothing: that is what "no I/O" means in practice.
         assert ObservationNormalizationService().normalise
 
-    def test_the_stand_in_lives_outside_the_component_and_states_its_expiry(self):
-        """A thing that has to disappear should be named and dated so that it
-        cannot be forgotten."""
+    def test_the_dependency_stand_in_is_gone(self):
+        """It was named for its own expiry, and recovery has shipped the thing
+        it stood in for. Asserted rather than remembered, because a module
+        that derives architecture from deployment manifests must not come
+        back into this project under another name."""
 
         stand_in = (
             COMPONENT.parents[1]
@@ -271,9 +273,7 @@ class TestObservationNormalizationHasNoIO:
             / "c1_dependency_stand_in.py"
         )
 
-        assert stand_in.is_file()
-        docstring = ast.get_docstring(ast.parse(stand_in.read_text(encoding="utf-8"))) or ""
-        assert "deleted when recovery ships" in docstring
+        assert not stand_in.exists()
 
 
 READS_THROUGH_A_PORT = ("decision_knowledge", "evidence_retrieval")

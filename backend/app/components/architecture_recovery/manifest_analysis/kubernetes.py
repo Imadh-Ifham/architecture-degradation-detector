@@ -42,11 +42,12 @@ from app.components.architecture_recovery.manifest_analysis.models import (
     resource_id,
 )
 from app.components.architecture_recovery.manifest_analysis.redaction import (
+    extract_endpoint_candidate,
     sanitize_scalar,
 )
 from app.components.architecture_recovery.manifest_analysis.yaml_support import (
-    load_yaml_documents,
     line_of,
+    load_yaml_documents,
 )
 from app.components.architecture_recovery.repository_inventory.models import (
     FileCategory,
@@ -595,6 +596,18 @@ class _KubernetesAnalysis:
                 if sanitized.value is not None:
                     item["value"] = sanitized.value
 
+                    candidate = extract_endpoint_candidate(sanitized.value)
+
+                    if candidate is not None:
+                        self._add_configured_endpoint(
+                            workload_id,
+                            container_name,
+                            key,
+                            candidate,
+                            location,
+                            sanitized.value,
+                        )
+
                 if sanitized.redacted:
                     item["redacted"] = True
 
@@ -664,6 +677,54 @@ class _KubernetesAnalysis:
 
         environment = workload_attributes.setdefault("environment", [])
         environment.extend(recorded)
+
+    def _add_configured_endpoint(
+        self,
+        workload_id: str,
+        container_name: str,
+        key: str,
+        candidate,
+        location: SourceLocation,
+        value: str,
+    ) -> None:
+        """Record an endpoint named by a literal environment value.
+
+        This mirrors the Compose analyzer: the value configures a target, so it
+        is evidence of a configured endpoint, never proof that traffic reaches
+        it.
+        """
+
+        endpoint = Endpoint(
+            id=endpoint_id(self._file.path, f"env:{container_name}:{key}"),
+            location=location,
+            host=candidate.host,
+            port=candidate.port,
+            protocol=candidate.scheme,
+            source_resource_id=workload_id,
+            scope="environment",
+            evidence=[
+                ExtractedEvidence(
+                    "kubernetes_environment",
+                    f"environment variable '{key}' names the endpoint "
+                    f"'{candidate.sanitized_value or value}'",
+                    ExtractionMethod.YAML,
+                    location,
+                )
+            ],
+        )
+
+        self._result.endpoints.append(endpoint)
+
+        self._add_relationship(
+            RelationshipType.REFERS_TO_SERVICE,
+            RelationshipOrigin.CONFIGURED_ENDPOINT,
+            workload_id,
+            endpoint.id,
+            location,
+            True,
+            f"environment variable '{key}' configures the endpoint "
+            f"'{candidate.sanitized_value or value}'",
+        )
 
     def _describe_pod_volume(
         self, workload_id: str, volume: dict, location: SourceLocation

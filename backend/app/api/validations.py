@@ -32,20 +32,25 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.components.architecture_recovery.repository_ingestion.service import (
+    SOURCE_DIRECTORY_NAME,
+)
 from app.components.architecture_validation import (
     PIPELINE,
     ArchitectureValidationService,
 )
 from app.components.architecture_validation.architect_review import (
     ArchitectReviewService,
+    QueueUnavailable,
 )
-from app.components.architecture_recovery.repository_ingestion.service import (
-    SOURCE_DIRECTORY_NAME,
+from app.components.architecture_validation.architect_review.models import (
+    ReviewDecision,
 )
 from app.components.architecture_validation.classification import ClassificationService
 from app.components.architecture_validation.decision_knowledge import (
     DEFAULT_MODE,
     DecisionKnowledgeService,
+    DecisionSourceError,
     NoDecisionsAvailable,
     SourceRequest,
 )
@@ -68,17 +73,51 @@ from app.components.architecture_validation.validation_reasoning import (
 )
 from app.core.config import settings
 from app.domain.recovered_architecture import IncoherentArchitecture
+from app.domain.validated_architecture import ReleaseDateSource
+from app.infrastructure.ai import (
+    TASK_PRIMARY_VERDICT,
+    TASK_PRIMARY_VERDICT_FALLBACK,
+    TASK_PRIMARY_VERDICT_LOCAL,
+    TASK_VERIFICATION,
+    ConfiguredAIClient,
+    ai_settings,
+    load_prompt,
+)
+from app.infrastructure.ai.providers.openai_compatible import OpenAICompatibleProvider
 from app.infrastructure.decision_log import JsonlDecisionStore
-from app.infrastructure.git.workspace_artifact_reader import WorkspaceArtifactReader
+from app.infrastructure.git.release_dates import ReleaseDateReader
+from app.infrastructure.git.workspace_artifact_reader import (
+    ArtifactUnavailableError,
+    WorkspaceArtifactReader,
+)
 from app.infrastructure.recovery_gateway import (
+    GraphContractError,
+    GraphStoreReader,
     InventoryContractError,
     InventoryFileArchitectureReader,
     SnapshotContractError,
     SnapshotFileReader,
+    WorkspaceIndex,
+    WorkspaceUnavailable,
 )
-
+from app.infrastructure.validated_graph import ValidatedGraphFileStore
 
 router = APIRouter(prefix="/validations", tags=["Validation"])
+
+PRIMARY_VERDICT_PROMPT = "primary_verdict.v1.md"
+CRITICAL_REFRAMING_PROMPT = "critical_reframing.v1.md"
+BLIND_VERDICT_PROMPT = "blind_verdict.v1.md"
+
+REASONING_TASKS = (
+    TASK_PRIMARY_VERDICT,
+    TASK_PRIMARY_VERDICT_FALLBACK,
+    TASK_PRIMARY_VERDICT_LOCAL,
+)
+"""The reasoner's ladder, in the order it is climbed.
+
+The order is wiring rather than reasoning, so it is decided here: the
+subcomponent is handed task names and never learns which models answer them.
+"""
 
 
 class StageDescriptionResponse(BaseModel):
@@ -173,6 +212,15 @@ class ValidationRunResponse(BaseModel):
         "than assumed, so a run that should have made none can be shown to "
         "have made none."
     )
+    validation_confidence: float = Field(
+        default=0.0,
+        description=(
+            "The mean per-fact confidence across this release. Read it with "
+            "the classification stage's 'facts' count beside it: 0.0 over no "
+            "facts and 0.0 over fifteen weak ones are different situations."
+        ),
+        examples=[0.78],
+    )
     published_ref: str | None = Field(
         default=None,
         description="Where the validated graph was published, once the "
@@ -195,6 +243,27 @@ class ValidationRunResponse(BaseModel):
             "none and this component worked it out from the elements."
         ),
         examples=["inferred_by_c2"],
+    )
+    verification_arm: str | None = Field(
+        default=None,
+        description=(
+            "What the verifier was shown on this run: informed, blind or "
+            "both. Null when verification did not run. A separate axis from "
+            "verification_mode, which says whether it ran at all - an "
+            "agreement rate cannot be read without both."
+        ),
+    )
+    verification_mode: str | None = Field(
+        default=None,
+        description=(
+            "Whether a second model checked this run's verdicts. performed - "
+            "it did. not_requested - the caller turned it off. unavailable - "
+            "it could not be reached, which is a fault in the environment "
+            "rather than a result, and is not agreement. Null when no fact "
+            "reached verification at all. This line changes how every count "
+            "under it should be read, which is why it is reported beside "
+            "them rather than inferred from them."
+        ),
     )
     decision_mode: str | None = Field(
         default=None,
@@ -254,6 +323,32 @@ class ValidationRunRequest(BaseModel):
             "reports that rather than reporting zero decisions."
         ),
     )
+    arm: Literal["informed", "blind", "both"] = Field(
+        default="informed",
+        description=(
+            "What the verifying model is shown. informed - the evidence and "
+            "the first model's verdict, and it reports what is wrong with "
+            "the argument. This is the default and the only arm that "
+            "produces objections an architect can act on. blind - the "
+            "evidence and not the answer, which buys an unanchored second "
+            "verdict and nothing to act on. both - three model calls per "
+            "fact, where the gap between the two agreement rates is how much "
+            "being shown the answer moves the second model. both is a "
+            "measurement mode and not a demonstration one."
+        ),
+    )
+    verify: bool = Field(
+        default=True,
+        description=(
+            "Whether to ask a second model whether each verdict's argument "
+            "holds up. True is the default. False roughly halves the model "
+            "calls and the wall-clock time of a run, and is published as a "
+            "skip giving that reason - never as a verdict that passed an "
+            "unperformed check. The primary verdicts are not re-paid for on a "
+            "later verifying run, because the response cache is keyed on the "
+            "evidence rather than on the run."
+        ),
+    )
     release_id: str = Field(
         min_length=1,
         description=(
@@ -262,6 +357,18 @@ class ValidationRunRequest(BaseModel):
             "refused, because the decision history compares releases to each "
             "other rather than to a calendar."
         ),
+    )
+
+    released_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When this release was actually cut. Optional: the tag's own date "
+            "is read from the ingestion workspace when it can be, and a "
+            "release whose date cannot be established publishes none rather "
+            "than a guess. Supply it when the repository is not cloned "
+            "locally, or to override what the tag says."
+        ),
+        examples=["2025-04-01T00:00:00Z"],
     )
 
     @field_validator("release_id")
@@ -294,6 +401,10 @@ def get_architecture_reader():
     reader's name is stamped on the run's provenance either way.
     """
 
+    if settings.architecture_source == "graph":
+        return GraphStoreReader(
+            get_architecture_graph_store(), settings.repositories_root
+        )
     if settings.architecture_source == "snapshot":
         return SnapshotFileReader(settings.snapshot_root)
     if settings.architecture_source == "inventory":
@@ -301,8 +412,28 @@ def get_architecture_reader():
 
     raise ValueError(
         f"architecture_source is '{settings.architecture_source}'; "
-        "expected 'snapshot' or 'inventory'."
+        "expected 'graph', 'snapshot' or 'inventory'."
     )
+
+
+@lru_cache(maxsize=1)
+def get_architecture_graph_store():
+    """Recovery's historical graph, as the live reader asks it.
+
+    Imported inside the function so that a machine with no graph database
+    configured can still start, and still run against a recording. The driver
+    is built when the live reader is the one wired in and never otherwise.
+    """
+
+    from app.infrastructure.neo4j.architecture_snapshot_store import (
+        Neo4jArchitectureSnapshotStore,
+    )
+    from app.infrastructure.neo4j.database import driver
+
+    # The driver's own `session`, which is a context manager per operation.
+    # The request-scoped dependency beside it yields one already open, and
+    # the store opens its own.
+    return Neo4jArchitectureSnapshotStore(driver.session)
 
 
 @lru_cache
@@ -333,6 +464,80 @@ def get_decision_store() -> JsonlDecisionStore:
 
 
 @lru_cache
+def get_ai_client() -> ConfiguredAIClient:
+    """Provide model access, configured from the environment.
+
+    Built even when no key is set, and that is deliberate. The reasoner's
+    ladder ends at a deterministic arbiter, so a run on a machine with no key
+    still produces a verdict for every governed fact and says on every one of
+    them that no model was involved - which is more useful than refusing to
+    start, and it is the demonstration's rollback.
+
+    The second adapter is the local rung's, and it is built only when an
+    endpoint for it is configured. A local runtime differs from the hosted one
+    in the URL alone, which is why one adapter class serves both; and without
+    the second adapter the rung's model id would be posted to the hosted
+    provider, which does not serve it.
+    """
+
+    local = ai_settings.ai_local_base_url
+    return ConfiguredAIClient(
+        OpenAICompatibleProvider(
+            base_url=ai_settings.ai_base_url,
+            api_key=ai_settings.ai_api_key,
+            timeout_seconds=ai_settings.ai_timeout_seconds,
+        ),
+        settings=ai_settings,
+        local_provider=(
+            OpenAICompatibleProvider(
+                base_url=local,
+                api_key=ai_settings.ai_api_key,
+                timeout_seconds=ai_settings.ai_timeout_seconds,
+            )
+            if local
+            else None
+        ),
+    )
+
+
+@lru_cache
+def get_verdict_prompt():
+    """Load the versioned prompt once, here, because this is the only layer
+    that may read a file for the component.
+
+    The component holds the shape and never the file: a prompt that a
+    subcomponent could open would be a subcomponent that reads the repository
+    it is reasoning about.
+    """
+
+    return load_prompt(PRIMARY_VERDICT_PROMPT)
+
+
+@lru_cache
+def get_challenge_prompt():
+    """Load the verifier's prompt, which is a second file and not a flag.
+
+    Two arms sharing one template would be indistinguishable in the results,
+    and the version string is part of both the cache key and what a published
+    verification is attributed to.
+    """
+
+    return load_prompt(CRITICAL_REFRAMING_PROMPT)
+
+
+@lru_cache
+def get_blind_prompt():
+    """Load the blind arm's prompt, which shows the evidence and not the answer.
+
+    A third file rather than the challenge prompt with the verdict omitted.
+    Two arms sharing a template are indistinguishable in the results, and a
+    template that could render a verdict is one edit away from leaking it.
+    """
+
+    return load_prompt(BLIND_VERDICT_PROMPT)
+
+
+@lru_cache
 def get_validation_service() -> ArchitectureValidationService:
     """Provide the validation service, wired to the configured input.
 
@@ -347,12 +552,132 @@ def get_validation_service() -> ArchitectureValidationService:
             get_artifact_reader(), get_decision_store()
         ),
         evidence=EvidenceRetrievalService(get_artifact_reader()),
-        reasoning=ValidationReasoningService(),
-        verification=IndependentVerificationService(),
+        reasoning=ValidationReasoningService(
+            get_ai_client(),
+            get_verdict_prompt(),
+            REASONING_TASKS,
+            provider=ai_settings.ai_provider,
+            allow_arbiter_only=ai_settings.ai_allow_arbiter_only,
+        ),
+        verification=IndependentVerificationService(
+            get_ai_client(),
+            get_challenge_prompt(),
+            TASK_VERIFICATION,
+            provider=ai_settings.ai_provider,
+            blind_prompt=get_blind_prompt(),
+        ),
         classification=ClassificationService(),
-        review=ArchitectReviewService(),
-        publishing=GraphPublishingService(),
+        review=ArchitectReviewService(
+            get_review_queue(),
+            DecisionKnowledgeService(get_artifact_reader(), get_decision_store()),
+        ),
+        publishing=GraphPublishingService(get_graph_file_store()),
     )
+
+
+@lru_cache(maxsize=1)
+def get_graph_file_store() -> ValidatedGraphFileStore:
+    """Where a run publishes the document the next component reads.
+
+    The only one of the three stores that is wired here. The relational record
+    and the graph projection are left unconfigured on purpose: a run on a
+    laptop with no databases should report that it wrote one store, not warn
+    twice about two it was never asked to write. Passing them is one argument
+    each when the databases are part of the deployment.
+    """
+
+    return ValidatedGraphFileStore(settings.validated_graph_root)
+
+
+@lru_cache(maxsize=1)
+def get_release_dates() -> ReleaseDateReader:
+    """Reads a release tag's date out of the ingestion workspace.
+
+    Wired here rather than injected into the component: reading git history is
+    the same category of thing as reading source code, which the component
+    also does not do, so the date arrives as a parameter of the run.
+    """
+
+    return ReleaseDateReader(settings.repositories_root, SOURCE_DIRECTORY_NAME)
+
+
+def review_binding(
+    repository_id: str | None = None, release_id: str | None = None
+) -> tuple[str, str] | None:
+    """Which repository and release the review queue is for.
+
+    Read from the ingestion workspace rather than written down here. The ids
+    belong to whatever has been ingested on this machine, and a literal in
+    this file is a subject system compiled into the product - which works
+    until the second repository arrives and then mislabels every row it
+    writes.
+
+    A caller may name either id; what they do not name is resolved from the
+    most recently ingested revision that matches what they did. `None` when
+    nothing has been ingested, which is the same answer as a queue with no
+    database behind it: there is nothing to queue against yet.
+    """
+
+    try:
+        record = WorkspaceIndex(settings.repositories_root).resolve(
+            repository_id, release_id
+        ) if repository_id else _newest_ingested(release_id)
+    except WorkspaceUnavailable:
+        return None
+
+    return (record.repository_key, record.release_id) if record else None
+
+
+def _newest_ingested(release_id: str | None):
+    """The most recent ingest, optionally of one named release."""
+
+    records = WorkspaceIndex(settings.repositories_root).records()
+
+    return next(
+        (
+            record
+            for record in records
+            if release_id is None or release_id in (record.release_id, record.release_tag)
+        ),
+        None,
+    )
+
+
+@lru_cache
+def get_review_queue(repository_id: str = "", release_id: str = ""):
+    """The review queue, or `None` when there is nothing to bind it to.
+
+    `None` means *not configured*, which the review stage reports as a note
+    rather than a warning: a run on a laptop with nothing installed queues
+    nothing and says the facts are in the published document regardless. A
+    configured queue that refused is a fault and is named as one.
+
+    The queue is still bound to one repository and one release, which is
+    wiring rather than data on the item - so a caller that forgot cannot
+    write an item against the wrong release. What changed is where the pair
+    comes from: the workspace, not a constant.
+    """
+
+    binding = review_binding(repository_id or None, release_id or None)
+
+    if binding is None:
+        return None
+
+    try:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.infrastructure.postgres.database import DATABASE_URL
+        from app.infrastructure.postgres.repositories.c2_review_repository import (
+            PostgresReviewQueueRepository,
+        )
+
+        engine = create_engine(DATABASE_URL, connect_args={"connect_timeout": 3})
+        engine.connect().close()
+    except Exception:  # noqa: BLE001 - an absent database is a normal state
+        return None
+
+    return PostgresReviewQueueRepository(sessionmaker(bind=engine), *binding)
 
 
 @router.get(
@@ -423,8 +748,9 @@ class DecisionSourcesResponse(BaseModel):
     ),
     responses={
         status.HTTP_409_CONFLICT: {
-            "description": "The recovered architecture for that release "
-            "cannot be read, so there are no manifest paths to scan."
+            "description": "The repository has not been ingested, or the "
+            "recovered architecture for that release cannot be read, so there "
+            "are no manifest paths to scan."
         }
     },
 )
@@ -449,6 +775,9 @@ def describe_decision_sources(
     try:
         architecture = reader.read(repository_id, release_id)
     except (
+        ArtifactUnavailableError,
+        DecisionSourceError,
+        GraphContractError,
         InventoryContractError,
         SnapshotContractError,
         IncoherentArchitecture,
@@ -457,14 +786,29 @@ def describe_decision_sources(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
 
-    available = service.decision_sources(
-        SourceRequest(
-            code_repository_id=repository_id,
-            release_id=release_id,
-            extracted_at=datetime.now(UTC),
-            manifest_paths=architecture.manifest_paths,
+    try:
+        available = service.decision_sources(
+            SourceRequest(
+                code_repository_id=repository_id,
+                release_id=release_id,
+                extracted_at=datetime.now(UTC),
+                manifest_paths=architecture.manifest_paths,
+            )
         )
-    )
+    except (ArtifactUnavailableError, DecisionSourceError) as error:
+        # The sources read the repository, so this route needs the checkout as
+        # well as the recording. Answered rather than raised: a user asking
+        # which mode to pick before ingesting anything has made a mistake with
+        # an obvious fix, and the sentence that says so is the whole answer.
+        #
+        # A source that cannot read a file it found is the same kind of
+        # answer. One unparseable document in a repository must not turn
+        # "what could this be validated against?" into a crash: the question
+        # is asked before anything runs, and the refusal belongs to the run.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
+
     best = max(available.values(), key=lambda found: found.records)
 
     return DecisionSourcesResponse(
@@ -476,6 +820,41 @@ def describe_decision_sources(
             for found in sorted(available.values(), key=lambda found: found.mode)
         ],
     )
+
+
+def _resolve_release_date(
+    request: "ValidationRunRequest",
+) -> tuple[datetime | None, str | None]:
+    """When the release was cut, and which field said so.
+
+    The caller wins when they supplied one: they know something the repository
+    does not, and overriding a tag is the reason the field exists. Otherwise
+    the tag's own date, then the tagged commit's author date, read from the
+    workspace.
+
+    `None` for both when neither answered. Nothing is invented - a plausible
+    wrong date orders the consumer's timeline wrongly and cannot be told apart
+    from a right one. The committer date is never used at all: it is rewritten
+    by every rebase and reads as today.
+    """
+
+    if request.released_at is not None:
+        return request.released_at, ReleaseDateSource.CALLER
+
+    reader = get_architecture_reader()
+    if isinstance(reader, GraphStoreReader):
+        # Recovery resolved this already, from the tag then the commit then
+        # the moment it ran, and it says which of the three answered. Reading
+        # git a second time here could only produce a second opinion about a
+        # field a consumer gates on.
+        recovered = reader.released_at(request.repository_id, request.release_id)
+        if recovered is not None:
+            return recovered
+
+    found = get_release_dates().read(request.repository_id, request.release_id)
+    if found is None:
+        return None, None
+    return found
 
 
 @router.post(
@@ -493,10 +872,11 @@ def describe_decision_sources(
             "releases, which leaves no temporal claim to make about it."
         },
         status.HTTP_409_CONFLICT: {
-            "description": "The recovered architecture for that repository and "
-            "release cannot be used: there is none recorded, or the one on "
-            "disk is a schema version this component does not read, or it has "
-            "a relationship naming an element it does not contain."
+            "description": "The input for that repository and release cannot "
+            "be used: the repository has not been ingested, or there is no "
+            "recovered architecture recorded, or the one on disk is a schema "
+            "version this component does not read, or it has a relationship "
+            "naming an element it does not contain."
         },
     },
 )
@@ -513,12 +893,18 @@ def run_validation(
     release resolves it.
     """
 
+    released_at, released_at_source = _resolve_release_date(request)
+
     try:
         run = service.run(
             request.repository_id,
             request.release_id,
             decision_mode=request.decision_mode,
             adr_repository_id=request.adr_repository_id,
+            verify=request.verify,
+            arm=request.arm,
+            released_at=released_at,
+            released_at_source=released_at_source,
         )
     except NoDecisionsAvailable as error:
         # Not a fault in the request and not a fault here: there is nothing to
@@ -531,16 +917,19 @@ def run_validation(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
     except (
+        ArtifactUnavailableError,
+        DecisionSourceError,
+        GraphContractError,
         InventoryContractError,
         SnapshotContractError,
         IncoherentArchitecture,
     ) as error:
-        # Three shapes of the same situation: the recovered architecture for
-        # this release is missing, is a version this component does not read,
-        # or does not hold together. All three are about the state of the
-        # input rather than a fault here, and all three are fixed by producing
-        # a usable recording - so all three are a conflict and carry the
-        # message that says which one it was.
+        # Four shapes of one situation: the repository was never ingested, or
+        # the recovered architecture for this release is missing, is a version
+        # this component does not read, or does not hold together. All four
+        # are about the state of the input rather than a fault here, and all
+        # four are fixed by producing a usable recording - so all four are a
+        # conflict and carry the message that says which one it was.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
@@ -551,9 +940,236 @@ def run_validation(
         release_id=run.release_id,
         status=run.status,
         model_calls=run.model_calls,
+        validation_confidence=run.validation_confidence,
         published_ref=run.published_ref,
         style_resolved=run.style_resolved,
         style_source=run.style_source,
+        verification_arm=run.verification_arm,
+        verification_mode=run.verification_mode,
         decision_mode=run.decision_mode,
         stages=[StageRecordResponse(**stage.to_dict()) for stage in run.stages],
     )
+
+class ReviewItemResponse(BaseModel):
+    """One fact waiting on an architect."""
+
+    item_id: str
+    fact_id: str
+    bucket: str
+    confidence: float
+    source_tier: str | None = Field(
+        default=None,
+        description=(
+            "The tier of the source the decision came from, which is what "
+            "lets a screen say *why* this needs a person rather than showing "
+            "a number below a threshold."
+        ),
+    )
+    evidence_refs: list[str] = Field(
+        description="References, never the evidence. The item holds no copies."
+    )
+    candidate_decision_id: str | None = Field(
+        default=None,
+        description="What a confirmation would ratify, when there is one.",
+    )
+    status: str
+    created_at: datetime
+
+
+class ReviewDecisionRequest(BaseModel):
+    """What an architect decided about one queued fact."""
+
+    accepted: bool = Field(
+        description=(
+            "true ratifies the candidate decision, which raises its strength "
+            "in the knowledge log so the next run can reach a verdict that is "
+            "currently capped. false records that a mined candidate was wrong "
+            "and appends nothing - a rejection is kept, because the ratio of "
+            "confirmations to rejections is the only ground truth this system "
+            "produces for free."
+        )
+    )
+    decided_by: str = Field(
+        default="architect",
+        description=(
+            "A role rather than a person: the role exists in the system and "
+            "whoever fills it is interchangeable."
+        ),
+    )
+    note: str | None = None
+
+
+class ReviewOutcomeResponse(BaseModel):
+    """What recording one decision did."""
+
+    item_id: str
+    status: str
+    ratified: int = Field(
+        description=(
+            "How many decision versions the confirmation applied to. Zero on "
+            "a rejection, and zero on an acceptance whose candidate has been "
+            "superseded since it was queued - which is information for "
+            "whoever pressed the button rather than a fault, and is why it is "
+            "returned instead of logged."
+        )
+    )
+    note: str = Field(
+        description="What has not happened yet, in words, for the screen."
+    )
+
+
+@router.get(
+    "/reviews",
+    response_model=list[ReviewItemResponse],
+    summary="List the facts waiting on an architect",
+    response_description="Every undecided item, oldest first.",
+)
+def list_reviews(
+    repository_id: str | None = None,
+    release_id: str | None = None,
+    service: ArchitectureValidationService = Depends(get_validation_service),
+):
+    """Return the queue, oldest first.
+
+    `repository_id` and `release_id` select which queue, and both default to
+    the most recently ingested revision. One subject system therefore needs
+    neither, and a second one does not need a code change.
+
+    Oldest first and not newest: a queue read newest-first buries the item
+    that has been waiting longest, which is the one a reviewer most needs.
+
+    An empty list is a real answer and not an error. On this subject system
+    every service pair is covered by an enforced policy, so nothing falls to a
+    weak tier and nothing needs a person - which is a property of the
+    repository rather than of the component.
+    """
+
+    queue = get_review_queue(repository_id or "", release_id or "")
+    if queue is None:
+        return []
+    return [ReviewItemResponse(**_review_item(item)) for item in queue.pending()]
+
+
+@router.post(
+    "/reviews/{item_id}",
+    response_model=ReviewOutcomeResponse,
+    summary="Record an architect's decision on one queued fact",
+    response_description="What the decision did, and what it did not do.",
+    responses={404: {"description": "No such review item."}},
+)
+def decide_review(
+    item_id: str,
+    request: ReviewDecisionRequest,
+    repository_id: str | None = None,
+    service: ArchitectureValidationService = Depends(get_validation_service),
+):
+    """Record the decision, and ratify the candidate when it is accepted.
+
+    **This does not re-run the release.** It appends to the knowledge log and
+    returns. When a verdict changes has to be a decision somebody made rather
+    than a side effect: five confirmations would otherwise start five runs,
+    each resolving against a log the others were still changing, and the
+    verdicts would depend on the order the buttons were pressed.
+
+    So the loop is confirm, then run - and the run is the ordinary
+    `POST /validations`, not a special path.
+    """
+
+    decision = ReviewDecision(
+        item_id=item_id,
+        accepted=request.accepted,
+        decided_by=request.decided_by,
+        decided_at=datetime.now(UTC),
+        note=request.note,
+    )
+
+    binding = review_binding(repository_id)
+
+    if binding is None:
+        # Nothing ingested, so there is no decision log to ratify into. A 404
+        # would say the item does not exist, which is a different thing from
+        # having nowhere to write the answer.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No ingested repository to record a decision against. Ingest "
+                "the repository, or name one with ?repository_id=."
+            ),
+        )
+
+    try:
+        outcome = service.record_review(decision, binding[0])
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except QueueUnavailable as error:
+        # The queue is where the decision has to be written down, so unlike a
+        # run this cannot degrade: there is nowhere to record the answer.
+        raise HTTPException(
+            status_code=503,
+            detail=f"the review queue is unavailable: {error}",
+        ) from error
+
+    return ReviewOutcomeResponse(
+        item_id=outcome.item_id,
+        status=str(outcome.status),
+        ratified=outcome.ratified,
+        note=(
+            "the rule is now authoritative in the decision log. This fact "
+            "still reads as it did, because verdicts are never rewritten - "
+            "the next run will resolve it as a ratified rule and the ceiling "
+            "will lift."
+            if outcome.ratified
+            else "recorded. Nothing was appended to the decision log."
+        ),
+    )
+
+
+def _review_item(item) -> dict:
+    return {
+        "item_id": item.item_id,
+        "fact_id": item.fact_id,
+        "bucket": str(item.bucket),
+        "confidence": item.confidence,
+        "source_tier": str(item.source_tier) if item.source_tier else None,
+        "evidence_refs": list(item.evidence_refs),
+        "candidate_decision_id": item.candidate_decision_id,
+        "status": str(item.status),
+        "created_at": item.created_at,
+    }
+
+
+@router.get(
+    "/graph",
+    summary="The published graph for one release",
+    response_description=(
+        "The validated architecture as the node-link document the next "
+        "component reads, exactly as it was published."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "That release has not been validated, which is a "
+            "state rather than a fault: it has its own screen."
+        }
+    },
+)
+def read_published_graph(repository_id: str, release_id: str):
+    """Return the document the most recent completed run published.
+
+    Read from the file rather than rebuilt from the run record, so the screen
+    and the next component are looking at the same bytes. A release nobody has
+    validated is a 404 with a sentence, not an empty graph: an empty graph and
+    a graph of a system with nothing in it are different claims.
+    """
+
+    document = get_graph_file_store().read(repository_id, release_id)
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No validated graph for '{release_id}'. Run a validation for "
+                "that release first."
+            ),
+        )
+
+    return document

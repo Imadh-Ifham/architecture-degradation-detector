@@ -51,11 +51,15 @@ _KNOWN = (
         notes="Larger sibling. Same strict support, lower rate limit.",
     ),
     ModelCapabilities(
-        model_id="qwen/qwen3-32b",
+        model_id="qwen/qwen3.8-27b",
         supports_strict_schema=True,
         context_tokens=131_072,
         free_tier=True,
-        notes="Default verifier. Different weights from the reasoner, which is the point.",
+        notes=(
+            "Default verifier. Different weights from the reasoner, which is the point. "
+            "Succeeds qwen/qwen3-32b, off the provider's roster by 2026-10-17; strict "
+            "output confirmed against the live endpoint on that date."
+        ),
     ),
     ModelCapabilities(
         model_id="llama-3.3-70b-versatile",

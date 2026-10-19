@@ -22,7 +22,11 @@ Description:
 
 import json
 
-from .openai_compatible import ProviderError, ProviderRateLimited
+from .openai_compatible import (
+    ProviderContentError,
+    ProviderError,
+    ProviderRateLimited,
+)
 
 DEFAULT_MODEL_ID = "fake/deterministic-1"
 
@@ -94,7 +98,7 @@ class FakeProvider:
 
         if self._malformed_times > 0:
             self._malformed_times -= 1
-            raise ProviderError("scripted malformed content: not valid JSON")
+            raise ProviderContentError("scripted malformed content: not valid JSON")
 
         return {
             "content": self._next_response(),

@@ -1,0 +1,112 @@
+﻿C4 quality gate report
+Date (UTC): 2026-10-18 17:07:56
+Git commit: 04bbc62 on feat/scoring-ahp
+Uncommitted changes: 28 paths
+Python: Python 3.13.2
+uv: uv 0.13.0 (4ecd0eff2 2026-10-09 x86_64-pc-windows-msvc)
+
+=== ruff check: uv run ruff check --extend-select I,UP,B,SIM,N,RUF app/components/degradation_scoring tests/components/degradation_scoring app/domain/severity_report.py scripts/scoring_export_schemas.py app/infrastructure/git/history.py app/infrastructure/postgres/models/c4_mining_cache.py app/infrastructure/postgres/repositories/mining_cache_repository.py alembic/versions/0002_c4_mining_cache.py scripts/c4_hotspot_profile.py app/infrastructure/postgres/models/c4_scoring_run.py app/infrastructure/postgres/repositories/scoring_run_repository.py alembic/versions/0003_c4_scoring_run.py scripts/c4_run_features.py tests/domain/test_severity_report.py tests/scripts/test_scoring_export_schemas.py tests/infrastructure/git/test_history.py tests/infrastructure/postgres/test_mining_cache_repository.py tests/infrastructure/postgres/test_scoring_run_repository.py ===
+E501 Line too long (101 > 100)
+  --> scripts\c4_run_features.py:85:101
+   |
+83 |                 "adr": result.features.adr.inactive_reason or "active",
+84 |                 "topsis_mode": result.scoring.topsis_mode,
+85 |                 "weights": {d.value: round(w, 4) for d, w in result.scoring.weights.weights.items()},
+   |                                                                                                     ^
+86 |                 "weights_provenance": result.scoring.weights.provenance.value,
+87 |                 "top_5": [
+   |
+
+Found 1 error.
+--- ruff check: FAIL (exit 1)
+
+=== ruff format: uv run ruff format --check app/components/degradation_scoring tests/components/degradation_scoring app/domain/severity_report.py scripts/scoring_export_schemas.py app/infrastructure/git/history.py app/infrastructure/postgres/models/c4_mining_cache.py app/infrastructure/postgres/repositories/mining_cache_repository.py alembic/versions/0002_c4_mining_cache.py scripts/c4_hotspot_profile.py app/infrastructure/postgres/models/c4_scoring_run.py app/infrastructure/postgres/repositories/scoring_run_repository.py alembic/versions/0003_c4_scoring_run.py scripts/c4_run_features.py tests/domain/test_severity_report.py tests/scripts/test_scoring_export_schemas.py tests/infrastructure/git/test_history.py tests/infrastructure/postgres/test_mining_cache_repository.py tests/infrastructure/postgres/test_scoring_run_repository.py ===
+unformatted: File would be reformatted
+  --> scripts\c4_run_features.py:85:29
+   |
+84 |                 "topsis_mode": result.scoring.topsis_mode,
+   -                 "weights": {d.value: round(w, 4) for d, w in result.scoring.weights.weights.items()},
+85 +                 "weights": {
+86 +                     d.value: round(w, 4) for d, w in result.scoring.weights.weights.items()
+87 +                 },
+88 |                 "weights_provenance": result.scoring.weights.provenance.value,
+   |
+
+1 file would be reformatted, 102 files already formatted
+--- ruff format: FAIL (exit 1)
+
+=== mypy: uv run mypy app/components/degradation_scoring tests/components/degradation_scoring app/domain/severity_report.py scripts/scoring_export_schemas.py app/infrastructure/git/history.py app/infrastructure/postgres/models/c4_mining_cache.py app/infrastructure/postgres/repositories/mining_cache_repository.py alembic/versions/0002_c4_mining_cache.py scripts/c4_hotspot_profile.py app/infrastructure/postgres/models/c4_scoring_run.py app/infrastructure/postgres/repositories/scoring_run_repository.py alembic/versions/0003_c4_scoring_run.py scripts/c4_run_features.py tests/domain/test_severity_report.py tests/scripts/test_scoring_export_schemas.py tests/infrastructure/git/test_history.py tests/infrastructure/postgres/test_mining_cache_repository.py tests/infrastructure/postgres/test_scoring_run_repository.py ===
+tests\components\degradation_scoring\test_service.py:198: error: Unsupported left operand type for + ("object")  [operator]
+tests\components\degradation_scoring\test_service.py:199: error: Unsupported left operand type for + ("object")  [operator]
+tests\components\degradation_scoring\test_service.py:206: error: Value of type "object" is not indexable  [index]
+Found 3 errors in 1 file (checked 85 source files)
+--- mypy: FAIL (exit 1)
+
+=== pytest + coverage: uv run pytest tests/components/degradation_scoring tests/domain/test_severity_report.py tests/scripts/test_scoring_export_schemas.py tests/infrastructure/git/test_history.py tests/infrastructure/postgres/test_mining_cache_repository.py tests/infrastructure/postgres/test_scoring_run_repository.py -q -p no:cacheprovider --cov=app.components.degradation_scoring --cov=app.domain.severity_report --cov=scripts.scoring_export_schemas --cov=app.infrastructure.git.history --cov=app.infrastructure.postgres.repositories.mining_cache_repository --cov=app.infrastructure.postgres.repositories.scoring_run_repository --cov-report=term-missing --cov-fail-under=80 ===
+........................................................................ [ 13%]
+........................................................................ [ 27%]
+........................................................................ [ 41%]
+........................................................................ [ 55%]
+........................................................................ [ 69%]
+..................ss.................................................... [ 83%]
+........................................................................ [ 96%]
+................                                                         [100%]
+=============================== tests coverage ================================
+_______________ coverage: platform win32, python 3.13.2-final-0 _______________
+
+Name                                                                  Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------------------------
+app\components\degradation_scoring\__init__.py                            2      0      0      0   100%
+app\components\degradation_scoring\config.py                             53      0      0      0   100%
+app\components\degradation_scoring\evaluation\__init__.py                 2      0      0      0   100%
+app\components\degradation_scoring\evaluation\models.py                   0      0      0      0   100%
+app\components\degradation_scoring\evaluation\service.py                  1      0      0      0   100%
+app\components\degradation_scoring\explanation\__init__.py                2      0      0      0   100%
+app\components\degradation_scoring\explanation\models.py                  0      0      0      0   100%
+app\components\degradation_scoring\explanation\service.py                 1      0      0      0   100%
+app\components\degradation_scoring\features\__init__.py                   2      0      0      0   100%
+app\components\degradation_scoring\features\adr_weight.py                27      0      8      0   100%
+app\components\degradation_scoring\features\blast_radius.py              45      0     10      0   100%
+app\components\degradation_scoring\features\errors.py                     2      0      0      0   100%
+app\components\degradation_scoring\features\history.py                   93      0     24      0   100%
+app\components\degradation_scoring\features\hotspot.py                   85      0     24      1    99%   154->164
+app\components\degradation_scoring\features\models.py                    93      0      0      0   100%
+app\components\degradation_scoring\features\persistence.py               44      0     16      0   100%
+app\components\degradation_scoring\features\service.py                   31      0      4      0   100%
+app\components\degradation_scoring\ingestion\__init__.py                  2      0      0      0   100%
+app\components\degradation_scoring\ingestion\adr.py                      53      0     20      1    99%   28->26
+app\components\degradation_scoring\ingestion\errors.py                    4      0      0      0   100%
+app\components\degradation_scoring\ingestion\events.py                   48      0     16      0   100%
+app\components\degradation_scoring\ingestion\graph.py                    63      0     22      0   100%
+app\components\degradation_scoring\ingestion\models.py                   34      0      0      0   100%
+app\components\degradation_scoring\ingestion\resolution.py               52      0     18      0   100%
+app\components\degradation_scoring\ingestion\service.py                  29      0      6      0   100%
+app\components\degradation_scoring\models.py                             18      0      0      0   100%
+app\components\degradation_scoring\ports.py                               8      0      0      0   100%
+app\components\degradation_scoring\reporting\__init__.py                  2      0      0      0   100%
+app\components\degradation_scoring\reporting\models.py                    0      0      0      0   100%
+app\components\degradation_scoring\reporting\service.py                   1      0      0      0   100%
+app\components\degradation_scoring\scoring_engine\__init__.py             2      0      0      0   100%
+app\components\degradation_scoring\scoring_engine\ahp.py                 66      0     18      0   100%
+app\components\degradation_scoring\scoring_engine\errors.py               6      0      0      0   100%
+app\components\degradation_scoring\scoring_engine\models.py              82      0      4      0   100%
+app\components\degradation_scoring\scoring_engine\normalizer.py          84      0     34      0   100%
+app\components\degradation_scoring\scoring_engine\service.py             20      0      0      0   100%
+app\components\degradation_scoring\scoring_engine\topsis.py              26      0      4      0   100%
+app\components\degradation_scoring\service.py                            85      0     14      0   100%
+app\domain\severity_report.py                                           157      0     20      0   100%
+app\infrastructure\git\history.py                                        29      0      4      0   100%
+app\infrastructure\postgres\repositories\mining_cache_repository.py      20      0      0      0   100%
+app\infrastructure\postgres\repositories\scoring_run_repository.py       16      0      6      3    86%   30->32, 32->34, 34->exit
+scripts\scoring_export_schemas.py                                        30      1      8      1    95%   67
+-----------------------------------------------------------------------------------------------------------------
+TOTAL                                                                  1420      1    280      6    99%
+Required test coverage of 80% reached. Total coverage: 99.59%
+518 passed, 2 skipped in 39.91s
+--- pytest + coverage: PASS
+
+=== Summary ===
+ruff check           FAIL (exit 1)
+ruff format          FAIL (exit 1)
+mypy                 FAIL (exit 1)
+pytest + coverage    PASS

@@ -1,0 +1,62 @@
+{
+  "data_provenance": "fixture",
+  "note": "Synthetic stand-in for C2's element -> violated ADR links (adr_refs, CLAUDE.md \u00a75.3). C2 does not produce them yet, so AV is inactive in real PP1 runs (C4-ADR-007 A5). Designed AV per ranked event below.",
+  "links": {
+    "inventory-service": [
+      "ADR-0001"
+    ],
+    "reporting-service": [
+      "ADR-0002"
+    ],
+    "notification-service": [
+      "ADR-0003"
+    ]
+  },
+  "designed_av": {
+    "DEG-C4FX-R02-0001": {
+      "av": 1.0,
+      "adr_id": "ADR-0001",
+      "why": "cycle member inventory-service; accepted x system = 1.0 x 1.0"
+    },
+    "DEG-C4FX-R02-0002": {
+      "av": 0.0,
+      "adr_id": null,
+      "why": "no link"
+    },
+    "DEG-C4FX-R02-0003": {
+      "av": 0.0,
+      "adr_id": null,
+      "why": "no link"
+    },
+    "DEG-C4FX-R02-0004": {
+      "av": 0.0,
+      "adr_id": null,
+      "why": "no link"
+    },
+    "DEG-C4FX-R02-0005": {
+      "av": 0.0,
+      "adr_id": null,
+      "why": "no link"
+    },
+    "DEG-C4FX-R02-0006": {
+      "av": 0.14,
+      "adr_id": "ADR-0002",
+      "why": "reporting-service; superseded x component = 0.2 x 0.7"
+    },
+    "DEG-C4FX-R02-0007": {
+      "av": 0.2,
+      "adr_id": "ADR-0003",
+      "why": "notification-service; proposed x local = 0.5 x 0.4"
+    },
+    "DEG-C4FX-R02-0008": {
+      "av": 1.0,
+      "adr_id": "ADR-0001",
+      "why": "inventory-service; accepted x system"
+    },
+    "DEG-C4FX-R02-0014": {
+      "av": 0.0,
+      "adr_id": null,
+      "why": "no link"
+    }
+  }
+}
