@@ -50,6 +50,7 @@ from app.infrastructure.ai import (
     TASK_PRIMARY_VERDICT,
     TASK_PRIMARY_VERDICT_FALLBACK,
     TASK_PRIMARY_VERDICT_LOCAL,
+    TASK_VERIFICATION,
     AISettings,
     ConfiguredAIClient,
     VerdictCache,
@@ -111,6 +112,28 @@ def unreachable_reasoner():
     )
 
 
+def unreachable_verifier():
+    """The real verification stage over a provider that cannot answer.
+
+    The same reason as the reasoner's: the suite must never depend on a key or
+    a network. It exercises the path this unit is on the cut list for - a
+    verification that could not run, published as `None`, which classification
+    has to treat as uncertain rather than as agreement.
+    """
+
+    client = ConfiguredAIClient(
+        FakeProvider(fail_times=99),
+        settings=AISettings(ai_api_key="not-a-real-key"),
+        cache=VerdictCache("unused", enabled=False),
+    )
+    return IndependentVerificationService(
+        client,
+        load_prompt("critical_reframing.v1.md"),
+        TASK_VERIFICATION,
+        provider="fake",
+    )
+
+
 @pytest.fixture
 def client():
     """A client whose validation service reads the committed fixtures.
@@ -128,7 +151,7 @@ def client():
         ),
         evidence=EvidenceRetrievalService(WorkspaceReader()),
         reasoning=unreachable_reasoner(),
-        verification=IndependentVerificationService(),
+        verification=unreachable_verifier(),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
         publishing=GraphPublishingService(),
@@ -493,7 +516,7 @@ class TestARepositoryNobodyIngested:
             ),
             evidence=EvidenceRetrievalService(NoCheckout()),
             reasoning=unreachable_reasoner(),
-            verification=IndependentVerificationService(),
+            verification=unreachable_verifier(),
             classification=ClassificationService(),
             review=ArchitectReviewService(),
             publishing=GraphPublishingService(),

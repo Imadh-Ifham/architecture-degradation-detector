@@ -72,6 +72,7 @@ from app.infrastructure.ai import (
     TASK_PRIMARY_VERDICT,
     TASK_PRIMARY_VERDICT_FALLBACK,
     TASK_PRIMARY_VERDICT_LOCAL,
+    TASK_VERIFICATION,
     ConfiguredAIClient,
     ai_settings,
     load_prompt,
@@ -93,6 +94,8 @@ from app.infrastructure.recovery_gateway import (
 router = APIRouter(prefix="/validations", tags=["Validation"])
 
 PRIMARY_VERDICT_PROMPT = "primary_verdict.v1.md"
+CRITICAL_REFRAMING_PROMPT = "critical_reframing.v1.md"
+BLIND_VERDICT_PROMPT = "blind_verdict.v1.md"
 
 REASONING_TASKS = (
     TASK_PRIMARY_VERDICT,
@@ -198,6 +201,15 @@ class ValidationRunResponse(BaseModel):
         "than assumed, so a run that should have made none can be shown to "
         "have made none."
     )
+    validation_confidence: float = Field(
+        default=0.0,
+        description=(
+            "The mean per-fact confidence across this release. Read it with "
+            "the classification stage's 'facts' count beside it: 0.0 over no "
+            "facts and 0.0 over fifteen weak ones are different situations."
+        ),
+        examples=[0.78],
+    )
     published_ref: str | None = Field(
         default=None,
         description="Where the validated graph was published, once the "
@@ -220,6 +232,27 @@ class ValidationRunResponse(BaseModel):
             "none and this component worked it out from the elements."
         ),
         examples=["inferred_by_c2"],
+    )
+    verification_arm: str | None = Field(
+        default=None,
+        description=(
+            "What the verifier was shown on this run: informed, blind or "
+            "both. Null when verification did not run. A separate axis from "
+            "verification_mode, which says whether it ran at all - an "
+            "agreement rate cannot be read without both."
+        ),
+    )
+    verification_mode: str | None = Field(
+        default=None,
+        description=(
+            "Whether a second model checked this run's verdicts. performed - "
+            "it did. not_requested - the caller turned it off. unavailable - "
+            "it could not be reached, which is a fault in the environment "
+            "rather than a result, and is not agreement. Null when no fact "
+            "reached verification at all. This line changes how every count "
+            "under it should be read, which is why it is reported beside "
+            "them rather than inferred from them."
+        ),
     )
     decision_mode: str | None = Field(
         default=None,
@@ -277,6 +310,32 @@ class ValidationRunRequest(BaseModel):
             "The separate decision repository, as ingestion cloned it. "
             "Required by the modes that read one; a mode that cannot run "
             "reports that rather than reporting zero decisions."
+        ),
+    )
+    arm: Literal["informed", "blind", "both"] = Field(
+        default="informed",
+        description=(
+            "What the verifying model is shown. informed - the evidence and "
+            "the first model's verdict, and it reports what is wrong with "
+            "the argument. This is the default and the only arm that "
+            "produces objections an architect can act on. blind - the "
+            "evidence and not the answer, which buys an unanchored second "
+            "verdict and nothing to act on. both - three model calls per "
+            "fact, where the gap between the two agreement rates is how much "
+            "being shown the answer moves the second model. both is a "
+            "measurement mode and not a demonstration one."
+        ),
+    )
+    verify: bool = Field(
+        default=True,
+        description=(
+            "Whether to ask a second model whether each verdict's argument "
+            "holds up. True is the default. False roughly halves the model "
+            "calls and the wall-clock time of a run, and is published as a "
+            "skip giving that reason - never as a verdict that passed an "
+            "unperformed check. The primary verdicts are not re-paid for on a "
+            "later verifying run, because the response cache is keyed on the "
+            "evidence rather than on the run."
         ),
     )
     release_id: str = Field(
@@ -408,6 +467,30 @@ def get_verdict_prompt():
 
 
 @lru_cache
+def get_challenge_prompt():
+    """Load the verifier's prompt, which is a second file and not a flag.
+
+    Two arms sharing one template would be indistinguishable in the results,
+    and the version string is part of both the cache key and what a published
+    verification is attributed to.
+    """
+
+    return load_prompt(CRITICAL_REFRAMING_PROMPT)
+
+
+@lru_cache
+def get_blind_prompt():
+    """Load the blind arm's prompt, which shows the evidence and not the answer.
+
+    A third file rather than the challenge prompt with the verdict omitted.
+    Two arms sharing a template are indistinguishable in the results, and a
+    template that could render a verdict is one edit away from leaking it.
+    """
+
+    return load_prompt(BLIND_VERDICT_PROMPT)
+
+
+@lru_cache
 def get_validation_service() -> ArchitectureValidationService:
     """Provide the validation service, wired to the configured input.
 
@@ -429,7 +512,13 @@ def get_validation_service() -> ArchitectureValidationService:
             provider=ai_settings.ai_provider,
             allow_arbiter_only=ai_settings.ai_allow_arbiter_only,
         ),
-        verification=IndependentVerificationService(),
+        verification=IndependentVerificationService(
+            get_ai_client(),
+            get_challenge_prompt(),
+            TASK_VERIFICATION,
+            provider=ai_settings.ai_provider,
+            blind_prompt=get_blind_prompt(),
+        ),
         classification=ClassificationService(),
         review=ArchitectReviewService(),
         publishing=GraphPublishingService(),
@@ -613,6 +702,8 @@ def run_validation(
             request.release_id,
             decision_mode=request.decision_mode,
             adr_repository_id=request.adr_repository_id,
+            verify=request.verify,
+            arm=request.arm,
         )
     except NoDecisionsAvailable as error:
         # Not a fault in the request and not a fault here: there is nothing to
@@ -646,9 +737,12 @@ def run_validation(
         release_id=run.release_id,
         status=run.status,
         model_calls=run.model_calls,
+        validation_confidence=run.validation_confidence,
         published_ref=run.published_ref,
         style_resolved=run.style_resolved,
         style_source=run.style_source,
+        verification_arm=run.verification_arm,
+        verification_mode=run.verification_mode,
         decision_mode=run.decision_mode,
         stages=[StageRecordResponse(**stage.to_dict()) for stage in run.stages],
     )

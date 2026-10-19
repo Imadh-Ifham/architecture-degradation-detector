@@ -8,11 +8,9 @@ Description:
 """
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from app.domain.validated_architecture import ValidationBucket
-
-from ..models import EvidenceStrength
-
 
 PUBLISH_THRESHOLD = 0.70
 """The one threshold between publishing a fact and routing it for review.
@@ -24,15 +22,38 @@ change plus a re-run.
 """
 
 
-@dataclass(frozen=True)
-class CeilingRule:
-    """The strongest bucket a given source strength may reach.
+class Route(StrEnum):
+    """Who looks at a classified fact next.
 
-    This is the rule that makes the tiered intent model safe. Without it, a
-    constraint inferred from a commit message could be reported as a
-    violation with the same confidence as one read from an enforced network
-    policy.
+    A second axis from the bucket, not a stronger version of it. The bucket is
+    what this component concluded; the route is what happens to the
+    conclusion. Merged into one field, an architect clearing a review queue
+    would be editing conclusions.
     """
 
-    strength: EvidenceStrength
-    ceiling: ValidationBucket
+    PUBLISH = "publish"
+    REVIEW = "review"
+
+
+@dataclass(frozen=True)
+class Cap:
+    """The most a fact may claim, and the reason, as one row.
+
+    This is the rule that makes the tiered intent model safe. Without it, a
+    constraint inferred from a commit message could be reported as a violation
+    with the same confidence as one read from an enforced network policy.
+
+    `bucket` is the strongest bucket this cap allows, or `None` when the cap
+    limits the number without changing what was concluded - an unverified
+    `confirms` is still a confirmation, it is simply not one to publish
+    unchecked.
+
+    `name` is what reaches `ScoreTrace.ceiling_applied` and then a screen. It
+    is why a cap is a named row rather than a float: a number that was
+    silently reduced is indistinguishable from a number that was low to begin
+    with.
+    """
+
+    name: str
+    bucket: ValidationBucket | None
+    confidence: float
