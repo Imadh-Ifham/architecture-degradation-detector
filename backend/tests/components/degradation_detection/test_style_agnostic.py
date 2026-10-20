@@ -25,6 +25,10 @@ ALLOWED = {
     "ingestion/ordering.py",
     # Event export pass-through: copies the style into DegradationEventV2 for C4.
     "events/emitter.py",
+    # C2 adapter pass-through: translates C2's style name into the package's enum value.
+    "ingestion/from_validated.py",
+    # Screen view pass-through: copies each release's style into the document it serves.
+    "report/view.py",
 }
 
 
