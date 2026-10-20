@@ -67,6 +67,8 @@ from .base import (
 
 CONTRACT_PATTERN = "**/*.proto"
 
+YAML_SUFFIXES = frozenset({".yaml", ".yml", ".json"})
+
 WORKLOAD_KINDS = frozenset({"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"})
 
 _SERVICE_BLOCK = re.compile(r"^service\s+(\w+)\s*\{", re.MULTILINE)
@@ -126,6 +128,10 @@ class ConfigurationScan:
         unreadable: list[str] = []
 
         for path in sorted(request.manifest_paths):
+            if not _could_hold_yaml(path):
+                unreadable.append(path)
+                continue
+
             text = self._reader.read_text(
                 request.code_repository_id, request.release_id, path
             )
@@ -493,6 +499,26 @@ def _line_at(text: str, offset: int) -> int:
     """
 
     return text.count("\n", 0, offset) + 1
+
+
+def _could_hold_yaml(path: str) -> bool:
+    """Whether a path recovery called a manifest could contain a YAML document.
+
+    Recovery classifies by what a file looks like, and a Helm chart vendors its
+    dependencies as `.tgz` archives inside a directory of manifests. Decoding
+    one as text raises out of the reader, which would end the run over a file
+    that was never a rule - so the suffix is checked before the read rather
+    than the decode failure caught after it.
+
+    A path with no suffix is read. Manifests are conventionally suffixed, but a
+    generated one need not be, and refusing it would drop a real rule.
+    """
+
+    name = path.rsplit("/", 1)[-1]
+    dot = name.rfind(".")
+    if dot <= 0:
+        return True
+    return name[dot:].lower() in YAML_SUFFIXES
 
 
 def _directory(path: str) -> str:

@@ -400,4 +400,13 @@ class DecisionKnowledgeService:
                 for outcome in outcomes
                 if outcome.ran
             },
+            # Kept per source rather than folded into `reason`, which is empty
+            # whenever any other source supplied something - so in the mode
+            # that reads all three, the one finding worth reporting is exactly
+            # the one that would be dropped.
+            source_notes={
+                outcome.source: outcome.reason
+                for outcome in outcomes
+                if outcome.ran and outcome.reason
+            },
         )

@@ -535,7 +535,7 @@ class TestTheGate:
         assert outcome.mode == "combined"
         assert outcome.recorded == 25
         assert outcome.in_force == 25
-        assert outcome.by_source == {"config_scan": 25}
+        assert outcome.by_source == {"repo_adr": 0, "config_scan": 25}
         assert outcome.releases_in_log == ("v0.9.0",)
 
     def test_the_releases_own_rules_are_in_force_when_its_facts_are_judged(self):

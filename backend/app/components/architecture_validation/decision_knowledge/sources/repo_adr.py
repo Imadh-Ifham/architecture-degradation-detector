@@ -15,7 +15,12 @@ Description:
 """
 
 from ...ports import SourceArtifactReader
-from .base import SourceOutcome, SourceRequest, collect_decision_documents
+from .base import (
+    SourceOutcome,
+    SourceRequest,
+    collect_decision_documents,
+    declared_source_reason,
+)
 
 
 class RepositoryDecisionRecords:
@@ -29,7 +34,7 @@ class RepositoryDecisionRecords:
     def collect(self, request: SourceRequest) -> SourceOutcome:
         """Read every decision record the code repository holds."""
 
-        records = collect_decision_documents(
+        records, in_adr_directory = collect_decision_documents(
             self._reader, request.code_repository_id, request, self.name
         )
 
@@ -37,7 +42,9 @@ class RepositoryDecisionRecords:
             source=self.name,
             ran=True,
             records=records,
-            reason=None if records else "no decision records in this repository",
+            reason=declared_source_reason(
+                records, in_adr_directory, "this repository"
+            ),
         )
 
 

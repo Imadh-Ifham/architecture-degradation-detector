@@ -41,21 +41,50 @@ from ...models import (
 
 FRONT_MATTER_FENCE = "---"
 
-DECISION_DOCUMENT_PATTERNS = (
-    "doc/adr/*.md",
-    "docs/adr/*.md",
-    "docs/decisions/*.md",
+ADR_DIRECTORY_PATTERNS = (
+    "**/adr/**/*.md",
+    "**/ADR/**/*.md",
+    "**/decisions/**/*.md",
+)
+"""Directories a team dedicates to decision records, at any depth.
+
+**Recursive at both ends, and the prefix is the half that was missing.** A
+directory named `adr` anywhere in the tree is a deliberate statement; one named
+`docs/adr` at the root is the same statement made at the root. Anchoring the
+patterns there found a monorepository's shared records and missed every
+per-service set - 37 of 138 on the first repository that keeps them that way,
+because each bounded context carries its own `docs/ADR/decisions/`.
+
+Three patterns rather than the seven this list used to hold, because `**/adr/**`
+already covers `doc/adr`, `docs/adr` and a bare `adr`. Fewer patterns that each
+say one thing beat a list that enumerates layouts, which is a list that is
+always one layout out of date.
+
+Case is spelled out rather than folded. `Path.glob` is case-insensitive on
+Windows and case-sensitive elsewhere, so a pattern that works on the author's
+machine and not on a marker's is the failure this avoids - and the matches are
+deduplicated case-insensitively further down for the same reason.
+
+**Not `**/*.md`.** That is 490 files on this repository, and a source that reads
+every markdown file in a monorepository will parse a changelog as a decision.
+
+A document found under one of these is an *attempted* decision record even when
+it cannot be parsed, which is what makes the count worth reporting separately.
+"""
+
+OTHER_DOCUMENT_PATTERNS = (
     "docs/*.md",
-    "adr/*.md",
     "architecture/*.md",
     "*.md",
 )
-"""Where decision records are kept, in rough order of how conventional it is.
+"""Places a decision record sometimes sits among ordinary prose.
 
-A list rather than a recursive walk: a source that reads every markdown file
-in a repository will eventually parse a changelog as a decision. Each pattern
-here is a place a team deliberately puts decisions.
+One level only, and deliberately. A source that reads every markdown file in a
+repository will eventually parse a changelog as a decision, and a monorepository
+has hundreds. A document found here is not evidence that the team keeps records.
 """
+
+DECISION_DOCUMENT_PATTERNS = ADR_DIRECTORY_PATTERNS + OTHER_DOCUMENT_PATTERNS
 
 
 class DecisionSourceError(ValueError):
@@ -205,7 +234,7 @@ REQUIRED_FIELDS = ("id", "subject", "constraint", "object", "valid_from")
 
 def collect_decision_documents(
     reader, repository_id: str, request: SourceRequest, source: str
-) -> tuple[DecisionRecord, ...]:
+) -> tuple[tuple[DecisionRecord, ...], int]:
     """Read the decision records written in one repository.
 
     Shared by both declared sources, because the only thing that differs
@@ -217,16 +246,34 @@ def collect_decision_documents(
     matter that names a constraint *is* an attempted record, so a missing
     field there is an error rather than a reason to skip: a record whose
     validity interval had to be guessed is worse than no record at all.
+
+    Returns the records and **how many documents sat in a directory the team
+    dedicates to decisions.** Those two numbers answer different questions, and
+    a caller that only had the first would report "this repository keeps no
+    decision records" about a repository keeping forty-one of them in prose.
+    `0 of 0` is a finding about the team; `0 of 41` is a finding about the
+    format, and conflating them misstates the result the whole design rests on.
     """
 
     records: list[DecisionRecord] = []
     seen: set[str] = set()
+    in_adr_directory = 0
 
     for pattern in DECISION_DOCUMENT_PATTERNS:
         for path in reader.list_paths(repository_id, request.release_id, pattern):
-            if path in seen:
+            # Case-folded, because `Path.glob` is case-insensitive on Windows:
+            # `docs/adr/**` and `docs/ADR/**` there return the same files under
+            # the pattern's own casing, so matching on the path as given counts
+            # every record twice on one platform and once on another. A number
+            # that depends on the developer's operating system is worse than a
+            # wrong one, because it looks right wherever it is checked.
+            key = path.casefold()
+            if key in seen:
                 continue
-            seen.add(path)
+            seen.add(key)
+
+            if pattern in ADR_DIRECTORY_PATTERNS:
+                in_adr_directory += 1
 
             front_matter = parse_front_matter(
                 reader.read_text(repository_id, request.release_id, path)
@@ -268,7 +315,30 @@ def collect_decision_documents(
                 )
             )
 
-    return tuple(records)
+    return tuple(records), in_adr_directory
+
+
+def declared_source_reason(
+    records: tuple[DecisionRecord, ...], in_adr_directory: int, where: str
+) -> str | None:
+    """Why a declared source produced nothing, told apart from having nothing to find.
+
+    `0 of 0` is a finding about the team: they keep no decision records. `0 of
+    41` is a finding about the *format* - they keep forty-one, in prose, and
+    this reader turns none of them into a constraint. The second is the
+    stronger result and the harder one to report, because the obvious
+    implementation reports both as a zero and the research claim rests on the
+    difference.
+    """
+
+    if records:
+        return None
+    if in_adr_directory:
+        return (
+            f"{in_adr_directory} decision document(s) found in {where}; none "
+            "declares a machine-readable constraint"
+        )
+    return f"no decision records in {where}"
 
 
 def _optional(value) -> str | None:
@@ -276,13 +346,16 @@ def _optional(value) -> str | None:
 
 
 __all__ = [
+    "ADR_DIRECTORY_PATTERNS",
     "DECISION_DOCUMENT_PATTERNS",
+    "OTHER_DOCUMENT_PATTERNS",
     "REQUIRED_FIELDS",
     "DecisionSource",
     "DecisionSourceError",
     "SourceOutcome",
     "SourceRequest",
     "collect_decision_documents",
+    "declared_source_reason",
     "decision_record",
     "parse_front_matter",
 ]

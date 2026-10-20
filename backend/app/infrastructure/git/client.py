@@ -18,13 +18,21 @@ from pathlib import Path
 class GitCommandError(RuntimeError):
     """Raised when a git command exits with a non-zero status."""
 
-    def __init__(self, command: list[str], returncode: int, stderr: str) -> None:
-        """Capture the failed command, its exit code and the git stderr output."""
+    def __init__(self, command: list[str], returncode: int, stderr: str | None) -> None:
+        """Capture the failed command, its exit code and the git stderr output.
+
+        `stderr` may be absent. A reader thread that fails while decoding git's
+        output leaves it unset, and raising while describing a failure loses the
+        failure: the caller sees an `AttributeError` instead of the git error,
+        and an exception handler written for this type does not catch it.
+        """
 
         self.command = command
         self.returncode = returncode
         self.stderr = stderr
-        super().__init__(stderr.strip() or f"git exited with status {returncode}")
+        super().__init__(
+            (stderr or "").strip() or f"git exited with status {returncode}"
+        )
 
 
 class GitClient:
@@ -167,17 +175,31 @@ class GitClient:
     def _run(self, *arguments: str) -> str:
         """Run `git <arguments>` and return stdout, raising on failure."""
 
-        command = ["git", *arguments]
+        # core.longpaths is set per invocation rather than left to the machine.
+        # Windows refuses a path over 260 characters, and a repository with deep
+        # directories checks out by hand - from a short working directory - and
+        # fails under a workspace root, for no reason the error names. Passing it
+        # here means the behaviour travels with the code instead of depending on
+        # whether somebody ran `git config --global`. It is ignored elsewhere.
+        command = ["git", "-c", "core.longpaths=true", *arguments]
 
         # GIT_TERMINAL_PROMPT=0 stops git from blocking forever on an
         # interactive credential prompt (for example, a private repository).
         environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
 
         try:
+            # Decoded as UTF-8 explicitly. `text=True` alone decodes with the
+            # locale codec, which on Windows is cp1252 - and git writes the
+            # names of the files it checks out to stderr. One path outside that
+            # codec kills the reader thread, which leaves stderr unset and
+            # turns a reportable git failure into a decoding error about a
+            # repository that cloned perfectly well by hand.
             completed = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self._timeout_seconds,
                 check=False,
                 env=environment,

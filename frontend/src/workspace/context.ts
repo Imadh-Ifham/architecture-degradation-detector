@@ -21,7 +21,6 @@
 
 import { createContext } from 'react'
 import type {
-  DecisionMode,
   IngestedRepository,
   RepositoryConfiguration,
   RepositoryConfigurationInput,
@@ -74,9 +73,14 @@ export interface Workspace {
   /** One row per configured snapshot, with what has happened to it so far. */
   pipelineSnapshots: SnapshotRun[]
   isPipelineRunning: boolean
-  /** Why validation did not start, when a recovery failure stopped it. */
+  /** Why the stack cannot be judged, when a recovery failure stopped it. */
   pipelineError: string | null
-  startPipeline: (mode: DecisionMode, adrRepositoryId?: string) => Promise<void>
+  /**
+   * Recover every configured snapshot. Resolves to whether the stack is ready
+   * to be judged, so the caller can send somebody to choose what judges it.
+   * It does not validate: nothing may pick that source but a person.
+   */
+  startPipeline: () => Promise<boolean>
   clearPipeline: () => void
 
   /* Runs this session produced ------------------------------------------- */

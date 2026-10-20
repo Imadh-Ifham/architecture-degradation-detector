@@ -591,6 +591,24 @@ class ArchitectureValidationService:
 
         return self._knowledge.availability(request)
 
+    def decision_records(self, request: SourceRequest, mode: str) -> tuple:
+        """The rules one mode would supply, as records rather than a count.
+
+        The count answers *how many*; this answers *which*, and the second
+        question is the one asked of a rule nobody wrote down. A reconstructed
+        rule is only as good as the line it was read from, so a reader has to
+        be able to see the line - and a number on a screen is an assertion
+        until they can.
+
+        Reads the same way the picker does: no model, no writes.
+        """
+
+        return tuple(
+            record
+            for outcome in self._knowledge.collect(request, mode)
+            for record in outcome.records
+        )
+
     def _normalise(self, architecture: RecoveredArchitecture):
         """Normalise, and return the facts, the stage record and the style.
 

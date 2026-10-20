@@ -19,7 +19,12 @@ Description:
 """
 
 from ...ports import SourceArtifactReader
-from .base import SourceOutcome, SourceRequest, collect_decision_documents
+from .base import (
+    SourceOutcome,
+    SourceRequest,
+    collect_decision_documents,
+    declared_source_reason,
+)
 
 
 class ExternalDecisionRecords:
@@ -38,7 +43,7 @@ class ExternalDecisionRecords:
                 source=self.name, ran=False, reason="no decision repository was named"
             )
 
-        records = collect_decision_documents(
+        records, in_adr_directory = collect_decision_documents(
             self._reader, request.adr_repository_id, request, self.name
         )
 
@@ -46,7 +51,9 @@ class ExternalDecisionRecords:
             source=self.name,
             ran=True,
             records=records,
-            reason=None if records else "no decision records in that repository",
+            reason=declared_source_reason(
+                records, in_adr_directory, "that repository"
+            ),
         )
 
 

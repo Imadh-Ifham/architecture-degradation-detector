@@ -35,13 +35,23 @@ from .repo_adr import RepositoryDecisionRecords
 MODES: dict[str, tuple[str, ...]] = {
     "repo_adr": ("repo_adr",),
     "external_adr": ("external_adr",),
-    "combined": ("external_adr", "config_scan"),
+    "combined": ("repo_adr", "external_adr", "config_scan"),
 }
 """Which sources each mode reads, in the order their records are collected.
 
-Declared records come first in `combined` so that, where a written decision
-and a reconstructed rule speak about the same relationship, the written one is
-the first the knowledge log holds for that key.
+**`combined` reads all three**, which is what makes it the superset the
+docstring above claims. It omitted `repo_adr` until 2026-10-20, and the defect
+was invisible for as long as the only subject repository kept no decision
+records: including or excluding a source that yields nothing changes nothing.
+The first repository that keeps records beside its code showed it immediately -
+forty-one documents that `combined` never opened, while the screen offered the
+mode as "both, plus rules recovered from configuration".
+
+Declared records come first so that, where a written decision and a
+reconstructed rule speak about the same relationship, the written one is the
+first the knowledge log holds for that key. Both declared sources therefore
+precede the scan, and the in-repository one precedes the external one: a team
+that keeps records in both places has the ones beside the code closer to it.
 """
 
 DEFAULT_MODE = "combined"
