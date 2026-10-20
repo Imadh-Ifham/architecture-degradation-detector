@@ -67,6 +67,7 @@ import type {
   SnapshotPhase,
   SnapshotRun,
 } from '../../workspace/pipeline'
+import DetectionCard from './DetectionCard'
 import PipelineFlow, { type PhaseState } from './PipelineFlow'
 import RecoveryStages from './RecoveryStages'
 import ReleaseActions from './ReleaseActions'
@@ -94,6 +95,11 @@ export default function PipelinePage() {
     validationError,
     focusRelease,
     releases,
+    degradation,
+    isDetecting,
+    isDetectionStale,
+    detectionError,
+    detectDegradation,
   } = useWorkspace()
 
   const described = useRequest((options) => describePipeline(options), [])
@@ -149,10 +155,24 @@ export default function PipelinePage() {
     () => ({
       recover: recoverState(pipelinePhase, pipelineSnapshots, configurations.length),
       validate: validateState(pipelinePhase, validated),
-      detect: 'reserved',
+      detect: detectState(
+        isDetecting,
+        detectionError,
+        Boolean(degradation) && !isDetectionStale,
+        validated,
+      ),
       prioritise: 'reserved',
     }),
-    [pipelinePhase, pipelineSnapshots, validated, configurations.length],
+    [
+      pipelinePhase,
+      pipelineSnapshots,
+      validated,
+      configurations.length,
+      isDetecting,
+      isDetectionStale,
+      detectionError,
+      degradation,
+    ],
   )
 
   // Releases with a source picked for them: what the continue button runs.
@@ -173,6 +193,12 @@ export default function PipelinePage() {
 
   const phase = PHASES.find((item) => item.id === selectedPhase)!
 
+  // Once something is validated, detecting is the next thing to do, so it
+  // takes the primary button and validating steps back. "Again" only for a run
+  // that already describes this stack.
+  const detectIsNext = validated && (!degradation || isDetectionStale)
+  const hasFreshDetection = validated && Boolean(degradation) && !isDetectionStale
+
   return (
     <>
       <PageHeading
@@ -183,6 +209,7 @@ export default function PipelinePage() {
           <div className="flex flex-wrap items-center gap-5">
             {validatingRelease && <Spinner label={`validating ${validatingRelease}`} />}
             {isPipelineRunning && <Spinner label="recovering" />}
+            {isDetecting && <Spinner label="detecting" />}
 
             {isRecovered && (
               <Button
@@ -196,7 +223,7 @@ export default function PipelinePage() {
             )}
 
             <Button
-              variant="primary"
+              variant={detectIsNext || hasFreshDetection ? undefined : 'primary'}
               disabled={
                 isPipelineRunning ||
                 Boolean(validatingRelease) ||
@@ -212,6 +239,20 @@ export default function PipelinePage() {
                 ? `Validate ${ready.length} release${ready.length === 1 ? '' : 's'}`
                 : 'Run recovery'}
             </Button>
+
+            {validated && (
+              <Button
+                variant={detectIsNext ? 'primary' : undefined}
+                disabled={isPipelineRunning || Boolean(validatingRelease) || isDetecting}
+                onClick={() => void detectDegradation()}
+              >
+                {isDetecting
+                  ? 'Detecting…'
+                  : hasFreshDetection
+                    ? 'Detect again'
+                    : 'Detect degradation'}
+              </Button>
+            )}
           </div>
         }
       />
@@ -302,10 +343,27 @@ export default function PipelinePage() {
               ? 'This phase runs in the backend. Its screen is reserved and not written yet — the pipeline draws it so that it is not forgotten.'
               : phase.id === 'recover'
                 ? 'Recovery runs for every configured snapshot, one at a time, when the pipeline starts.'
-                : 'Validation is started on the decisions screen, once somebody has chosen what these releases are judged against. The pipeline recovers the stack and stops there.'}
+                : phase.id === 'detect'
+                  ? 'Detection reads the graph validation published for every release, finds the anti-patterns in each, and tests across the releases whether they are getting worse. It is started from its own card below, once the releases somebody wants compared are validated.'
+                  : 'Validation is started on the decisions screen, once somebody has chosen what these releases are judged against. The pipeline recovers the stack and stops there.'}
           </p>
         </div>
       </Card>
+
+      {/* Shown from recovery on, not only after a validation in this session:
+          validations are stored, so a refresh must not hide the button. If
+          nothing is validated the backend says so in its own words. */}
+      {isRecovered && (
+        <DetectionCard
+          report={degradation}
+          isDetecting={isDetecting}
+          error={detectionError}
+          canDetect={releases.length > 0}
+          isStale={!validated || isDetectionStale}
+          onDetect={() => void detectDegradation()}
+          onFocus={focusRelease}
+        />
+      )}
 
       {validated && (
         <Card title="The rest of this result">
@@ -322,6 +380,11 @@ export default function PipelinePage() {
             />
             <Elsewhere to="/canvas" title="Canvas" body="The published graph, drawn." />
             <Elsewhere to="/architecture" title="Architecture" body="What recovery found." />
+            <Elsewhere
+              to="/drift"
+              title="Drift"
+              body="Every release in turn, its anti-patterns, and what is getting worse."
+            />
           </div>
         </Card>
       )}
@@ -869,6 +932,31 @@ function validateState(phase: PipelinePhase, validated: boolean): PhaseState {
   if (phase === 'recovered') return 'waiting'
   if (phase === 'recovering') return 'waiting'
   return 'blocked'
+}
+
+/**
+ * The detect node.
+ *
+ * **It follows the order, like every other node.** Detection reads what
+ * validation published, so it is `blocked` until something has been validated
+ * in this run - a stored detection from an earlier session describes an
+ * earlier stack, and drawing it green beside an unjudged one would say this
+ * stack had been checked when it had not.
+ *
+ * Then `waiting` until somebody detects, and `done` only for a run made after
+ * the last validation. Validating another release makes it `waiting` again:
+ * the stored run did not read that release.
+ */
+function detectState(
+  isDetecting: boolean,
+  error: string | null,
+  hasFreshRun: boolean,
+  validated: boolean,
+): PhaseState {
+  if (isDetecting) return 'running'
+  if (!validated) return 'blocked'
+  if (error) return 'failed'
+  return hasFreshRun ? 'done' : 'waiting'
 }
 
 function countedFacts(run: ValidationRun | undefined): number {
