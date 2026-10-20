@@ -74,36 +74,53 @@ def validate_branch(branch: str) -> str:
     with a clear message instead of an opaque git error.
     """
 
-    candidate = branch.strip()
+    return _validate_ref(branch, "Branch name")
+
+
+def validate_release_tag(tag: str) -> str:
+    """Return the trimmed release tag when it is a valid git ref.
+
+    A tag is a ref like a branch, so the same rules apply; only the wording of
+    a rejection changes, because "Branch name must not..." is not a sentence
+    anybody who typed a tag expects to read.
+    """
+
+    return _validate_ref(tag, "Release tag")
+
+
+def _validate_ref(value: str, label: str) -> str:
+    """Validate a git ref name, naming it the way the caller thinks of it."""
+
+    candidate = value.strip()
 
     if not candidate:
-        raise InvalidRepositorySource("Branch name must not be empty.")
+        raise InvalidRepositorySource(f"{label} must not be empty.")
 
     # A leading '-' would be parsed by git as an option (for example
     # "--upload-pack=..."), so reject it outright.
     if candidate.startswith("-"):
-        raise InvalidRepositorySource("Branch name must not start with '-'.")
+        raise InvalidRepositorySource(f"{label} must not start with '-'.")
 
     if candidate == "@":
-        raise InvalidRepositorySource("Branch name must not be '@'.")
+        raise InvalidRepositorySource(f"{label} must not be '@'.")
 
     if candidate.startswith("/") or candidate.endswith("/"):
-        raise InvalidRepositorySource("Branch name must not start or end with '/'.")
+        raise InvalidRepositorySource(f"{label} must not start or end with '/'.")
 
     if candidate.endswith("."):
-        raise InvalidRepositorySource("Branch name must not end with '.'.")
+        raise InvalidRepositorySource(f"{label} must not end with '.'.")
 
     if candidate.endswith(".lock"):
-        raise InvalidRepositorySource("Branch name must not end with '.lock'.")
+        raise InvalidRepositorySource(f"{label} must not end with '.lock'.")
 
     if _FORBIDDEN_BRANCH_CHARACTERS.search(candidate):
         raise InvalidRepositorySource(
-            "Branch name must not contain whitespace or any of: ~ ^ : ? * [ \\"
+            f"{label} must not contain whitespace or any of: ~ ^ : ? * [ \\"
         )
 
     if any(sequence in candidate for sequence in _FORBIDDEN_BRANCH_SEQUENCES):
         raise InvalidRepositorySource(
-            "Branch name must not contain '..', '@{' or '//'."
+            f"{label} must not contain '..', '@{{' or '//'."
         )
 
     return candidate

@@ -30,30 +30,32 @@ import {
   StatRow,
   Tabs,
 } from '../../components/ui'
-import { listSnapshots, readSnapshot } from '../../lib/api'
+import { readSnapshot } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
+import ReleasePicker from '../../components/ReleasePicker'
 import GraphCanvas, { GraphKey } from '../../components/graph/GraphCanvas'
 import { recoveredGraph } from '../canvas/graphs'
 
 type View = 'diagram' | 'elements' | 'dependencies'
 
 export default function ArchitecturePage() {
-  const { repository, repositoryKey: key, release } = useWorkspace()
+  const { repository, repositoryKey: key } = useWorkspace()
+  const {
+    snapshots,
+    releases,
+    release,
+    selectRelease,
+    error: releasesError,
+    reload: reloadReleases,
+  } = useReleases()
 
   const [view, setView] = useState<View>('diagram')
   const [selected, setSelected] = useState<string | null>(null)
 
-  const history = useRequest(
-    (options) => listSnapshots(key, options),
-    [key],
-    Boolean(key),
-  )
-
-  // The release is the workspace's, so every screen is looking at the same
-  // one; this only has to turn it into the id the store reads by.
   const chosen =
-    history.data?.find((item) => item.release_id === release)?.snapshot_id ?? null
+    snapshots.find((item) => item.release_id === release)?.snapshot_id ?? null
 
   const snapshot = useRequest(
     (options) => readSnapshot(key, chosen ?? '', options),
@@ -67,17 +69,19 @@ export default function ArchitecturePage() {
     [snapshot.data],
   )
 
-  if (!repository) {
+  if (!repository || releases.length === 0) {
     return (
       <>
         <PageHeading eyebrow="recovered" title="Architecture" />
         <Card>
           <EmptyState
-            title="No system selected"
-            body="Add a repository and its architecture is recovered as part of adding it."
+            title={repository ? 'Nothing analysed yet' : 'No system selected'}
+            body="Recovery stores one architecture per release. Run the pipeline for a release and this screen reads what it stored."
             action={
-              <Link to="/repositories">
-                <Button>Add a repository</Button>
+              <Link to={repository ? '/' : '/repositories'}>
+                <Button variant="primary">
+                  {repository ? 'Run the pipeline' : 'Add a repository'}
+                </Button>
               </Link>
             }
           />
@@ -92,24 +96,14 @@ export default function ArchitecturePage() {
         eyebrow="recovered"
         title="Architecture"
         description="The system as the analysis found it — every element, and every dependency it could trace to evidence."
-        action={release ? <Pill>{release}</Pill> : undefined}
+        action={
+          <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
+        }
       />
 
-      {history.error && <ErrorState message={history.error} onRetry={history.reload} />}
+      {releasesError && <ErrorState message={releasesError} onRetry={reloadReleases} />}
 
-      {history.data?.length === 0 && (
-        <Card>
-          <EmptyState
-            title="Nothing analysed yet"
-            body="Adding a release runs the recovery analysis and stores what it found. This screen reads that."
-            action={
-              <Link to="/repositories">
-                <Button>Add a release</Button>
-              </Link>
-            }
-          />
-        </Card>
-      )}
+      {snapshot.isLoading && <Spinner label="reading the stored architecture" />}
 
       {snapshot.data && (
         <>
@@ -156,8 +150,6 @@ export default function ArchitecturePage() {
               </span>
             }
           >
-            {snapshot.isLoading && <Spinner label="reading the stored architecture" />}
-
             {!snapshot.isLoading && view === 'diagram' && (
               <GraphCanvas
                 {...recoveredGraph(snapshot.data)}

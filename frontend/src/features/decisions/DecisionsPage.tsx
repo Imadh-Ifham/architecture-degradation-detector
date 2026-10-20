@@ -2,9 +2,14 @@
  * Decisions screen.
  *
  * Description:
- *   The one choice the analysis cannot make for a person: what this release
- *   is judged against. Three sources, each showing what it would supply
- *   **before** it is chosen, and the choice starts the run.
+ *   The one choice the analysis cannot make for a person: what a release is
+ *   judged against. Three sources, each showing what it would supply
+ *   **before** it is chosen, and choosing one runs that release's validation.
+ *
+ *   **The release is chosen here, for this screen only.** The header selects a
+ *   repository; how many releases it has, and which one this screen is about,
+ *   is this screen's business. Validating v0.9.0 here does not change what any
+ *   other screen is showing.
  *
  *   **The empty source is the interesting one.** Most repositories keep no
  *   written decision records at all, and a screen that greys that row out
@@ -12,11 +17,11 @@
  *   nothing would report "nothing contradicts the architecture" — which is
  *   indistinguishable from a clean result on a healthy system.
  *
- *   **Every number is what the backend would actually find**, asked for
- *   before anything is run and without writing anything.
+ *   **Every number is what the backend would actually find**, asked for before
+ *   anything is run and without writing anything.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
   Button,
@@ -29,13 +34,16 @@ import {
   Spinner,
   inputClass,
 } from '../../components/ui'
+import ReleasePicker from '../../components/ReleasePicker'
 import {
-  listRepositories,
+  messageOf,
   readDecisionSources,
+  runValidation,
   type DecisionMode,
   type ModeAvailability,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import ProseExtraction from './ProseExtraction'
 import RuleList from './RuleList'
@@ -76,52 +84,40 @@ function documentsFoundButUnused(modes: ModeAvailability[]): number {
 
 export default function DecisionsPage() {
   const navigate = useNavigate()
-  const {
-    repository,
-    release,
-    isRecovered,
-    hasCheckout,
-    decisionMode,
-    chooseDecisionMode,
-    startRun,
-    isRunning,
-    runError,
-  } = useWorkspace()
+  const { repository, repositoryKey, repositoryOptions, repositories, rememberRun } =
+    useWorkspace()
+  const { releases, release, snapshot, selectRelease } = useReleases()
 
   const [adrRepository, setAdrRepository] = useState('')
+  const [mode, setMode] = useState<DecisionMode | null>(null)
+  const [isRunning, setIsRunning] = useState(false)
+  const [runError, setRunError] = useState<string | null>(null)
 
   const sources = useRequest(
-    (options) => readDecisionSources(repository?.id ?? '', release ?? '', options),
-    [repository?.id, release],
+    (options) => readDecisionSources(repositoryKey, release ?? '', options),
+    [repositoryKey, release],
     Boolean(repository && release),
   )
 
-  // Chosen from what has been ingested rather than typed. The id is assigned by
-  // ingestion and carries a hash, so it is a thing to look up and copy - and the
-  // instrument bar shows `release · revision` right above, which is what gets
-  // pasted instead. An id that has to be transcribed is a field that reports
-  // "ingest it first" about a repository that is sitting in the list.
-  const ingested = useRequest((options) => listRepositories(options), [])
-
-  // The backend already knows which source has the most to offer. Starting on
-  // its answer means the common case is one button rather than a decision.
+  // The backend already knows which source has the most to offer, so the
+  // recommendation is the default choice until somebody picks another. Derived
+  // rather than copied into state, so a later probe cannot leave a stale
+  // selection behind.
   const recommended = sources.data?.recommended ?? null
-  useEffect(() => {
-    if (recommended && !decisionMode) chooseDecisionMode(recommended)
-  }, [recommended, decisionMode, chooseDecisionMode])
+  const chosen = mode ?? recommended
 
-  if (!repository || !isRecovered) {
+  if (!repository || releases.length === 0) {
     return (
       <>
         <PageHeading eyebrow="intent" title="Decisions" />
         <Card>
           <EmptyState
-            title={repository ? 'No architecture for this release yet' : 'No system selected'}
-            body="Decisions are read for one release of one repository, so there has to be a recovered release first."
+            title={repository ? 'No recovered release yet' : 'No system selected'}
+            body="Decision sources are read for one release of one repository, so a release has to have been recovered first."
             action={
-              <Link to="/repositories">
+              <Link to={repository ? '/' : '/repositories'}>
                 <Button variant="primary">
-                  {repository ? 'Add a release' : 'Add a repository'}
+                  {repository ? 'Run the pipeline' : 'Add a repository'}
                 </Button>
               </Link>
             }
@@ -131,18 +127,21 @@ export default function DecisionsPage() {
     )
   }
 
-  const chosen = decisionMode ?? recommended
-
   // Both modes that read a second repository offer the picker. `combined` reads
   // one too, and offering the choice only on `external_adr` meant the mode
   // almost everybody picks could never be given one.
   const readsANamedRepository = chosen === 'external_adr' || chosen === 'combined'
 
-  // Everything ingested except the system under analysis. Naming that here
-  // would read the records beside its code a second time, through a source
-  // whose whole point is that they live somewhere else.
-  const candidates = (ingested.data ?? []).filter(
-    (candidate) => candidate.id !== repository.id,
+  // Every repository except the system under analysis. Taken from the workspace
+  // options rather than the clone list: those are one entry per *repository*,
+  // so a project cloned at three releases is offered once instead of three
+  // times, and the key they carry is the identity the reader resolves.
+  //
+  // The system under analysis is excluded because the source that reads records
+  // beside the code already covers it, and naming it here would read the same
+  // documents twice through a source whose premise is that they live elsewhere.
+  const candidates = repositoryOptions.filter(
+    (option) => option.key !== repositoryKey,
   )
 
   // Only the mode that reads *nothing else* is blocked without one. `combined`
@@ -154,11 +153,35 @@ export default function DecisionsPage() {
   // two places deriving the same number is two numbers.
   const proseDocuments = documentsFoundButUnused(sources.data?.modes ?? [])
 
-  const run = async () => {
-    if (!chosen) return
+  // The configuration a release is judged against is read from a working tree
+  // at that release's commit; a clone at another commit is a different file.
+  const hasCheckout = Boolean(
+    snapshot && repositories.some((clone) => clone.commit === snapshot.commit_sha),
+  )
 
-    const started = await startRun(chosen, adrRepository.trim())
-    if (started) navigate('/')
+  const run = async () => {
+    if (!chosen || !release) return
+
+    setIsRunning(true)
+    setRunError(null)
+
+    try {
+      rememberRun(
+        await runValidation({
+          repository_id: repositoryKey,
+          release_id: release,
+          decision_mode: chosen,
+          adr_repository_id: adrRepository.trim() || null,
+        }),
+      )
+      navigate('/validation')
+    } catch (cause) {
+      // The backend names the input that is missing and the release it is
+      // missing for. A message written here would throw that away.
+      setRunError(messageOf(cause))
+    } finally {
+      setIsRunning(false)
+    }
   }
 
   return (
@@ -168,13 +191,23 @@ export default function DecisionsPage() {
         title="Decisions"
         description={`What ${release} is judged against. Every source says what it would supply before it is chosen, so an empty one is visible rather than discovered.`}
         action={
-          sources.data?.recommended ? (
-            <Pill tone="ok">recommended: {MODE[sources.data.recommended].title.split(',')[0]}</Pill>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-5">
+            <ReleasePicker
+              releases={releases}
+              value={release}
+              onChange={selectRelease}
+              disabled={isRunning}
+            />
+            {sources.data?.recommended ? (
+              <Pill tone="ok">
+                recommended: {MODE[sources.data.recommended].title.split(',')[0]}
+              </Pill>
+            ) : undefined}
+          </div>
         }
       />
 
-      {!hasCheckout && release && (
+      {!hasCheckout && (
         <Card>
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3">
@@ -183,12 +216,12 @@ export default function DecisionsPage() {
             <p className="max-w-prose text-sm leading-relaxed text-ink-2">
               {release} was analysed from a revision that is not checked out
               here, so its configuration cannot be read. The run will still
-              finish, and it will report every dependency as ungoverned —
-              which looks exactly like a repository that records no decisions.
+              finish, and it will report every dependency as ungoverned — which
+              looks exactly like a repository that records no decisions.
             </p>
             <div>
-              <Link to="/repositories">
-                <Button>Add {release} as a release</Button>
+              <Link to="/">
+                <Button>Open the pipeline</Button>
               </Link>
             </div>
           </div>
@@ -201,13 +234,13 @@ export default function DecisionsPage() {
       {sources.data && (
         <>
           <div className="grid gap-7 lg:grid-cols-3">
-            {sources.data.modes.map((mode) => (
+            {sources.data.modes.map((available) => (
               <Source
-                key={mode.mode}
-                mode={mode}
-                isChosen={mode.mode === chosen}
-                isRecommended={mode.mode === sources.data?.recommended}
-                onChoose={() => chooseDecisionMode(mode.mode)}
+                key={available.mode}
+                mode={available}
+                isChosen={available.mode === chosen}
+                isRecommended={available.mode === sources.data?.recommended}
+                onChoose={() => setMode(available.mode)}
               />
             ))}
           </div>
@@ -229,9 +262,12 @@ export default function DecisionsPage() {
                       className={inputClass}
                     >
                       <option value="">none — do not read a second repository</option>
-                      {candidates.map((candidate) => (
-                        <option key={candidate.id} value={candidate.id}>
-                          {candidate.id}
+                      {candidates.map((option) => (
+                        // Labelled by url, valued by key. The key is what the
+                        // reader resolves; the url is what a person recognises,
+                        // and an opaque name-and-hash is neither.
+                        <option key={option.key} value={option.key}>
+                          {option.url}
                         </option>
                       ))}
                     </select>
@@ -260,7 +296,7 @@ export default function DecisionsPage() {
 
           {chosen && release && (
             <RuleList
-              repositoryId={repository.id}
+              repositoryId={repositoryKey}
               release={release}
               mode={chosen}
             />
@@ -278,7 +314,8 @@ export default function DecisionsPage() {
                   {chosen ? MODE[chosen].title.toLowerCase() : 'nothing selected'}
                 </span>
                 <span className="text-xs text-ink-4">
-                  The run takes a few seconds, then the pipeline replays what each stage did.
+                  The run takes a few seconds, then the validation screen shows what
+                  each stage did.
                 </span>
               </div>
 

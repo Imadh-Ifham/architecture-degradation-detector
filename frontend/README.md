@@ -69,8 +69,8 @@ src/
 │   ├── ConnectionBadge   # backend reachability, in the instrument bar
 │   └── ReservedPage      # the placeholder a screen stands behind until it is built
 ├── features/             # one folder per screen; nothing outside imports into one
-│   ├── pipeline/         # the home screen: the flow, and the stages inside a phase
-│   ├── repositories/     # adding a system, and what the analysis found
+│   ├── pipeline/         # the snapshot stack, the run, and what recovery found
+│   ├── repositories/     # configuring snapshots; nothing is cloned here
 │   ├── architecture/     # the diagram, the elements, the dependencies
 │   ├── decisions/        # what the architecture is judged against
 │   └── reserved/         # the screens nobody has built yet

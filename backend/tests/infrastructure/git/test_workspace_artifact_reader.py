@@ -22,6 +22,7 @@ from app.infrastructure.git.workspace_artifact_reader import (
 )
 
 CHECKOUT = "source"
+REPOSITORY_KEY = "microservices-demo-58a841308994"
 
 
 @pytest.fixture
@@ -115,3 +116,107 @@ class TestWhenTheWorkspaceCannotServe:
 
         with pytest.raises(ArtifactUnavailableError, match="not UTF-8"):
             reader(workspace).read_text("online-boutique", "v0.10.0", "logo.png")
+
+
+def release_workspace(root: Path, releases: tuple[str, ...]) -> Path:
+    """A workspace the way release-aware ingestion lays one out.
+
+    Each release is its own directory - keyed by revision - and both share one
+    `repository_id`, which is the identity the graph and validation use. The
+    directory name is *not* that identity, which is the whole point of these
+    tests.
+    """
+
+    for index, release in enumerate(releases):
+        clone = root / f"microservices-demo-{release}"
+        checkout = clone / CHECKOUT
+        checkout.mkdir(parents=True)
+        (checkout / "config.yaml").write_text(f"release: {release}\n", encoding="utf-8")
+        (clone / "metadata.json").write_text(
+            "{"
+            f'"id": "microservices-demo-{release}", '
+            '"url": "https://github.com/GoogleCloudPlatform/microservices-demo.git", '
+            '"branch": "main", '
+            f'"commit": "{"abc"[index] * 40}", '
+            '"ingested_at": "2026-10-20T09:00:00+00:00", '
+            f'"repository_id": "{REPOSITORY_KEY}", '
+            f'"release_tag": "{release}", '
+            f'"revision": "{release}"'
+            "}",
+            encoding="utf-8",
+        )
+
+    return root
+
+
+class TestSeveralReleasesOfOneRepository:
+    """Recovery keys a checkout by revision, so an id is not a directory."""
+
+    def test_a_release_is_read_by_the_repository_key(self, tmp_path):
+        """The pipeline validates by the repository's identity, not the clone's.
+
+        Looking that identity up by concatenation found nothing, and validation
+        failed with "No workspace checkout" after recovery had succeeded.
+        """
+
+        release_workspace(tmp_path, ("v0.9.0",))
+
+        assert (
+            reader(tmp_path).read_text(REPOSITORY_KEY, "v0.9.0", "config.yaml")
+            == "release: v0.9.0\n"
+        )
+
+    def test_each_release_reads_its_own_tree(self, tmp_path):
+        """Two releases of one repository are two checkouts, not one."""
+
+        release_workspace(tmp_path, ("v0.9.0", "v0.10.6"))
+
+        assert (
+            reader(tmp_path).read_text(REPOSITORY_KEY, "v0.9.0", "config.yaml")
+            == "release: v0.9.0\n"
+        )
+        assert (
+            reader(tmp_path).read_text(REPOSITORY_KEY, "v0.10.6", "config.yaml")
+            == "release: v0.10.6\n"
+        )
+
+    def test_the_clone_id_still_works(self, tmp_path):
+        """Both identifiers resolve, because a caller holds whichever one it was given."""
+
+        release_workspace(tmp_path, ("v0.9.0",))
+
+        assert (
+            reader(tmp_path).read_text(
+                "microservices-demo-v0.9.0", "v0.9.0", "config.yaml"
+            )
+            == "release: v0.9.0\n"
+        )
+
+    def test_an_unnamed_release_is_refused_rather_than_guessed(self, tmp_path):
+        """Two checkouts and no match is ambiguous, and guessing reads the
+        wrong release's files while reporting it as this one's."""
+
+        release_workspace(tmp_path, ("v0.9.0", "v0.10.6"))
+
+        with pytest.raises(ArtifactUnavailableError, match="Ingest it first"):
+            reader(tmp_path).read_text(REPOSITORY_KEY, "v9.9.9", "config.yaml")
+
+    def test_a_lone_checkout_answers_for_a_release_the_workspace_does_not_name(
+        self, tmp_path
+    ):
+        """A commit id rather than the tag it was ingested under is still that
+        repository's only tree, so there is nothing to confuse it with."""
+
+        release_workspace(tmp_path, ("v0.9.0",))
+
+        assert (
+            reader(tmp_path).read_text(REPOSITORY_KEY, "commit:abc123", "config.yaml")
+            == "release: v0.9.0\n"
+        )
+
+    def test_paths_are_listed_from_the_release_it_was_asked_for(self, tmp_path):
+        release_workspace(tmp_path, ("v0.9.0", "v0.10.6"))
+
+        assert reader(tmp_path).list_paths(REPOSITORY_KEY, "v0.10.6", "*.yaml") == [
+            "config.yaml"
+        ]
