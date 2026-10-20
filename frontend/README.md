@@ -71,6 +71,7 @@ src/
 ├── features/             # one folder per screen; nothing outside imports into one
 │   ├── pipeline/         # the snapshot stack, the run, and what recovery found
 │   ├── repositories/     # configuring snapshots; nothing is cloned here
+│   ├── recovery/         # how the architecture was recovered, stage by stage
 │   ├── architecture/     # the diagram, the elements, the dependencies
 │   ├── decisions/        # what the architecture is judged against
 │   └── reserved/         # the screens nobody has built yet
