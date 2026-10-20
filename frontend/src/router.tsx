@@ -17,6 +17,7 @@ import ArchitecturePage from './features/architecture/ArchitecturePage'
 import CanvasPage from './features/canvas/CanvasPage'
 import FindingsPage from './features/findings/FindingsPage'
 import ValidationPage from './features/validation/ValidationPage'
+import RecoveryPage from './features/recovery/RecoveryPage'
 import DecisionsPage from './features/decisions/DecisionsPage'
 import PipelinePage from './features/pipeline/PipelinePage'
 import RepositoriesPage from './features/repositories/RepositoriesPage'
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <PipelinePage /> },
       { path: 'repositories', element: <RepositoriesPage /> },
+      { path: 'recovery', element: <RecoveryPage /> },
       { path: 'architecture', element: <ArchitecturePage /> },
       { path: 'decisions', element: <DecisionsPage /> },
       { path: 'validation', element: <ValidationPage /> },

@@ -367,3 +367,117 @@ export function readSnapshotDetails(
     options,
   )
 }
+
+/* How one release was recovered ------------------------------------------- */
+
+export interface RecoveryStageRecord {
+  name: string
+  order: number
+  status: 'completed' | 'skipped' | 'failed'
+  duration_ms: number
+  counts: Record<string, number>
+  note: string | null
+  warnings: string[]
+  artifact: string | null
+  artifact_present: boolean
+}
+
+export interface RecoveryRun {
+  schema_version: string
+  repository_id: string | null
+  workspace_id: string | null
+  release_id: string | null
+  repository_url: string | null
+  branch: string | null
+  commit_sha: string | null
+  started_at: string
+  finished_at: string
+  duration_ms: number
+  status: 'completed' | 'incomplete' | 'failed'
+  stages: RecoveryStageRecord[]
+  stage_count: number
+}
+
+export interface RecoveredArchitectureSummary {
+  element_count: number
+  relationship_count: number
+  confirmed_by_source: number
+  by_component_type: Record<string, number>
+  by_language: Record<string, number>
+  by_relationship_type: Record<string, number>
+  resolved_dependencies: number
+  unresolved_dependencies: number
+  ambiguous_dependencies: number
+  by_finding_type: Record<string, number>
+  source_file_count: number
+  unresolved_references: SnapshotUnresolved[]
+  diagnostics: string[]
+  missing_inputs: string[]
+  notes: string[]
+}
+
+/**
+ * The numbers at the top of the recovery page.
+ *
+ * `null` where the run record is missing: zero completed stages and an
+ * unknown number of them are different facts, and only one of them means the
+ * pipeline ran six stages and completed none.
+ */
+export interface RecoverySummary {
+  stage_count: number | null
+  completed: number | null
+  skipped: number | null
+  failed: number | null
+  duration_ms: number | null
+  element_count: number
+  relationship_count: number
+  artifact_count: number
+  warning_count: number | null
+  unresolved_count: number
+}
+
+export interface RecoveryStageDescription {
+  name: string
+  order: number
+  role: string
+  reads: string
+  artifact: string | null
+  artifact_role: string | null
+}
+
+export interface RecoveryReport {
+  repository_id: string
+  release_id: string
+  snapshot_id: string
+  commit_sha: string
+  branch: string | null
+  repository_url: string | null
+  released_at: string | null
+  snapshot_status: string
+  /** Whether this release has a run record at all. */
+  recorded: boolean
+  run: RecoveryRun | null
+  /** The pipeline in run order, described by the backend. */
+  pipeline: RecoveryStageDescription[]
+  artifacts: ArtifactAvailability[]
+  architecture: RecoveredArchitectureSummary
+  summary: RecoverySummary
+}
+
+/**
+ * How one release's architecture was recovered.
+ *
+ * `recorded: false` means no run record exists for that release - it was
+ * analysed before records were kept, or its clone has been removed. The page
+ * reports that rather than presenting an empty stage list as a clean run.
+ */
+export function readRecoveryReport(
+  repositoryId: string,
+  snapshotId: string,
+  options?: RequestOptions,
+) {
+  return get<RecoveryReport>(
+    `/repositories/${encodeURIComponent(repositoryId)}/snapshots/${encodeURIComponent(snapshotId)}/recovery`,
+    options,
+  )
+}

@@ -53,6 +53,13 @@ export const PAGES: readonly PageDefinition[] = [
     state: 'ready',
   },
   {
+    path: '/recovery',
+    label: 'Recovery',
+    group: 'results',
+    summary: 'How the architecture was recovered, stage by stage',
+    state: 'ready',
+  },
+  {
     path: '/architecture',
     label: 'Architecture',
     group: 'results',
