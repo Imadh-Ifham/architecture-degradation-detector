@@ -96,7 +96,12 @@ export default function ValidationPage() {
         action={
           <div className="flex flex-wrap items-center gap-5">
             <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
-            <Link to="/decisions">
+            <Link to="/">
+              <Button size="sm" variant="quiet">
+                Back to the pipeline
+              </Button>
+            </Link>
+            <Link to="/">
               <Button variant="primary">{run ? 'Run again' : 'Start validation'}</Button>
             </Link>
           </div>

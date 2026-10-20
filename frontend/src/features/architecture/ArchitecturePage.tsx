@@ -97,7 +97,14 @@ export default function ArchitecturePage() {
         title="Architecture"
         description="The system as the analysis found it — every element, and every dependency it could trace to evidence."
         action={
-          <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
+          <div className="flex flex-wrap items-center gap-5">
+            <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
+            <Link to="/">
+              <Button size="sm" variant="quiet">
+                Back to the pipeline
+              </Button>
+            </Link>
+          </div>
         }
       />
 

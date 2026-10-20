@@ -27,7 +27,9 @@ import {
   listConfigurations,
   listRepositories,
   listSnapshots,
+  messageOf,
   removeConfiguration as deleteConfiguration,
+  runValidation,
   saveConfiguration,
   type RepositoryConfigurationInput,
   type SnapshotSummary,
@@ -37,6 +39,7 @@ import { useRequest } from '../lib/useRequest'
 import {
   WorkspaceContext,
   runKey,
+  type DecisionChoice,
   type RepositoryOption,
   type Workspace,
 } from './context'
@@ -50,6 +53,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [isPipelineRunning, setIsPipelineRunning] = useState(false)
   const [runs, setRuns] = useState<Record<string, ValidationRun>>({})
   const [focusedRelease, setFocusedRelease] = useState<string | null>(null)
+  const [decisionChoices, setDecisionChoices] = useState<
+    Record<string, DecisionChoice>
+  >({})
+  const [validatingRelease, setValidatingRelease] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   const repositoriesRequest = useRequest((options) => listRepositories(options), [])
   const configurationsRequest = useRequest(
@@ -119,6 +127,123 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }))
     setFocusedRelease(run.release_id)
   }, [])
+
+  const focusRelease = useCallback((releaseId: string) => {
+    setFocusedRelease(releaseId)
+  }, [])
+
+  const chooseDecision = useCallback((releaseId: string, choice: DecisionChoice) => {
+    setDecisionChoices((current) => ({ ...current, [releaseId]: choice }))
+  }, [])
+
+  const chooseDecisionForAll = useCallback(
+    (choice: DecisionChoice) => {
+      // Over the releases recovery actually stored, not the configured list.
+      // A release recovered in an earlier session is decidable and has no
+      // configuration row this session, and applying to "all" while silently
+      // skipping it is how one release ends up validated against a source
+      // nobody picked for it.
+      setDecisionChoices(
+        Object.fromEntries(releases.map((release) => [release, choice])),
+      )
+    },
+    [releases],
+  )
+
+  /**
+   * Validate one release against the choice made for it.
+   *
+   * One release at a time, started by hand. A stack of fifty releases is
+   * minutes of model calls, and a loop over all of them is a progress bar
+   * somebody watches instead of a result they read - so the pipeline offers a
+   * button per row and this validates the row.
+   *
+   * It refuses rather than defaulting when no choice has been made: a mode
+   * picked by a constant is not a decision anybody made, and the release
+   * would be reported as judged.
+   */
+  const validateRelease = useCallback(
+    async (releaseId: string) => {
+      if (validatingRelease) return false
+
+      const choice = decisionChoices[releaseId]
+
+      if (!choice) {
+        setValidationError(
+          `Nothing has been chosen for ${releaseId}. Pick what it is judged against on the decisions screen first.`,
+        )
+        return false
+      }
+
+      setValidatingRelease(releaseId)
+      setValidationError(null)
+
+      try {
+        rememberRun(
+          await runValidation({
+            repository_id: repositoryKey,
+            release_id: releaseId,
+            decision_mode: choice.mode,
+            adr_repository_id: choice.adrRepositoryId,
+          }),
+        )
+        return true
+      } catch (cause) {
+        // The backend names the release and the input that is missing. A
+        // message written here would throw that away.
+        setValidationError(messageOf(cause))
+        return false
+      } finally {
+        setValidatingRelease(null)
+      }
+    },
+    [decisionChoices, rememberRun, repositoryKey, validatingRelease],
+  )
+
+  /**
+   * Validate every release that has a source chosen, one after another.
+   *
+   * **Sequential, and it clones nothing.** Recovery already happened; this is
+   * the second half of the work and the expensive half is the model calls, so
+   * running them in parallel would hit the provider's per-minute limit and
+   * return rate-limit refusals that look like model failures. One at a time
+   * also means the pipeline can say which release it is on.
+   *
+   * A release with no choice is **skipped rather than defaulted**. Validating
+   * it against a mode picked by a constant would report it as judged against
+   * a source nobody chose, and the row says what it is waiting for instead.
+   */
+  const validateAllReleases = useCallback(async () => {
+    if (validatingRelease) return
+
+    setValidationError(null)
+
+    for (const release of releases) {
+      const choice = decisionChoices[release]
+      if (!choice) continue
+
+      setValidatingRelease(release)
+
+      try {
+        rememberRun(
+          await runValidation({
+            repository_id: repositoryKey,
+            release_id: release,
+            decision_mode: choice.mode,
+            adr_repository_id: choice.adrRepositoryId,
+          }),
+        )
+      } catch (cause) {
+        // Named with the release it belongs to, and the loop stops: the rest
+        // of the stack would fail the same way, and a wall of identical
+        // messages buries the one that says why.
+        setValidationError(`${release}: ${messageOf(cause)}`)
+        break
+      }
+    }
+
+    setValidatingRelease(null)
+  }, [decisionChoices, releases, rememberRun, repositoryKey, validatingRelease])
 
   /**
    * Recover every configured snapshot.
@@ -219,6 +344,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       runs,
       rememberRun,
       focusedRelease,
+      focusRelease,
+      decisionChoices,
+      chooseDecision,
+      chooseDecisionForAll,
+      validatingRelease,
+      validateRelease,
+      validateAllReleases,
+      validationError,
       selectRepository: setSelectedKey,
       reload,
     }),
@@ -246,6 +379,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       runs,
       rememberRun,
       focusedRelease,
+      focusRelease,
+      decisionChoices,
+      chooseDecision,
+      chooseDecisionForAll,
+      validatingRelease,
+      validateRelease,
+      validateAllReleases,
+      validationError,
       reload,
     ],
   )

@@ -234,7 +234,7 @@ REQUIRED_FIELDS = ("id", "subject", "constraint", "object", "valid_from")
 
 def collect_decision_documents(
     reader, repository_id: str, request: SourceRequest, source: str
-) -> tuple[tuple[DecisionRecord, ...], int]:
+) -> tuple[tuple[DecisionRecord, ...], int, int]:
     """Read the decision records written in one repository.
 
     Shared by both declared sources, because the only thing that differs
@@ -247,9 +247,12 @@ def collect_decision_documents(
     field there is an error rather than a reason to skip: a record whose
     validity interval had to be guessed is worse than no record at all.
 
-    Returns the records and **how many documents sat in a directory the team
-    dedicates to decisions.** Those two numbers answer different questions, and
-    a caller that only had the first would report "this repository keeps no
+    Returns the records, **how many documents sat in a directory the team
+    dedicates to decisions**, and how much markdown the release holds at all.
+    Three numbers because there are three different findings - no
+    documentation, documentation that is not decisions, and decisions this
+    reader cannot use - and a caller with only the first would report "this
+    repository keeps no
     decision records" about a repository keeping forty-one of them in prose.
     `0 of 0` is a finding about the team; `0 of 41` is a finding about the
     format, and conflating them misstates the result the whole design rests on.
@@ -315,29 +318,60 @@ def collect_decision_documents(
                 )
             )
 
-    return tuple(records), in_adr_directory
+    # Counted rather than read. A release full of prose and no decision
+    # directory is a different finding from a release with no documentation at
+    # all, and "no decision records" reports them identically - which reads, to
+    # somebody looking at a repository they know has documentation, as the
+    # reader having missed it.
+    markdown_seen = len(
+        {
+            path.casefold()
+            for path in reader.list_paths(repository_id, request.release_id, "**/*.md")
+        }
+    )
+
+    return tuple(records), in_adr_directory, markdown_seen
 
 
 def declared_source_reason(
-    records: tuple[DecisionRecord, ...], in_adr_directory: int, where: str
+    records: tuple[DecisionRecord, ...],
+    in_adr_directory: int,
+    markdown_seen: int,
+    where: str,
 ) -> str | None:
-    """Why a declared source produced nothing, told apart from having nothing to find.
+    """Why a declared source produced nothing, told apart from the other zeroes.
 
-    `0 of 0` is a finding about the team: they keep no decision records. `0 of
-    41` is a finding about the *format* - they keep forty-one, in prose, and
-    this reader turns none of them into a constraint. The second is the
-    stronger result and the harder one to report, because the obvious
-    implementation reports both as a zero and the research claim rests on the
-    difference.
+    **Three different findings share one count, and the research claim rests on
+    telling them apart.**
+
+      * `0 of 0 markdown` - the release carries no documentation at all.
+      * `0 of 43 markdown, none in a decision directory` - the team documents,
+        and does not record decisions. This is the common case and it is the
+        one that reads as a bug to somebody who knows the repository has docs.
+      * `0 of 138 decision documents` - the team records decisions, in prose,
+        and this reader turns none of them into a constraint. A finding about
+        the format rather than about the team.
+
+    The obvious implementation reports all three as "no decision records",
+    which is true of each and useful about none.
     """
 
     if records:
         return None
+
     if in_adr_directory:
         return (
             f"{in_adr_directory} decision document(s) found in {where}; none "
             "declares a machine-readable constraint"
         )
+
+    if markdown_seen:
+        return (
+            f"no decision records in {where}: {markdown_seen} markdown "
+            "document(s) in this release, none of them in a directory kept "
+            "for decisions"
+        )
+
     return f"no decision records in {where}"
 
 

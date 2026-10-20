@@ -60,7 +60,7 @@ import {
   type ValidationRun,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
-import { runKey } from '../../workspace/context'
+import { runKey, type DecisionChoice } from '../../workspace/context'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import type {
   PipelinePhase,
@@ -69,6 +69,7 @@ import type {
 } from '../../workspace/pipeline'
 import PipelineFlow, { type PhaseState } from './PipelineFlow'
 import RecoveryStages from './RecoveryStages'
+import ReleaseActions from './ReleaseActions'
 import StageTrack from './StageTrack'
 import { toStageViews } from './stageViews'
 
@@ -86,6 +87,13 @@ export default function PipelinePage() {
     pipelineError,
     startPipeline,
     runs,
+    decisionChoices,
+    validatingRelease,
+    validateRelease,
+    validateAllReleases,
+    validationError,
+    focusRelease,
+    releases,
   } = useWorkspace()
 
   const described = useRequest((options) => describePipeline(options), [])
@@ -130,14 +138,20 @@ export default function PipelinePage() {
     [pipelinePhase, pipelineSnapshots, validated, configurations.length],
   )
 
-  const run = async () => {
+  // Releases with a source picked for them: what the continue button runs.
+  const ready = releases.filter((release) => decisionChoices[release])
+  const isRecovered = pipelinePhase === 'recovered' || releases.length > 0
+
+  const recover = async () => {
     setHidden([])
 
-    // Recovery is all this starts. A recovered stack has to be judged against
-    // something, nothing but a person may choose what, and the screen that
-    // asks shows every source's yield at the moment of choosing - so the
-    // handoff is a redirect rather than a sentence somebody might not read.
-    if (await startPipeline()) navigate('/decisions')
+    // Recovery clones, so it is the expensive half and it happens once. The
+    // first pass hands over to the decisions screen because nothing has been
+    // chosen yet; afterwards there is nothing to go there for, and sending
+    // somebody back to re-make a choice they already made is how a flow earns
+    // the reputation of starting over.
+    const recovered = await startPipeline()
+    if (recovered && ready.length === 0) navigate('/decisions')
   }
 
   const phase = PHASES.find((item) => item.id === selectedPhase)!
@@ -147,16 +161,39 @@ export default function PipelinePage() {
       <PageHeading
         eyebrow="analysis"
         title="Pipeline"
-        description="Four phases. Running the pipeline recovers every configured snapshot, one at a time, and stops there — what they are judged against is chosen on the decisions screen."
+        description="Four phases. Recovery clones and analyses every configured release; validation then judges each one against the source chosen for it."
         action={
-          <div className="flex items-center gap-5">
-            {isPipelineRunning && <Spinner label="running" />}
+          <div className="flex flex-wrap items-center gap-5">
+            {validatingRelease && <Spinner label={`validating ${validatingRelease}`} />}
+            {isPipelineRunning && <Spinner label="recovering" />}
+
+            {isRecovered && (
+              <Button
+                size="sm"
+                variant="quiet"
+                disabled={isPipelineRunning || Boolean(validatingRelease)}
+                onClick={recover}
+              >
+                Recover again
+              </Button>
+            )}
+
             <Button
               variant="primary"
-              disabled={configurations.length === 0 || isPipelineRunning}
-              onClick={run}
+              disabled={
+                isPipelineRunning ||
+                Boolean(validatingRelease) ||
+                (isRecovered ? ready.length === 0 : configurations.length === 0)
+              }
+              onClick={isRecovered ? validateAllReleases : recover}
             >
-              {pipelinePhase === 'idle' ? 'Run pipeline' : 'Run again'}
+              {/* Not "run again". That reads as starting the whole thing over,
+                  and the thing it would start over is the cloning - which is
+                  the half that is already done and the half that costs
+                  minutes. What is left is validation. */}
+              {isRecovered
+                ? `Validate ${ready.length} release${ready.length === 1 ? '' : 's'}`
+                : 'Run recovery'}
             </Button>
           </div>
         }
@@ -196,6 +233,11 @@ export default function PipelinePage() {
         hidden={hidden}
         activeId={activeId}
         runs={runs}
+        releases={releases}
+        decisionChoices={decisionChoices}
+        validatingRelease={validatingRelease}
+        onValidate={validateRelease}
+        onFocus={focusRelease}
         isRunning={isPipelineRunning}
         stagesDescribed={described.data?.stages ?? []}
         onAdd={addConfiguration}
@@ -203,10 +245,17 @@ export default function PipelinePage() {
         onToggle={toggle}
       />
 
+      {validationError && <ErrorState message={validationError} />}
+
       <JudgedAgainst
         phase={pipelinePhase}
         isRunning={isPipelineRunning}
-        validated={validated}
+        chosen={
+          configurations.filter(
+            (configuration) => decisionChoices[configuration.release_tag],
+          ).length
+        }
+        total={configurations.length}
       />
 
       <Card
@@ -273,6 +322,11 @@ function SnapshotsCard({
   hidden,
   activeId,
   runs,
+  releases,
+  decisionChoices,
+  validatingRelease,
+  onValidate,
+  onFocus,
   isRunning,
   stagesDescribed,
   onAdd,
@@ -288,6 +342,13 @@ function SnapshotsCard({
   /** The snapshot currently moving, which is the only one left expanded. */
   activeId: string | null
   runs: Record<string, ValidationRun>
+  /** The releases recovery has stored, which outlive this session's run. */
+  releases: string[]
+  decisionChoices: Record<string, DecisionChoice>
+  /** The release being validated right now, so only its button spins. */
+  validatingRelease: string | null
+  onValidate: (releaseId: string) => Promise<boolean>
+  onFocus: (releaseId: string) => void
   isRunning: boolean
   stagesDescribed: StageDescription[]
   onAdd: (input: {
@@ -398,6 +459,13 @@ function SnapshotsCard({
             const snapshot = progress.get(configuration.id)
             const phase = snapshot?.phase ?? 'queued'
             const run = runFor(snapshot, runs)
+
+            // Recovered in *any* session, not only this one. A refresh empties
+            // the in-memory run and would otherwise hide the validate button
+            // for a release the backend has stored all along.
+            const isRecovered =
+              snapshot?.phase === 'recovered' ||
+              releases.includes(configuration.release_tag)
             const hasDetails = Boolean(snapshot?.recovery || run)
 
             // Open unless this person closed it, and collapsed while a
@@ -419,7 +487,10 @@ function SnapshotsCard({
                         {configuration.url}
                       </span>
                       <span className="font-mono text-xs text-ink-4">
-                        {configuration.branch} · {configuration.release_tag}
+                        {configuration.branch} ·{' '}
+                        <span className="rounded bg-field px-1.5 py-0.5 text-ink-2">
+                          {configuration.release_tag}
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -443,6 +514,18 @@ function SnapshotsCard({
                     </Button>
                   </div>
                 </div>
+
+                {isRecovered && (
+                  <ReleaseActions
+                    release={configuration.release_tag}
+                    choice={decisionChoices[configuration.release_tag]}
+                    run={run}
+                    isRecovered={isRecovered}
+                    isValidating={validatingRelease === configuration.release_tag}
+                    onValidate={() => onValidate(configuration.release_tag)}
+                    onFocus={onFocus}
+                  />
+                )}
 
                 {snapshot?.error && (
                   <p className="max-w-prose border-l-2 border-bad/60 pl-4 text-xs leading-relaxed text-bad">
@@ -571,17 +654,22 @@ function faultLabel(fault: NonNullable<SnapshotRun['fault']>): string {
 function JudgedAgainst({
   phase,
   isRunning,
-  validated,
+  chosen,
+  total,
 }: {
   phase: PipelinePhase
   isRunning: boolean
-  /** Whether anything in this stack has been judged yet. */
-  validated: boolean
+  /** How many releases have a source picked for them. */
+  chosen: number
+  total: number
 }) {
   // Recovered and not yet judged is the only moment this is the next thing to
   // do. The pipeline phase stays `recovered` after the decisions screen has
   // run, so without this the card would go on asking for a choice already made.
-  const isWaiting = phase === 'recovered' && !isRunning && !validated
+  // Only while something is still undecided. The pipeline phase stays
+  // `recovered` after the decisions screen has run, so without counting the
+  // choices this card would go on asking for ones already made.
+  const isWaiting = phase === 'recovered' && !isRunning && chosen < total
 
   return (
     <Card
@@ -598,13 +686,13 @@ function JudgedAgainst({
       <div className="flex flex-wrap items-center justify-between gap-6">
         <p className="max-w-prose text-sm leading-relaxed text-ink-2">
           {isWaiting
-            ? 'Every snapshot has recovered. Nothing has been judged yet — pick what these releases are validated against, and start it there.'
-            : 'Validation is started on the decisions screen, where every source shows what it would supply before it is chosen. A release judged against a source nobody picked reports that nothing contradicts it, which is indistinguishable from a healthy system.'}
+            ? `${total - chosen} of ${total} releases have no source chosen yet. A release cannot be validated until somebody picks what judges it.`
+            : 'Each release is judged against the source chosen for it, and validated from its own row below. A release judged against a source nobody picked reports that nothing contradicts it, which is indistinguishable from a healthy system.'}
         </p>
 
         <Link to="/decisions">
           <Button variant={isWaiting ? 'primary' : undefined}>
-            {isWaiting ? 'Choose and validate' : 'Open decisions'}
+            {isWaiting ? 'Choose the sources' : 'Open decisions'}
           </Button>
         </Link>
       </div>
