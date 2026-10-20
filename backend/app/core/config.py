@@ -136,6 +136,14 @@ class Settings(BaseSettings):
     # atomic rename - under the ignored artifacts directory, because it is
     # output and because the committed copy is a single golden fixture.
     validated_graph_root: Path = BACKEND_ROOT / "artifacts" / "validated"
+    # What a validation run sent to each model and what came back, kept beside
+    # the graph that run published rather than inside it. Separate because the
+    # graph is the contract the next component reads and this is evidence a
+    # person reads - and because a transcript nobody deletes would otherwise
+    # grow the one artifact that has to stay small enough to diff.
+    model_transcript_root: Path = (
+        BACKEND_ROOT / "artifacts" / "validation" / "transcripts"
+    )
     clone_timeout_seconds: int = 300
 
     # Repository inventory limits.

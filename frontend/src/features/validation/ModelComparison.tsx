@@ -168,47 +168,73 @@ export default function ModelComparison({ document }: { document: PublishedGraph
  * like a passed check.
  */
 function Agreement({ edges }: { edges: ValidatedEdge[] }) {
-  const judged = edges.filter((edge) => edge.produced_by === 'model')
+  // Every edge lands in exactly one row. The rows used to be independent
+  // filters that happened to look like a breakdown, and a fact the second
+  // model agreed with while the table could not compare matched none of
+  // them - so seventeen dependencies were reported as sixteen and the
+  // missing one was the only inconclusive fact in the run. On a panel whose
+  // whole claim is that an absent check never looks like a passed one, a
+  // fact that vanishes is the same failure wearing a different hat.
+  const counts = {
+    agreed: 0,
+    objected: 0,
+    uncertain: 0,
+    unchecked: 0,
+    correlated: 0,
+    inconclusive: 0,
+    notAsked: 0,
+  }
+
+  for (const edge of edges) {
+    if (edge.produced_by !== 'model') counts.notAsked += 1
+    else if (edge.verification_outcome === 'disagree') counts.objected += 1
+    else if (edge.verification_outcome === 'uncertain') counts.uncertain += 1
+    else if (!edge.verification_outcome) counts.unchecked += 1
+    else if (edge.arbiter_agreement === 'disagreed') counts.correlated += 1
+    else if (edge.arbiter_agreement === 'agreed') counts.agreed += 1
+    else counts.inconclusive += 1
+  }
 
   const rows = [
     {
       label: 'all three agreed',
-      count: judged.filter(
-        (edge) => edge.verification_outcome === 'agree' && edge.arbiter_agreement === 'agreed',
-      ).length,
+      count: counts.agreed,
       tone: 'ok' as const,
       note: 'published',
     },
     {
       label: 'the second model objected',
-      count: judged.filter((edge) => edge.verification_outcome === 'disagree').length,
+      count: counts.objected,
       tone: 'warn' as const,
       note: 'held for a person',
     },
     {
       label: 'the second model was uncertain',
-      count: judged.filter((edge) => edge.verification_outcome === 'uncertain').length,
+      count: counts.uncertain,
       tone: 'warn' as const,
       note: 'confidence capped',
     },
     {
       label: 'nothing independent checked it',
-      count: judged.filter((edge) => !edge.verification_outcome).length,
+      count: counts.unchecked,
       tone: 'warn' as const,
       note: 'not agreement — capped and queued',
     },
     {
       label: 'both models agreed, the rule did not',
-      count: judged.filter(
-        (edge) =>
-          edge.verification_outcome === 'agree' && edge.arbiter_agreement === 'disagreed',
-      ).length,
+      count: counts.correlated,
       tone: 'bad' as const,
       note: 'correlated model failure, measured',
     },
     {
+      label: 'nothing was concluded, so the rule had nothing to compare',
+      count: counts.inconclusive,
+      tone: 'warn' as const,
+      note: 'no claim was established about this dependency',
+    },
+    {
       label: 'nobody was asked',
-      count: edges.filter((edge) => edge.produced_by !== 'model').length,
+      count: counts.notAsked,
       tone: 'neutral' as const,
       note: 'no rule governs it, so no model was called',
     },
@@ -325,7 +351,8 @@ function ruleSaid(edge: ValidatedEdge): Judgement {
 
 function howProduced(edge: ValidatedEdge): string {
   if (edge.produced_by !== 'model') return 'no model was called'
-  return edge.model_calls > 0 ? `${edge.model_calls} calls · live` : 'replayed from cache'
+  if (edge.model_calls === 0) return 'replayed from cache'
+  return `${edge.model_calls} live call${edge.model_calls === 1 ? '' : 's'}`
 }
 
 function bucketTone(bucket: string): Judgement['tone'] {

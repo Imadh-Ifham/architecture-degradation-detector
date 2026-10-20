@@ -145,6 +145,7 @@ class ValidationReasoningService:
             evidence_hash=package.evidence_hash,
             cached=result.cached,
             retried=outcome.retried,
+            live_calls=outcome.live_calls,
             provider=self._provider,
             schema_mode=result.schema_mode,
             produced_by=VerdictSource.MODEL,
@@ -187,6 +188,7 @@ class ValidationReasoningService:
             evidence_hash=package.evidence_hash,
             cached=False,
             retried=outcome.retried,
+            live_calls=outcome.live_calls,
             provider=self._provider,
             schema_mode="",
             produced_by=VerdictSource.ARBITER,
@@ -224,6 +226,7 @@ class ValidationReasoningService:
             evidence_hash=package.evidence_hash,
             cached=False,
             retried=outcome.retried,
+            live_calls=outcome.live_calls,
             provider=self._provider,
             schema_mode="",
             produced_by=(

@@ -420,7 +420,7 @@ class TestTheDecisionGate:
         )
 
         assert knowledge["status"] == "completed"
-        assert knowledge["counts"]["in_force"] == 25
+        assert knowledge["counts"]["in_force"] == 26
         assert "mode combined" in knowledge["note"]
 
     def test_an_unknown_mode_is_refused_against_the_field(self, client):
@@ -478,7 +478,7 @@ class TestTheDecisionRecordsRoute:
             params={"repository_id": "online-boutique", "release_id": "v0.10.0"},
         ).json()
 
-        assert len(body["records"]) == 25
+        assert len(body["records"]) == 26
         assert all(record["source_ref"] for record in body["records"])
         assert all(
             record["source"] == "config_scan" for record in body["records"]
@@ -522,8 +522,19 @@ class TestTheDecisionRecordsRoute:
         modes = {row["mode"]: row for row in body["modes"]}
 
         assert set(modes) == {"repo_adr", "external_adr", "combined"}
-        assert modes["combined"]["records"] == 25
-        assert modes["combined"]["by_source"] == {"repo_adr": 0, "config_scan": 25}
+        assert modes["combined"]["records"] == 26
+        assert modes["combined"]["by_source"] == {"repo_adr": 0, "config_scan": 26}
+        # The breakdown beside the total, because the total on its own is the
+        # number a reader carries away and the one most easily overstated:
+        # the declared operations are extracted, dated and held, and no
+        # observed dependency carries an operation for them to govern.
+        assert modes["combined"]["by_constraint"]["declared_rpc"] > 0
+        assert modes["combined"]["governing"] < modes["combined"]["records"]
+        assert modes["combined"]["governing"] == sum(
+            count
+            for kind, count in modes["combined"]["by_constraint"].items()
+            if kind != "declared_rpc"
+        )
 
     def test_the_empty_mode_says_why_it_is_empty(self, client):
         """The research finding, on the screen: this repository keeps no

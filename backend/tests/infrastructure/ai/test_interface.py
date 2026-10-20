@@ -38,6 +38,9 @@ from app.infrastructure.ai.model_registry import (
 )
 from app.infrastructure.ai.providers.fake import FakeProvider
 from app.infrastructure.ai.providers.openai_compatible import (
+    FALLBACK_WAIT_SECONDS,
+    MAX_RATE_LIMIT_WAITS,
+    MAX_WAIT_SECONDS,
     OpenAICompatibleProvider,
     ProviderError,
     ProviderRateLimited,
@@ -53,6 +56,11 @@ def settings(tmp_path, **overrides) -> AISettings:
         "ai_cache_directory": str(tmp_path / "cache"),
         "ai_reasoner_model": "openai/gpt-oss-20b",
         "ai_verifier_model": "qwen/qwen3.8-27b",
+            # Pinned, not inherited. `AISettings` reads the developer's .env, so
+        # leaving this out made three cache tests pass or fail according to a
+        # file that is not in the repository - which is the same complaint
+        # this module's docstring already makes about keys and rate limits.
+        "ai_cache_enabled": True,
     }
     values.update(overrides)
     return AISettings(**values)
@@ -467,17 +475,105 @@ class TestOpenAICompatibleProvider:
         with pytest.raises(ProviderError, match="never in a settings default"):
             provider.complete("openai/gpt-oss-20b", "p", {})
 
-    def test_a_rate_limit_is_distinguished_from_other_failures(self):
-        """Worth waiting out; everything else is worth reporting."""
+    def test_a_rate_limit_that_never_clears_is_reported_as_one(self):
+        """Waited out a bounded number of times, then reported.
 
+        Bounded because an unbounded wait is a hung demonstration, and
+        reported rather than swallowed because the caller above has to be
+        able to tell this apart from a model that answered badly.
+        """
+
+        waits = []
         provider = OpenAICompatibleProvider(
             "https://example.test/v1",
             "k",
             client=self.transport(lambda request: httpx.Response(429, text="slow down")),
+            sleep=waits.append,
         )
 
         with pytest.raises(ProviderRateLimited, match="tokens per minute"):
             provider.complete("openai/gpt-oss-20b", "p", {})
+
+        assert len(waits) == MAX_RATE_LIMIT_WAITS
+
+    def test_a_rate_limit_is_waited_out_rather_than_failing_the_rung(self):
+        """The fix for four facts in fifteen being decided by the table.
+
+        A tokens-per-minute cap is the one refusal the provider tells us is
+        temporary. Translated into `ModelUnavailable` it reads to the ladder
+        as an outage, so the reasoner descends to a model with a *lower*
+        limit and then to the arbiter - and the run looks successful while
+        having quietly stopped using the models it is configured with.
+        """
+
+        waits = []
+        answers = iter([429, 429, 200])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            status = next(answers)
+            if status == 429:
+                return httpx.Response(429, headers={"retry-after": "7"})
+            return self.ok_response(request)
+
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1", "k",
+            client=self.transport(handler), sleep=waits.append,
+        )
+
+        answer = provider.complete("openai/gpt-oss-20b", "p", {})
+
+        assert answer["content"] == VERDICT
+        assert waits == [7.0, 7.0]
+
+    def test_an_unreadable_retry_after_still_waits_long_enough_to_help(self):
+        """The header is preferred because the provider knows when the window
+        rolls over. Absent, a per-minute window needs more than a moment."""
+
+        waits = []
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1",
+            "k",
+            client=self.transport(lambda request: httpx.Response(429)),
+            sleep=waits.append,
+        )
+
+        with pytest.raises(ProviderRateLimited):
+            provider.complete("openai/gpt-oss-20b", "p", {})
+
+        assert waits == [FALLBACK_WAIT_SECONDS] * MAX_RATE_LIMIT_WAITS
+
+    def test_an_absurd_retry_after_cannot_stall_a_run(self):
+        waits = []
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1",
+            "k",
+            client=self.transport(
+                lambda request: httpx.Response(429, headers={"retry-after": "9000"})
+            ),
+            sleep=waits.append,
+        )
+
+        with pytest.raises(ProviderRateLimited):
+            provider.complete("openai/gpt-oss-20b", "p", {})
+
+        assert set(waits) == {MAX_WAIT_SECONDS}
+
+    def test_waiting_can_be_turned_off(self):
+        """For a caller that would rather fail now than hold a run open."""
+
+        waits = []
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1",
+            "k",
+            client=self.transport(lambda request: httpx.Response(429)),
+            wait_out_rate_limits=False,
+            sleep=waits.append,
+        )
+
+        with pytest.raises(ProviderRateLimited):
+            provider.complete("openai/gpt-oss-20b", "p", {})
+
+        assert waits == []
 
     def test_an_error_body_is_surfaced_because_it_names_the_refused_field(self):
         provider = OpenAICompatibleProvider(

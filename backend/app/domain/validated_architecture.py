@@ -35,6 +35,20 @@ Description:
     depend on dates at all, a reference to the model this was computed from,
     and per-element size. Every one is additive; the single removal is
     `validation_confidence`'s default, which is explained on the field.
+
+    Schema 1.2.0 adds two fields to each edge, both additive, and a consumer
+    that ignores either reads exactly what it read before.
+
+    `route` is whether the finding was published or held for an architect. It
+    was not derivable from anything already published - the bucket says what
+    was concluded, not what happens to the conclusion - and a screen counting
+    held-back facts off the bucket reported none, for every run.
+
+    `evidence_hash` names the sealed package the verdict was reached from. It
+    is what joins an edge back to the request that produced it, so a reader
+    can be shown the model's own sentences about a contradiction instead of a
+    bucket name, and it is what a re-run has to reproduce for two verdicts to
+    be comparable.
 """
 
 from dataclasses import dataclass, field
@@ -42,7 +56,7 @@ from datetime import datetime
 from enum import StrEnum
 
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 GENERATOR_NAME = "architecture_validation"
 GENERATOR_VERSION = "0.1.0"
 
@@ -190,6 +204,20 @@ class ValidatedEdge:
     audited are both capped before they reach a consumer, so one that ignores
     them is not wrong - but a degradation study that averages a rule-only
     verdict with a three-judge one is averaging two different things.
+
+    `route` is whether this edge was published or held for a person, and it
+    is here because it could not be worked out from anything else that is.
+    The bucket is what was concluded and the route is what happens to the
+    conclusion; they are two axes, and a reader with only the first of them
+    counted the facts awaiting an architect as zero.
+
+    `evidence_hash` names the sealed evidence package this verdict was
+    reached from. It is the identifier the model request was keyed on, so it
+    is what joins a published edge back to the exact question that produced
+    it - and it is the reason a reader can be shown the model's own words
+    about a contradiction rather than a bucket name. It is also the thing a
+    second run has to reproduce for the verdict to be comparable, which is
+    worth publishing to a consumer on its own account.
     """
 
     fact_id: str
@@ -205,6 +233,8 @@ class ValidatedEdge:
     produced_by: str = ""
     verification_outcome: str | None = None
     arbiter_agreement: str | None = None
+    route: str = ""
+    evidence_hash: str = ""
     attributes: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -222,6 +252,8 @@ class ValidatedEdge:
             "produced_by": self.produced_by,
             "verification_outcome": self.verification_outcome,
             "arbiter_agreement": self.arbiter_agreement,
+            "route": self.route,
+            "evidence_hash": self.evidence_hash,
             "attributes": dict(self.attributes),
         }
 

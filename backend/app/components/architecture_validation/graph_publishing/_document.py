@@ -108,6 +108,8 @@ def _edge(fact: ClassifiedFact) -> ValidatedEdge:
         produced_by=fact.produced_by,
         verification_outcome=fact.verification_outcome,
         arbiter_agreement=fact.arbiter_agreement,
+        route=fact.route,
+        evidence_hash=fact.verdict.evidence_hash if fact.verdict else "",
         attributes=dict(fact.attributes),
     )
 

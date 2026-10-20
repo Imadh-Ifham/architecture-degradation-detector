@@ -25,6 +25,7 @@ Description:
     eventually describes something else.
 """
 
+import time
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Literal
@@ -75,15 +76,25 @@ from app.core.config import settings
 from app.domain.recovered_architecture import IncoherentArchitecture
 from app.domain.validated_architecture import ReleaseDateSource
 from app.infrastructure.ai import (
+    SCHEMA_MODE_STRICT,
+    TASK_NARRATION,
     TASK_PRIMARY_VERDICT,
     TASK_PRIMARY_VERDICT_FALLBACK,
     TASK_PRIMARY_VERDICT_LOCAL,
     TASK_VERIFICATION,
+    CallLog,
     ConfiguredAIClient,
+    ModelTranscriptFileStore,
+    NarrationUnavailable,
+    RunNarrator,
     ai_settings,
     load_prompt,
+    summarise,
 )
-from app.infrastructure.ai.providers.openai_compatible import OpenAICompatibleProvider
+from app.infrastructure.ai.providers.openai_compatible import (
+    OpenAICompatibleProvider,
+    ProviderError,
+)
 from app.infrastructure.decision_log import JsonlDecisionStore
 from app.infrastructure.git.release_dates import ReleaseDateReader
 from app.infrastructure.git.workspace_artifact_reader import (
@@ -107,6 +118,7 @@ router = APIRouter(prefix="/validations", tags=["Validation"])
 PRIMARY_VERDICT_PROMPT = "primary_verdict.v1.md"
 CRITICAL_REFRAMING_PROMPT = "critical_reframing.v1.md"
 BLIND_VERDICT_PROMPT = "blind_verdict.v1.md"
+RUN_NARRATIVE_PROMPT = "run_narrative.v1.md"
 
 REASONING_TASKS = (
     TASK_PRIMARY_VERDICT,
@@ -497,7 +509,47 @@ def get_ai_client() -> ConfiguredAIClient:
             if local
             else None
         ),
+        call_log=get_call_log(),
     )
+
+
+@lru_cache(maxsize=1)
+def get_call_log() -> CallLog:
+    """One log for the process, collecting only inside a capture block.
+
+    Cached like the client it is handed to, because the two have to be the
+    same pair: a second log would be wired to nothing and would report every
+    run as having called no model, which is the exact false statement this
+    whole path exists to make impossible.
+    """
+
+    return CallLog()
+
+
+@lru_cache(maxsize=1)
+def get_transcript_store() -> ModelTranscriptFileStore:
+    """Where a run's calls are kept, beside the graph it published."""
+
+    return ModelTranscriptFileStore(settings.model_transcript_root)
+
+
+@lru_cache(maxsize=1)
+def get_narrative_prompt():
+    """Load the prompt that reads a decided run back as prose.
+
+    A fourth prompt file, and the only one whose output nothing downstream
+    reads. It is versioned with the other three anyway: the account is shown
+    beside the verdicts, so a reader has to be able to tell which text they
+    are looking at and what wrote it.
+    """
+
+    return load_prompt(RUN_NARRATIVE_PROMPT)
+
+
+def get_narrator() -> RunNarrator:
+    """Provide the narrator, wired to the same model access everything uses."""
+
+    return RunNarrator(get_ai_client(), get_narrative_prompt())
 
 
 @lru_cache
@@ -739,6 +791,27 @@ class ModeAvailabilityResponse(BaseModel):
                 "repository; none declares a machine-readable constraint"
             }
         ],
+    )
+    by_constraint: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "How many records of each kind. The total does not say what the "
+            "records are, and the difference matters: most of what a "
+            "configuration scan reconstructs declares the operations a "
+            "service exposes, and an observed dependency carries no "
+            "operation - so those records govern nothing today."
+        ),
+        examples=[{"may_call": 16, "must_not_call": 1, "declared_rpc": 66}],
+    )
+    governing: int = Field(
+        default=0,
+        description=(
+            "How many of the records can govern an observed dependency at "
+            "all, asked of the same table the resolver uses. Read it beside "
+            "the total rather than instead of it: the total is what was "
+            "extracted and this is what can be judged against."
+        ),
+        examples=[18],
     )
 
 
@@ -1024,6 +1097,7 @@ def _resolve_release_date(
 def run_validation(
     request: ValidationRunRequest,
     service: ArchitectureValidationService = Depends(get_validation_service),
+    transcripts: ModelTranscriptFileStore = Depends(get_transcript_store),
 ):
     """Validate one release and return what each stage did.
 
@@ -1036,17 +1110,24 @@ def run_validation(
 
     released_at, released_at_source = _resolve_release_date(request)
 
+    # The calls are collected around the run rather than inside it. The
+    # component names a task and is handed an answer; which model answered,
+    # how long it took and what the request text was are facts about the
+    # adapter, and a component that could see them is a component that could
+    # start reasoning about them.
+    calls = get_call_log()
     try:
-        run = service.run(
-            request.repository_id,
-            request.release_id,
-            decision_mode=request.decision_mode,
-            adr_repository_id=request.adr_repository_id,
-            verify=request.verify,
-            arm=request.arm,
-            released_at=released_at,
-            released_at_source=released_at_source,
-        )
+        with calls.capture() as recorded:
+            run = service.run(
+                request.repository_id,
+                request.release_id,
+                decision_mode=request.decision_mode,
+                adr_repository_id=request.adr_repository_id,
+                verify=request.verify,
+                arm=request.arm,
+                released_at=released_at,
+                released_at_source=released_at_source,
+            )
     except NoDecisionsAvailable as error:
         # Not a fault in the request and not a fault here: there is nothing to
         # validate against. Refused rather than run, because an empty decision
@@ -1074,6 +1155,8 @@ def run_validation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
+
+    transcripts.write(_transcript(run, recorded))
 
     return ValidationRunResponse(
         run_id=run.run_id,
@@ -1314,3 +1397,423 @@ def read_published_graph(repository_id: str, release_id: str):
         )
 
     return document
+
+
+def _transcript(run, calls: list) -> dict:
+    """One run's calls, in the shape the store keeps and the screen reads.
+
+    The summary is computed here rather than on the way out, so a transcript
+    read back from disk carries the same counts it was written with. A figure
+    recomputed at read time is a figure that can disagree with the file it
+    came from.
+    """
+
+    return {
+        "run_id": run.run_id,
+        "repository_id": run.repository_id,
+        "release_id": run.release_id,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "reasoner_model": run.reasoner_model,
+        "verifier_model": run.verifier_model,
+        "schema_mode": ai_settings.ai_schema_mode,
+        "temperature": ai_settings.ai_temperature,
+        "base_url": ai_settings.ai_base_url,
+        "key_configured": bool(ai_settings.ai_api_key),
+        "summary": summarise(calls),
+        "calls": [call.to_dict() for call in calls],
+    }
+
+
+class ModelCallResponse(BaseModel):
+    """One request to one model, as it was sent and answered."""
+
+    sequence: int = Field(description="Position in the run, from one.")
+    task: str = Field(
+        description="What was being asked, never which model was wanted.",
+        examples=["primary_verdict"],
+    )
+    requested_model: str = Field(description="The model configuration named.")
+    answered_model: str = Field(
+        description="The model the provider reported. A provider can serve a "
+        "different build under the name it was asked for, so the two are kept "
+        "apart rather than assumed equal."
+    )
+    prompt: str = Field(description="The request text, in full, as it was sent.")
+    prompt_version: str = Field(description="The prompt file and its version.")
+    schema_mode: str = Field(description="strict or best_effort.")
+    evidence_hash: str = Field(description="The sealed evidence this answered about.")
+    outcome: str = Field(
+        description=(
+            "answered - a model was reached on this run. replayed - the "
+            "identical question was answered earlier and came from the cache, "
+            "which is a model's answer and not the table's. unavailable - "
+            "nothing answered. unusable - something answered and the answer "
+            "could not be read."
+        ),
+        examples=["answered"],
+    )
+    latency_ms: int = Field(description="Wall-clock time for this call.")
+    response: dict | None = Field(
+        default=None, description="The parsed answer, or null if there is none."
+    )
+    error: str | None = Field(
+        default=None, description="Why there is no answer, or null."
+    )
+    prompt_tokens: int = Field(description="Zero on a replay: nothing was sent.")
+    completion_tokens: int = Field(description="Zero on a replay.")
+
+
+class TranscriptResponse(BaseModel):
+    """Every model call one run made.
+
+    This answers a question the rest of the screen cannot: whether a model was
+    involved at all. A run on a machine with no key reaches the same verdict
+    on an easy fact as a run with one, because the deterministic table agrees
+    with the model there - so every published field looks identical, and only
+    the calls tell the two runs apart.
+    """
+
+    run_id: str
+    repository_id: str
+    release_id: str
+    generated_at: str
+    reasoner_model: str | None = None
+    verifier_model: str | None = None
+    schema_mode: str = Field(description="How the answers were constrained.")
+    temperature: float
+    base_url: str = Field(
+        description="The endpoint the calls went to. No key is ever returned "
+        "here, only whether one is set."
+    )
+    key_configured: bool = Field(
+        description="Whether a key was configured when this ran. False with "
+        "calls recorded is impossible; false with none is the keyless run."
+    )
+    summary: dict[str, int] = Field(
+        description="Counts by outcome, plus the tokens the live calls spent."
+    )
+    calls: list[ModelCallResponse] = Field(description="In the order they were made.")
+
+
+@router.get(
+    "/transcript",
+    response_model=TranscriptResponse,
+    summary="What one run sent to each model, and what came back",
+    response_description=(
+        "Every call the run made, in order, with the request text and the "
+        "parsed answer."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "No transcript was kept for that release. Either it "
+            "has not been validated, or it was validated before transcripts "
+            "were recorded - which is a state rather than a run that called "
+            "nothing."
+        }
+    },
+)
+def read_transcript(
+    repository_id: str,
+    release_id: str,
+    transcripts: ModelTranscriptFileStore = Depends(get_transcript_store),
+):
+    """Return the most recent run's calls for one release."""
+
+    document = transcripts.read(repository_id, release_id)
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No model transcript for '{release_id}'. Run the validation "
+                "again and the calls it makes will be recorded."
+            ),
+        )
+
+    return document
+
+
+class ModelProbeResponse(BaseModel):
+    """One model, asked a trivial question on purpose."""
+
+    task: str = Field(description="The task this model is configured to answer.")
+    requested_model: str
+    answered_model: str | None = Field(
+        default=None, description="Null when nothing answered."
+    )
+    reachable: bool
+    latency_ms: int
+    strict_schema: bool = Field(
+        description="Whether the answer was constrained by a JSON schema. A "
+        "model that cannot be relied on for that is a different design here, "
+        "not a slower one."
+    )
+    prompt: str = Field(description="Exactly what was sent.")
+    response: dict | None = Field(default=None, description="Exactly what came back.")
+    error: str | None = Field(default=None)
+
+
+class ModelAccessResponse(BaseModel):
+    """Whether the configured models answer right now.
+
+    One live call per configured model, with the cache deliberately out of the
+    way. The point is the word *now*: every other figure on this screen can be
+    satisfied by an answer a model gave last week, and a reader asking whether
+    this installation reaches a model at all is not asking about last week.
+    """
+
+    base_url: str
+    key_configured: bool = Field(
+        description="Whether a key is set. The key itself is never returned."
+    )
+    schema_mode: str
+    temperature: float
+    arbiter_only_allowed: bool = Field(
+        description=(
+            "Whether a verdict with no model behind it is permitted in this "
+            "deployment. True is the demonstration's rollback, and it is why a "
+            "keyless run still produces verdicts - which is the setting that "
+            "makes a run with no model look like a run with one."
+        )
+    )
+    reachable: int = Field(description="How many of the probed models answered.")
+    probed: list[ModelProbeResponse]
+
+
+PROBE_PROMPT = (
+    "Evidence:\n"
+    "  [ev:1] rule: service-a may call service-b\n"
+    "  [ev:2] observed: service-a calls service-b\n\n"
+    "Does the observation obey the rule? Cite only the references above."
+)
+
+PROBE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reasoning": {"type": "string"},
+        "cited_evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "verdict": {"type": "string", "enum": ["confirms", "contradicts"]},
+    },
+}
+
+
+@router.post(
+    "/model-access",
+    response_model=ModelAccessResponse,
+    summary="Ask every configured model a trivial question, now",
+    response_description=(
+        "One probe per configured model, each carrying the request that was "
+        "sent and the answer that came back."
+    ),
+)
+def check_model_access():
+    """Call each configured model once and report what happened.
+
+    A POST rather than a GET because it spends tokens, and because a reader
+    pressing a button is the only thing that should cause it.
+
+    It reaches the provider adapter directly rather than going through the AI
+    interface, and it is the one route allowed to: the interface caches, and a
+    cached answer would let this report a reachable model on a machine with no
+    network. What is being checked is the account and the endpoint, not the
+    code path a verdict takes.
+    """
+
+    probed = [
+        _probe(task)
+        for task in (
+            TASK_PRIMARY_VERDICT,
+            TASK_PRIMARY_VERDICT_FALLBACK,
+            TASK_VERIFICATION,
+            TASK_NARRATION,
+        )
+    ]
+
+    return ModelAccessResponse(
+        base_url=ai_settings.ai_base_url,
+        key_configured=bool(ai_settings.ai_api_key),
+        schema_mode=ai_settings.ai_schema_mode,
+        temperature=ai_settings.ai_temperature,
+        arbiter_only_allowed=ai_settings.ai_allow_arbiter_only,
+        reachable=len([probe for probe in probed if probe.reachable]),
+        probed=probed,
+    )
+
+
+def _probe(task: str) -> ModelProbeResponse:
+    """Send one trivial request to the model that answers `task`.
+
+    A failure is reported rather than raised. Three models answering and one
+    refusing is the useful answer, and an exception would replace it with the
+    first failure and nothing else.
+    """
+
+    model_id = ai_settings.model_for(task)
+    strict = ai_settings.ai_schema_mode == SCHEMA_MODE_STRICT
+    provider = OpenAICompatibleProvider(
+        base_url=ai_settings.base_url_for(task),
+        api_key=ai_settings.ai_api_key,
+        timeout_seconds=ai_settings.ai_timeout_seconds,
+    )
+
+    started = time.perf_counter()
+    try:
+        answer = provider.complete(
+            model_id=model_id,
+            prompt=PROBE_PROMPT,
+            schema=PROBE_SCHEMA,
+            strict=strict,
+            temperature=ai_settings.ai_temperature,
+            seed=ai_settings.ai_seed,
+        )
+    except ProviderError as error:
+        return ModelProbeResponse(
+            task=task,
+            requested_model=model_id,
+            reachable=False,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            strict_schema=strict,
+            prompt=PROBE_PROMPT,
+            error=str(error),
+        )
+
+    return ModelProbeResponse(
+        task=task,
+        requested_model=model_id,
+        answered_model=answer["model_id"],
+        reachable=True,
+        latency_ms=int((time.perf_counter() - started) * 1000),
+        strict_schema=strict,
+        prompt=PROBE_PROMPT,
+        response=answer["content"],
+    )
+
+
+class NarrativeResponse(BaseModel):
+    """One run, written out as sentences by a model.
+
+    **It is a reading of the result and not part of it.** Nothing here reaches
+    a verdict, a confidence or the published graph, and where a sentence
+    disagrees with a figure beside it the figure is the one to believe. The
+    model that wrote it travels with it, so that stays checkable rather than
+    remembered.
+    """
+
+    headline: str
+    what_it_read: str
+    what_it_concluded: str
+    what_to_distrust: str
+    model_id: str = Field(description="What wrote these paragraphs.")
+    prompt_version: str
+    cached: bool = Field(
+        description="Whether this account was written on this request or "
+        "replayed from an identical one."
+    )
+    figures: dict = Field(
+        description="Exactly the figures the model was shown. Returned so a "
+        "reader can check a sentence against the numbers behind it rather "
+        "than against the rest of the screen."
+    )
+
+
+@router.post(
+    "/narrative",
+    response_model=NarrativeResponse,
+    summary="Read a finished run back as prose",
+    response_description=(
+        "Four paragraphs written by a model from the published figures, with "
+        "the figures it was shown."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "That release has not been validated, so there is "
+            "no result to describe."
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "No model could be reached to write the account. "
+            "Reported as an absence rather than filled in from a template, "
+            "because text assembled here would read like the model's."
+        },
+    },
+)
+def narrate_run(
+    repository_id: str,
+    release_id: str,
+    narrator: RunNarrator = Depends(get_narrator),
+    transcripts: ModelTranscriptFileStore = Depends(get_transcript_store),
+):
+    """Describe one release's validation in plain English."""
+
+    document = get_graph_file_store().read(repository_id, release_id)
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No validated graph for '{release_id}'. There is no result "
+                "to describe until that release has been validated."
+            ),
+        )
+
+    transcript = transcripts.read(repository_id, release_id) or {}
+    brief = _brief(document, transcript)
+
+    try:
+        narration = narrator.narrate(brief, transcript.get("calls", []))
+    except NarrationUnavailable as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
+        ) from error
+
+    return NarrativeResponse(**narration.to_dict(), figures=brief)
+
+
+def _brief(document: dict, transcript: dict) -> dict:
+    """The published figures, and nothing else, as the narrator receives them.
+
+    Built from the document rather than from the run record on purpose. The
+    document is what a reader is looking at, so an account written from
+    anything else could be accurate about a run and still disagree with the
+    screen it sits on.
+    """
+
+    graph = document.get("graph", {})
+    stamp = graph.get("run", {})
+    edges = document.get("links", [])
+
+    judged = [edge for edge in edges if edge.get("produced_by") == "model"]
+
+    return {
+        "run_id": stamp.get("run_id", ""),
+        "repository_id": graph.get("repository_id", ""),
+        "release_id": graph.get("release_id", ""),
+        "architecture_style": graph.get("architecture_style", ""),
+        "architecture_style_source": graph.get("architecture_style_source", ""),
+        "validation_confidence": graph.get("validation_confidence", 0.0),
+        "elements": len(document.get("nodes", [])),
+        "dependencies": len(edges),
+        "reasoner_model": stamp.get("reasoner_model"),
+        "verifier_model": stamp.get("verifier_model"),
+        "prompt_versions": ", ".join(stamp.get("prompt_versions") or []),
+        "verdict_buckets": _tally(edges, "bucket"),
+        "who_produced_the_verdict": _tally(edges, "produced_by"),
+        "what_the_second_model_said": _tally(judged, "verification_outcome"),
+        "what_the_table_said": _tally(judged, "arbiter_agreement"),
+        "model_calls_on_the_last_run": transcript.get("summary", {}),
+        "key_configured": transcript.get("key_configured"),
+    }
+
+
+def _tally(edges: list[dict], field_name: str) -> dict:
+    """Count one field's values across the edges, naming the absent ones.
+
+    An absent value is counted under "none" rather than dropped. A check that
+    did not happen has to appear in a count the model is shown, or the account
+    describes a run in which everything was checked.
+    """
+
+    counts: dict[str, int] = {}
+    for edge in edges:
+        value = edge.get(field_name) or "none"
+        counts[str(value)] = counts.get(str(value), 0) + 1
+    return dict(sorted(counts.items()))

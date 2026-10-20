@@ -30,6 +30,7 @@ import { useRequest } from '../../lib/useRequest'
 import type { DecisionChoice } from '../../workspace/context'
 import { MODE, READS_FROM } from './modes'
 import RuleList from './RuleList'
+import WhatWasExtracted from './WhatWasExtracted'
 
 export default function ReleaseDecision({
   repositoryKey,
@@ -56,6 +57,7 @@ export default function ReleaseDecision({
   )
 
   const modes = sources.data?.modes ?? []
+  const chosenYield = modes.find((row) => row.mode === choice?.mode)
   const recommended = sources.data?.recommended ?? null
 
   return (
@@ -107,11 +109,18 @@ export default function ReleaseDecision({
               </ul>
 
               {choice && (
-                <RuleList
-                  repositoryId={repositoryKey}
-                  release={release}
-                  mode={choice.mode}
-                />
+                <>
+                  {/* Before the rules themselves, what kind of rules they
+                      are. The count a reader carries away from this screen
+                      is the one they will be asked to defend, and the total
+                      on its own overstates what governs the architecture. */}
+                  {chosenYield && <WhatWasExtracted mode={chosenYield} />}
+                  <RuleList
+                    repositoryId={repositoryKey}
+                    release={release}
+                    mode={choice.mode}
+                  />
+                </>
               )}
             </>
           )}

@@ -38,6 +38,16 @@ must never fall back to another model, because a verifier that is not
 independent of the reasoner is a model agreeing with itself.
 """
 
+TASK_NARRATION = "run_narration"
+"""Writing the plain-English account of a run that is already decided.
+
+A task like the others so the narrator cannot name a model either, and
+deliberately not one of the judges: nothing it produces reaches a verdict, a
+confidence or the published graph. It is listed here rather than left to the
+reasoner's model because it is one call per run instead of one per fact, so
+the larger model costs almost nothing and reads better.
+"""
+
 SCHEMA_MODE_STRICT = "strict"
 SCHEMA_MODE_BEST_EFFORT = "best_effort"
 
@@ -70,6 +80,8 @@ class AISettings(BaseSettings):
     # availability rather than for quality, and a verdict says which answered.
     ai_fallback_model: str = "openai/gpt-oss-120b"
     ai_local_model: str = "llama3.2:3b"
+
+    ai_narrator_model: str = "openai/gpt-oss-120b"
 
     # Rung 4 is a different endpoint and not only a different model name. A
     # local model id posted to the hosted provider comes back as a 404, which
@@ -118,6 +130,7 @@ class AISettings(BaseSettings):
             TASK_PRIMARY_VERDICT_FALLBACK: self.ai_fallback_model,
             TASK_PRIMARY_VERDICT_LOCAL: self.ai_local_model,
             TASK_VERIFICATION: self.ai_verifier_model,
+            TASK_NARRATION: self.ai_narrator_model,
         }
         if task not in mapping:
             raise UnknownTaskError(task, tuple(mapping))

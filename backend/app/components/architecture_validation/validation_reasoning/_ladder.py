@@ -69,6 +69,15 @@ class LadderOutcome:
     attempted: tuple[str, ...] = ()
     unavailable: tuple[str, ...] = ()
     retried: bool = False
+    live_calls: int = 0
+    """Answers that came from a provider on this climb rather than from cache.
+
+    Counted here because this is the only place that sees every answer,
+    including the ones the guards threw away. The alternative - inferring it
+    downstream from `cached` and `retried` on the verdict - cannot see a
+    rejected answer at all, and reported two live calls for a fact whose two
+    answers were both replays.
+    """
 
 
 def climb(
@@ -94,10 +103,20 @@ def climb(
     attempted: list[str] = []
     unavailable: list[str] = []
     retried = False
+    live_calls = 0
+    rejected_from_cache = False
 
     for rung, task in _plan(tasks):
         if rung == RUNG_RETRY and not guard_failures:
             # The retry exists for a rejected answer. Nothing was rejected.
+            continue
+        if rung == RUNG_RETRY and rejected_from_cache:
+            # The rejected answer was a replay, and the retry sends identical
+            # input - same task, same prompt version, same model, same
+            # evidence hash. That is the cache key, so the retry would hit the
+            # same entry and be handed the same rejected answer back. It is
+            # not a second sample, it is the first one again, and asking for
+            # it cost a rung and reported a call that never happened.
             continue
         if rung >= RUNG_SECONDARY and guard_failures:
             break
@@ -117,12 +136,19 @@ def climb(
             # guard A's finding arriving as an exception because the content
             # never parsed. Treated as a rejection, so it retries identically
             # and then stops, instead of moving to another model.
+            #
+            # It counts as a live call: the cache only ever holds answers that
+            # already parsed, so this one reached a provider and was paid for.
+            live_calls += 1
             guard_failures.append(GuardFailure.MALFORMED)
             refs_at_fault = refs_at_fault or (str(error)[:120],)
             continue
         except ModelUnavailable as error:
             unavailable.append(f"{task}: {error}")
             continue
+
+        if not result.cached:
+            live_calls += 1
 
         outcome = accept(result.content)
         if outcome.accepted:
@@ -134,8 +160,10 @@ def climb(
                 attempted=tuple(attempted),
                 unavailable=tuple(unavailable),
                 retried=retried,
+                live_calls=live_calls,
             )
 
+        rejected_from_cache = result.cached
         if outcome.failure is not None:
             guard_failures.append(outcome.failure)
         refs_at_fault = outcome.refs_at_fault or refs_at_fault
@@ -148,6 +176,7 @@ def climb(
         attempted=tuple(attempted),
         unavailable=tuple(unavailable),
         retried=retried,
+        live_calls=live_calls,
     )
 
 

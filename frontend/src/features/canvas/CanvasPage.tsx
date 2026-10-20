@@ -29,12 +29,18 @@ import {
   Spinner,
   Tabs,
 } from '../../components/ui'
-import { readPublishedGraph, readSnapshot } from '../../lib/api'
+import {
+  readPublishedGraph,
+  readSnapshot,
+  readTranscript,
+  type ValidatedEdge,
+} from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
 import { runKey } from '../../workspace/context'
 import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import ReleasePicker from '../../components/ReleasePicker'
+import FindingDetail from './FindingDetail'
 import Handover from './Handover'
 import { antiPatternGraph, provenanceGraph, recoveredGraph, validatedGraph } from './graphs'
 
@@ -59,6 +65,7 @@ export default function CanvasPage() {
 
   const [view, setView] = useState<View>('recovered')
   const [selected, setSelected] = useState<string | null>(null)
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null)
 
   const snapshotId = useMemo(
     () => snapshots.find((item) => item.release_id === release)?.snapshot_id ?? null,
@@ -77,10 +84,36 @@ export default function CanvasPage() {
     Boolean(repository && release),
   )
 
+  // The models' own sentences about each dependency. Read here rather than
+  // inside the panel so opening one finding after another costs nothing, and
+  // so a release with no transcript is a state the panel is handed rather
+  // than a request it has to make and fail.
+  const transcript = useRequest(
+    (options) => readTranscript(repositoryKey, release ?? '', options),
+    [repositoryKey, release, run?.run_id],
+    Boolean(repository && release),
+  )
+
   // The release as detection saw it, if detection has run over it.
   const detected = useMemo(
     () => degradation?.releases.find((item) => item.release_id === release) ?? null,
     [degradation, release],
+  )
+
+  const openEdge = useMemo(
+    () =>
+      view === 'validated' && published.data
+        ? (published.data.links.find((edge) => edge.fact_id === selectedEdge) ?? null)
+        : null,
+    [view, published.data, selectedEdge],
+  )
+
+  const contradicted = useMemo(
+    () =>
+      published.data?.links.filter((edge) =>
+        edge.bucket.toLowerCase().includes('contradict'),
+      ) ?? [],
+    [published.data],
   )
 
   const drawing = useMemo(() => {
@@ -154,7 +187,13 @@ export default function CanvasPage() {
               { id: 'antipatterns', label: 'Anti-patterns' },
             ]}
             active={view}
-            onChange={setView}
+            onChange={(next) => {
+              setView(next)
+              // An edge id identifies a fact, and only the validated graph
+              // draws facts. Carrying a selection across a tab would leave a
+              // panel open about a line the picture no longer contains.
+              setSelectedEdge(null)
+            }}
           />
         }
         action={
@@ -198,12 +237,42 @@ export default function CanvasPage() {
             <p className="mb-6 max-w-prose text-sm leading-relaxed text-ink-3">
               {CAPTION[view]}
             </p>
+            {view === 'validated' && contradicted.length > 0 && (
+              <Contradictions
+                edges={contradicted}
+                names={new Map(
+                  (published.data?.nodes ?? []).map((node) => [node.id, node.name]),
+                )}
+                selected={selectedEdge}
+                onSelect={setSelectedEdge}
+              />
+            )}
+
             <GraphCanvas
               nodes={drawing.nodes}
               edges={drawing.edges}
               selected={selected}
               onSelect={setSelected}
+              selectedEdge={view === 'validated' ? selectedEdge : null}
+              onSelectEdge={view === 'validated' ? setSelectedEdge : undefined}
               legend={<Legend view={view} />}
+              footer={
+                view === 'validated' && published.data ? (
+                  openEdge ? (
+                    <FindingDetail
+                      edge={openEdge}
+                      document={published.data}
+                      transcript={transcript.data}
+                      onClose={() => setSelectedEdge(null)}
+                    />
+                  ) : (
+                    <p className="text-sm leading-relaxed text-ink-4">
+                      Click a dependency to see what was concluded about it, what
+                      it was judged against, and what each model wrote.
+                    </p>
+                  )
+                ) : undefined
+              }
             />
           </>
         )}
@@ -213,6 +282,51 @@ export default function CanvasPage() {
         <Handover document={published.data} publishedRef={run?.published_ref} />
       )}
     </>
+  )
+}
+
+/**
+ * The contradictions, as a row of buttons above the drawing.
+ *
+ * A red line says where one is; finding it in a graph of seventeen
+ * dependencies still means hunting for it. These are the findings the whole
+ * component exists to produce, so they get named rather than left to be
+ * discovered — and clicking one opens it below the picture.
+ */
+function Contradictions({
+  edges,
+  names,
+  selected,
+  onSelect,
+}: {
+  edges: ValidatedEdge[]
+  names: Map<string, string>
+  selected: string | null
+  onSelect: (id: string | null) => void
+}) {
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-3">
+      <span className="text-xs tracking-wide text-ink-4">
+        {edges.length} contradicted —
+      </span>
+      {edges.map((edge) => {
+        const isOpen = edge.fact_id === selected
+
+        return (
+          <button
+            key={edge.fact_id}
+            onClick={() => onSelect(isOpen ? null : edge.fact_id)}
+            className={`rounded-full border px-3 py-1 font-mono text-xs transition ${
+              isOpen
+                ? 'border-bad bg-bad-wash text-bad'
+                : 'border-bad/50 text-bad hover:border-bad'
+            }`}
+          >
+            {names.get(edge.source) ?? edge.source} → {names.get(edge.target) ?? edge.target}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 

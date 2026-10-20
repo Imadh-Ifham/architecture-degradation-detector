@@ -220,6 +220,27 @@ the only thing holding it up.
 """
 
 
+REJECTED_CAP = Cap("every_answer_rejected", None, 0.0)
+"""A fact whose every model answer was thrown out by a guard.
+
+The twin of `NO_MODEL_CAP` from the other direction. There, nothing answered
+and the table decided; here a model answered twice and neither answer could
+be used, so nothing was concluded at all - and `ASSERTION_RANK` already puts
+the resulting bucket at the bottom.
+
+**Zero rather than a low number**, which is the same answer `UNCOVERED`
+already gets: confidence is confidence in a claim, and where there is no
+claim there is nothing to be confident about. Without this row such a fact
+scored `verdict_base` plus its source strength plus a verification agreement
+term - 0.85, the maximum this component can publish, beside a bucket that
+declines to conclude. The bucket was honest and the number was not.
+
+It caps the value and not the bucket, because the bucket is already
+`INSUFFICIENT_EVIDENCE` and promoting it to a ceiling's own name would be
+inventing a finding.
+"""
+
+
 @dataclass(frozen=True)
 class CapContext:
     """Everything the caps read, and nothing else.
@@ -235,6 +256,7 @@ class CapContext:
     agreement: ArbiterAgreement | None
     verification_mode: VerificationMode | None
     produced_without_a_model: bool
+    every_answer_rejected: bool = False
 
 
 CAPS = (
@@ -244,8 +266,9 @@ CAPS = (
     lambda ctx: ARBITER_CAP.get(ctx.agreement),
     lambda ctx: UNVERIFIED_CAP.get(ctx.verification_mode),
     lambda ctx: NO_MODEL_CAP if ctx.produced_without_a_model else None,
+    lambda ctx: REJECTED_CAP if ctx.every_answer_rejected else None,
 )
-"""The six caps, each answering with a cap or with `None` for *does not apply*.
+"""The seven caps, each answering with a cap or with `None` for *does not apply*.
 
 Several apply at once on most facts. They are composed by minimum rather than
 applied in sequence, so the answer cannot depend on the order of this tuple -
@@ -359,7 +382,9 @@ def route_for(bucket: ValidationBucket, score: float) -> Route:
 
 
 def terms_for(
-    strength: EvidenceStrength | None, outcome: VerificationOutcome | None
+    strength: EvidenceStrength | None,
+    outcome: VerificationOutcome | None,
+    asserts: bool = True,
 ) -> dict:
     """The named contributions behind one confidence value.
 
@@ -367,14 +392,35 @@ def terms_for(
     and the order it is built in is the order the argument is made: the
     verdict exists, its source is this strong, and a second model found no
     fault in it.
+
+    `asserts` is whether the verdict claims anything about the architecture.
+    When it does not, **the agreement term is not awarded**, and that is a
+    correctness fix rather than a tuning choice: the verifier is shown the
+    primary verdict and asked what is wrong with the argument, so agreeing
+    with `insufficient_evidence` means *there is indeed no argument here*. A
+    second model confirming that nothing was established is not corroboration
+    of a finding, and scoring it as `verification_agreement` put the word
+    agreement on a screen next to a fact nobody concluded anything about.
     """
 
     terms = {"verdict_base": TERM_VERDICT_BASE}
     if strength is not None:
         terms[f"source_strength_{strength.value}"] = TERM_SOURCE_STRENGTH[strength]
-    if outcome is VerificationOutcome.AGREE:
+    if asserts and outcome is VerificationOutcome.AGREE:
         terms["verification_agreement"] = TERM_VERIFICATION_AGREEMENT
     return terms
+
+
+def asserts_something(bucket: ValidationBucket) -> bool:
+    """Whether a bucket claims anything about the architecture.
+
+    Read off `ASSERTION_RANK` rather than listed again, so a bucket added to
+    one and forgotten in the other is impossible. Rank 2 and above assert:
+    `AMBIGUOUS` says the dependency is permitted with a condition unmet, which
+    is a claim. Rank 1 and below decline to conclude.
+    """
+
+    return ASSERTION_RANK[bucket] >= 2
 
 
 def _rank(bucket: ValidationBucket | None) -> int:

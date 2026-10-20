@@ -18,6 +18,12 @@
  *   as not run rather than as agreement. Those two sentences are the whole
  *   reason this screen exists rather than a row on the pipeline.
  *
+ *   **Whether a model was involved is shown rather than claimed.** With no
+ *   key the ladder ends at a deterministic table, every governed fact still
+ *   gets a verdict, and the two runs publish the same buckets - so the
+ *   transcript panel carries the calls themselves, and the probe beside it
+ *   asks the configured models a question now.
+ *
  *   It links out rather than growing: the verdicts are on Findings, the
  *   picture is on Canvas, what it was judged against is on Decisions.
  */
@@ -47,6 +53,8 @@ import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import ReleasePicker from '../../components/ReleasePicker'
 import ModelComparison from './ModelComparison'
+import ModelEvidence from './ModelEvidence'
+import RunNarrative from './RunNarrative'
 
 export default function ValidationPage() {
   const { repository, repositoryKey, runs } = useWorkspace()
@@ -132,6 +140,22 @@ export default function ValidationPage() {
           <Outcome document={document} />
           <Judges document={document} run={run} />
           <ModelComparison document={document} />
+        </>
+      )}
+
+      {/* Outside the block above on purpose. Whether this machine can reach a
+          model is the first question asked when a release has *not* been
+          validated, and hiding it behind a published document would put the
+          answer out of reach exactly when it is wanted. */}
+      <ModelEvidence
+        repositoryKey={repositoryKey}
+        release={release ?? ''}
+        runId={run?.run_id}
+      />
+
+      {document && (
+        <>
+          <RunNarrative repositoryKey={repositoryKey} release={release ?? ''} />
           {run ? (
             <Stages run={run} describedBy={pipeline.data?.stages ?? []} />
           ) : (
@@ -146,26 +170,44 @@ export default function ValidationPage() {
 
 /** The result, before any of the machinery that produced it. */
 function Outcome({ document }: { document: PublishedGraph }) {
-  const totals = document.links.reduce(
+  const counts = document.links.reduce(
     (counts, edge) => {
       const bucket = edge.bucket.toLowerCase()
       if (bucket.includes('confirm')) counts.confirmed += 1
       else if (bucket.includes('contradict')) counts.contradicted += 1
-      else if (bucket.includes('review')) counts.review += 1
       else if (bucket.includes('uncovered')) counts.uncovered += 1
+      // Deliberately not a bucket. Which facts reach a person is the route,
+      // and reading it off the bucket reported zero every time: no bucket is
+      // ever named "review", so the only count that could come out of that
+      // test was none held back at all.
+      if (edge.route === 'review') counts.review += 1
       return counts
     },
     { confirmed: 0, contradicted: 0, review: 0, uncovered: 0 },
   )
 
-  const withModel = document.links.filter((edge) => edge.model_calls > 0).length
+  // A document published before schema 1.2.0 carries no route on its edges,
+  // and it does carry the count in its summary. Reading that rather than
+  // printing zero, because zero is the wrong answer this stat is being fixed
+  // for and an old document would have gone on giving it.
+  const review = document.links.some((edge) => edge.route)
+    ? counts.review
+    : Number(document.graph.summary?.review ?? 0)
+
+  // A model is behind a verdict it produced, whether or not this run paid for
+  // the call. Counting calls instead reported one fact in seventeen on a
+  // warmed cache, four lines above a panel saying sixteen came from a model.
+  const withModel = document.links.filter((edge) => edge.produced_by === 'model').length
+  const liveCalls = document.links.reduce((total, edge) => total + edge.model_calls, 0)
 
   return (
     <StatRow>
       <Stat
         label="dependencies judged"
         value={document.links.length}
-        note={`${withModel} with a model behind them`}
+        note={`${withModel} with a model behind them · ${liveCalls} live call${
+          liveCalls === 1 ? '' : 's'
+        } on this run`}
       />
       <Stat
         label="confidence"
@@ -175,15 +217,15 @@ function Outcome({ document }: { document: PublishedGraph }) {
       />
       <Stat
         label="needs a person"
-        value={totals.review}
+        value={review}
         note="held back rather than claimed"
-        tone={totals.review > 0 ? 'warn' : 'neutral'}
+        tone={review > 0 ? 'warn' : 'neutral'}
       />
       <Stat
         label="nothing governs"
-        value={totals.uncovered}
+        value={counts.uncovered}
         note="no decision covers these, and no model was called"
-        tone={totals.uncovered > 0 ? 'warn' : 'neutral'}
+        tone={counts.uncovered > 0 ? 'warn' : 'neutral'}
       />
     </StatRow>
   )

@@ -33,6 +33,7 @@ from app.components.architecture_validation.models import (
     EvidenceStrength,
     ExtractionMethod,
     FactEndpoint,
+    GuardFailure,
     ObservedFact,
     PrimaryVerdict,
     RelationshipKind,
@@ -101,7 +102,15 @@ def verdict(
     produced_by=VerdictSource.MODEL,
     cached=False,
     retried=False,
+    live_calls=None,
+    guard_failures=(),
 ) -> PrimaryVerdict:
+    # The arbiter's rung is reached because nothing answered, so a verdict it
+    # produced cost no call. Defaulting it here keeps every caller honest
+    # without each of them having to say so.
+    if live_calls is None:
+        live_calls = 0 if produced_by is VerdictSource.ARBITER else 1
+
     return PrimaryVerdict(
         fact_id="f1",
         verdict=concluded,
@@ -112,13 +121,15 @@ def verdict(
         evidence_hash="a" * 64,
         cached=cached,
         retried=retried,
+        live_calls=live_calls,
+        guard_failures=guard_failures,
         produced_by=produced_by,
         arbiter_agreement=agreement,
     )
 
 
 def verification(
-    outcome=VerificationOutcome.AGREE, cached=False, retried=False
+    outcome=VerificationOutcome.AGREE, cached=False, retried=False, live_calls=1
 ) -> Verification:
     return Verification(
         fact_id="f1",
@@ -128,6 +139,7 @@ def verification(
         model_id="fake/verifier-1",
         prompt_version="critical_reframing@1",
         cached=cached,
+        live_calls=live_calls,
         evidence_hash="a" * 64,
         retried=retried,
     )
@@ -620,31 +632,89 @@ class TestWhatIsPublishedPerFact:
         assert classified().evidence_refs == ("rule-frontend-cartservice",)
 
     @pytest.mark.parametrize(
-        "cached,retried,audited,expected",
+        "reasoning_calls,verifying_calls,audited,expected",
         [
-            (False, False, True, 2),
-            (False, True, True, 3),
-            (True, False, True, 1),
-            (False, False, False, 1),
-            (True, False, False, 0),
+            (1, 1, True, 2),
+            (2, 1, True, 3),
+            (0, 1, True, 1),
+            (1, 0, False, 1),
+            (0, 0, False, 0),
         ],
     )
-    def test_model_calls_counts_what_actually_cost_a_call(
-        self, cached, retried, audited, expected
+    def test_model_calls_is_what_the_two_stages_counted(
+        self, reasoning_calls, verifying_calls, audited, expected
     ):
-        """A cached answer is not a call and a retry is two. The first is what
-        makes a second run of a release nearly free; the second is the price
-        of a guard rejecting an answer."""
+        """Added up from what each stage recorded, never re-derived here.
+
+        A replayed answer is zero and a retry that reached the provider is
+        two, as before - but both numbers now come from the ladder, which is
+        the only thing that saw every answer.
+        """
 
         result = ClassificationService().classify(
             fact(),
             Resolution(governing=decision()),
-            verdict(cached=cached, retried=retried),
-            verification() if audited else None,
+            verdict(live_calls=reasoning_calls),
+            verification(live_calls=verifying_calls) if audited else None,
             VerificationMode.PERFORMED if audited else VerificationMode.UNAVAILABLE,
         )
 
         assert result.model_calls == expected
+
+    def test_a_fact_rejected_from_cache_reports_no_call(self):
+        """The regression this field was added for.
+
+        Every answer came from the cache and every one was thrown out by a
+        guard, so nothing was concluded and nothing was spent. Inferring the
+        count from `cached` and `retried` reported **two** live calls, because
+        the verdict that is kept when nothing survives has `cached=False` by
+        default - and the number is published to the next component.
+        """
+
+        result = ClassificationService().classify(
+            fact(),
+            Resolution(governing=decision()),
+            verdict(
+                concluded=Verdict.INSUFFICIENT_EVIDENCE,
+                agreement=ArbiterAgreement.NOT_COMPARABLE,
+                retried=True,
+                live_calls=0,
+                guard_failures=(GuardFailure.UNRESOLVED_CITATION,),
+            ),
+            verification(live_calls=0),
+            VerificationMode.PERFORMED,
+        )
+
+        assert result.model_calls == 0
+
+    def test_a_fact_nothing_was_concluded_about_carries_no_confidence(self):
+        """Both answers rejected, so no claim was established.
+
+        It scored 0.85 - the maximum this component can publish - beside a
+        bucket that declines to conclude, because it collected the verdict
+        base, its source strength and a verification agreement term. The
+        agreement was the verifier confirming there was no argument to fault.
+        """
+
+        result = ClassificationService().classify(
+            fact(),
+            Resolution(governing=decision()),
+            verdict(
+                concluded=Verdict.INSUFFICIENT_EVIDENCE,
+                agreement=ArbiterAgreement.NOT_COMPARABLE,
+                retried=True,
+                live_calls=0,
+                guard_failures=(GuardFailure.UNRESOLVED_CITATION,),
+            ),
+            verification(live_calls=0),
+            VerificationMode.PERFORMED,
+        )
+
+        assert result.bucket is ValidationBucket.INSUFFICIENT_EVIDENCE
+        assert result.confidence == 0.0
+        assert result.score_trace.ceiling_applied == "every_answer_rejected"
+        assert "verification_agreement" not in result.score_trace.terms
+        assert result.route == Route.REVIEW
 
     def test_classify_does_not_accept_a_blind_verdict(self):
         """CLS-D9, asserted on the signature, because the opposite is a

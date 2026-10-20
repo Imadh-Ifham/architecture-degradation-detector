@@ -50,6 +50,7 @@ from dataclasses import dataclass
 import yaml
 
 from ...models import (
+    WILDCARD,
     ConstraintKind,
     DecisionRecord,
     EvidenceStrength,
@@ -206,6 +207,12 @@ class ConfigurationScan:
                 # that created this rule is the other end of the pair - and
                 # that entry's line is what a reader has to be shown.
                 peer = callee if caller == selected else caller
+                if caller == WILDCARD:
+                    records.append(
+                        _admits_anyone(request, self.name, path, located, callee)
+                    )
+                    permitted.add((caller, callee))
+                    continue
                 if (caller, callee) in permitted:
                     # The same permission can be written twice - as what the
                     # callee admits and as what the caller is allowed to reach.
@@ -446,10 +453,27 @@ def _permitted_pairs(specification: dict, selected: str) -> list[tuple[str, str]
     A policy is written from the selected workload's side, so an ingress peer
     is a caller and an egress peer is a callee. Getting that round the wrong
     way would invert every rule in the corpus and still look plausible.
+
+    **An ingress rule that names no peer admits every caller**, which is what
+    `ingress: [{}]` means in Kubernetes and what this read as nothing until
+    2026-10-22. Reading it as nothing is not a gap that loses a permission
+    quietly: the default refusal is still in force, so the pair falls through
+    to it and is published as a *violation of a policy that explicitly allows
+    it*. One of the two contradictions in the demonstration corpus was this.
+
+    Egress is deliberately not given the same treatment. Traffic needs both
+    ends in Kubernetes, and every service in the corpus allows all egress -
+    so reading an open egress as a permission would confirm every dependency
+    in the system, including the one call the policies really do forbid. The
+    receiving end is the one that decides, and an open egress grants nothing
+    on its own.
     """
 
     pairs = []
     for rule in specification.get("ingress") or ():
+        if _admits_everything(rule):
+            pairs.append((WILDCARD, selected))
+            continue
         for peer in (rule or {}).get("from") or ():
             caller = _selected_app((peer or {}).get("podSelector"))
             if caller:
@@ -462,6 +486,45 @@ def _permitted_pairs(specification: dict, selected: str) -> list[tuple[str, str]
                 pairs.append((selected, callee))
 
     return pairs
+
+
+def _admits_everything(rule) -> bool:
+    """Whether one ingress rule matches every source.
+
+    An empty rule, or one whose `from` is absent or empty. The Kubernetes
+    reference is explicit that a missing or empty `from` matches all sources,
+    and the three spellings occur in the wild.
+    """
+
+    return not rule or not (rule.get("from") or ())
+
+
+def _admits_anyone(request, source: str, path: str, located, element: str):
+    """The record for an element whose policy admits every caller.
+
+    A rule about one element and every possible peer, which is a different
+    shape from both the named pair and the blanket refusal - so it is given
+    its own identifier rather than one that looks like a pair.
+    """
+
+    return decision_record(
+        request,
+        decision_id=f"rule-any-{element}",
+        subject=WILDCARD,
+        constraint=ConstraintKind.MAY_CALL,
+        object_=element,
+        source=source,
+        source_repository=request.code_repository_id,
+        source_ref=path,
+        source_span=located.span(),
+        source_tier=SourceTier.EXECUTABLE_CONFIG,
+        source_strength=EvidenceStrength.AUTHORITATIVE,
+        extraction_method=ExtractionMethod.RECONSTRUCTED,
+        rationale=(
+            "The policy selecting this element admits every source, so any "
+            "element may reach it."
+        ),
+    )
 
 
 def _service_blocks(text: str) -> list[tuple[str, str, int]]:

@@ -51,8 +51,15 @@ SNAPSHOTS = Path(__file__).resolve().parents[3] / "data" / "snapshots"
 RELEASES = ("v0.9.0", "v0.10.0")
 EXTRACTED_AT = datetime(2026, 10, 15)
 
-PERMITTED_PAIRS = 16
-"""Permissions in the policy set, counted by hand from the 14 documents."""
+PERMITTED_PAIRS = 17
+"""Permissions in the policy set, counted by hand from the 14 documents.
+
+Sixteen name a pair. The seventeenth is `loadgenerator`'s policy, whose
+ingress rule names no peer at all - which in Kubernetes admits every source,
+and which this read as nothing until 2026-10-22. Reading it as nothing did not
+lose a permission quietly: the default refusal is still in force, so the pair
+fell through to it and was published as a violation of a policy that allows
+it."""
 
 DECLARED_OPERATIONS = 7
 """Operations across the four services the contract declares."""
@@ -155,8 +162,8 @@ class TestTheConfigurationScan:
 
     @pytest.mark.parametrize("release", RELEASES)
     def test_every_permitted_pair_and_the_one_default_deny(self, release):
-        """Checkable by hand: 14 policy documents, one denying everything and
-        thirteen listing the peers they admit."""
+        """Checkable by hand: 14 policy documents, one denying everything,
+        twelve listing the peers they admit and one admitting everybody."""
 
         records = scan(release).records
 
@@ -166,6 +173,27 @@ class TestTheConfigurationScan:
         assert len(permitted) == PERMITTED_PAIRS
         assert len(refused) == 1
         assert refused[0].subject == "*" and refused[0].object == "*"
+
+    @pytest.mark.parametrize("release", RELEASES)
+    def test_an_open_ingress_rule_admits_every_caller(self, release):
+        """`ingress: [{}]` means *from anywhere* in Kubernetes, and the policy
+        set uses it.
+
+        It is recorded as a permission about one element and every possible
+        peer - a wildcard subject - rather than expanded into one record per
+        element, which would invent rules nobody wrote and make the count
+        depend on how many services happen to exist.
+        """
+
+        permitted = [
+            r
+            for r in scan(release).records
+            if r.constraint is ConstraintKind.MAY_CALL and r.subject == "*"
+        ]
+
+        assert [r.object for r in permitted] == ["loadgenerator"]
+        assert permitted[0].source_ref.endswith("network-policy-loadgenerator.yaml")
+        assert permitted[0].source_tier is SourceTier.EXECUTABLE_CONFIG
 
     @pytest.mark.parametrize("release", RELEASES)
     def test_the_contract_surface_is_every_operation_not_one_per_service(self, release):
@@ -648,8 +676,8 @@ class TestWhatEachModeWouldFind:
             request_for(release)
         )
 
-        assert available["combined"].records == 25
-        assert available["combined"].by_source == {"repo_adr": 0, "config_scan": 25}
+        assert available["combined"].records == 26
+        assert available["combined"].by_source == {"repo_adr": 0, "config_scan": 26}
         assert available["combined"].reason is None
 
     def test_a_mode_that_cannot_run_says_so_rather_than_reporting_zero(self):
