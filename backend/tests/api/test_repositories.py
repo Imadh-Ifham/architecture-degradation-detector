@@ -1064,3 +1064,115 @@ class TestSnapshotDetails:
         response = client.get("/repositories/nowhere/snapshots/snapshot:missing/details")
 
         assert response.status_code == 404
+
+
+class TestRecoveryReport:
+    """The pipeline page shows that recovery ran; this says how."""
+
+    def test_a_run_records_every_stage_in_pipeline_order(
+        self, client: TestClient
+    ) -> None:
+        created = ingest_and_recover(
+            client,
+            {"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
+            "/repositories/releases",
+        )
+
+        history = client.get(f"/repositories/{created['repository_id']}/snapshots").json()
+
+        report = client.get(
+            f"/repositories/{created['repository_id']}/snapshots/"
+            f"{history[0]['snapshot_id']}/recovery"
+        ).json()
+
+        assert report["recorded"] is True
+        assert report["release_id"] == "v1.0.0"
+        assert report["run"]["status"] == "completed"
+
+        stages = report["run"]["stages"]
+
+        assert [stage["name"] for stage in stages] == [
+            "repository_inventory",
+            "manifest_analysis",
+            "component_discovery",
+            "dependency_resolution",
+            "source_code_analysis",
+            "graph_construction",
+        ]
+        assert [stage["order"] for stage in stages] == [1, 2, 3, 4, 5, 6]
+        assert all(stage["status"] == "completed" for stage in stages)
+        assert all(isinstance(stage["duration_ms"], int) for stage in stages)
+
+        # Counts come from the stage summaries, not from a second computation.
+        inventory = stages[0]
+
+        assert inventory["counts"]["file_count"] == 4
+        assert inventory["artifact"] == "repository_inventory.json"
+        assert inventory["artifact_present"] is True
+
+        # And the summary at the top is derived from those records.
+        assert report["summary"]["stage_count"] == 6
+        assert report["summary"]["completed"] == 6
+        assert report["summary"]["skipped"] == 0
+        assert report["summary"]["failed"] == 0
+        assert report["summary"]["artifact_count"] == 7
+
+    def test_the_architecture_summary_is_recovery_output(
+        self, client: TestClient
+    ) -> None:
+        created = ingest_and_recover(
+            client,
+            {"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
+            "/repositories/releases",
+        )
+
+        history = client.get(f"/repositories/{created['repository_id']}/snapshots").json()
+
+        report = client.get(
+            f"/repositories/{created['repository_id']}/snapshots/"
+            f"{history[0]['snapshot_id']}/recovery"
+        ).json()
+
+        architecture = report["architecture"]
+
+        assert architecture["element_count"] == history[0]["element_count"]
+        assert architecture["relationship_count"] == history[0]["relationship_count"]
+        assert architecture["by_component_type"]
+        assert architecture["by_language"] == {"go": 2}
+        assert architecture["element_count"] == report["summary"]["element_count"]
+
+    def test_a_release_with_no_record_reports_it_as_absent(
+        self, client: TestClient, store: MemoryStore
+    ) -> None:
+        """An older release must not be shown as six successful stages."""
+
+        created = ingest_and_recover(
+            client,
+            {"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
+            "/repositories/releases",
+        )
+
+        # A release analysed before run records existed has artifacts but no
+        # record beside them.
+        for clone in Path(created["path"]).parent.glob("recovery_run.json"):
+            clone.unlink()
+
+        history = client.get(f"/repositories/{created['repository_id']}/snapshots").json()
+
+        report = client.get(
+            f"/repositories/{created['repository_id']}/snapshots/"
+            f"{history[0]['snapshot_id']}/recovery"
+        ).json()
+
+        assert report["recorded"] is False
+        assert report["run"] is None
+        assert report["summary"]["completed"] is None
+        assert report["summary"]["stage_count"] is None
+
+        # The architecture it produced is still described.
+        assert report["summary"]["element_count"] > 0
+
+    def test_unknown_snapshot_recovery_is_a_404(self, client: TestClient) -> None:
+        response = client.get("/repositories/nowhere/snapshots/snapshot:missing/recovery")
+
+        assert response.status_code == 404

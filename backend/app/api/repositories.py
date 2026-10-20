@@ -89,6 +89,15 @@ from app.components.architecture_recovery.repository_inventory import (
     RepositoryInventorySummaryResponse,
     inventory_options_from_settings,
 )
+from app.components.architecture_recovery.recovery_run import (
+    STAGE_BY_NAME,
+    StageRecord,
+    StageTimer,
+    build_report,
+    build_run,
+    now,
+    write_run,
+)
 from app.components.architecture_recovery.snapshot_details import SnapshotDetails
 from app.components.architecture_recovery.source_code_analysis import (
     SourceCodeAnalysisError,
@@ -610,6 +619,39 @@ def read_snapshot_details(
     return SnapshotDetails(checkout.parent if checkout else None).build(snapshot)
 
 
+@router.get(
+    "/{repository_id}/snapshots/{snapshot_id}/recovery",
+    summary="How one release's architecture was recovered",
+    response_description=(
+        "One record per recovery stage - status, duration, counts and any "
+        "reason it did not run - together with what the artifacts hold and "
+        "which of them are still on disk."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "That snapshot does not exist for that repository."
+        }
+    },
+)
+def read_recovery_report(
+    repository_id: str,
+    snapshot_id: str,
+    store: ArchitectureSnapshotStore = Depends(get_architecture_snapshot_store),
+    checkouts: WorkspaceCheckouts = Depends(get_workspace_checkouts),
+) -> dict[str, Any]:
+    """Return the run record and the architecture it produced.
+
+    `recorded` says whether this release has a run record at all. A release
+    analysed before records existed reports `false` with no stages, which is
+    a different fact from a pipeline that ran six stages and completed none.
+    """
+
+    snapshot = _read_stored_snapshot(store, repository_id, snapshot_id)
+    checkout = checkouts.find(repository_id, snapshot.release.release_id)
+
+    return build_report(snapshot, checkout.parent if checkout else None)
+
+
 def _read_stored_snapshot(
     store: ArchitectureSnapshotStore, repository_id: str, snapshot_id: str
 ):
@@ -931,32 +973,107 @@ def _analyse(
 
     The clone has succeeded, so from here on nothing may report the ingest as
     failed: a downstream problem is surfaced in the body instead.
+
+    Each stage is timed and recorded, and the record is written beside the
+    artifacts it produced. That is what lets a screen say how the architecture
+    was recovered rather than only that it was: a summary in a response is
+    gone the moment the response is, and the difference between a stage that
+    found nothing and one that never ran cannot be recovered from an artifact
+    that does not exist.
     """
 
-    inventory, inventory_document, inventory_error = _inventory_after_ingest(
-        repository, inventory_service
-    )
-    analysis, analysis_document, analysis_error = _analysis_after_inventory(
-        inventory_document, repository, analysis_service
-    )
-    discovery, discovery_document, discovery_error = _discovery_after_analysis(
-        inventory_document, analysis_document, repository, discovery_service
-    )
-    dependencies, dependency_document, dependencies_error = _dependencies_after_discovery(
-        discovery_document, analysis_document, repository, dependency_service
-    )
-    source_analysis, source_report, source_analysis_error = (
-        _source_analysis_after_dependencies(
-            inventory_document,
-            discovery_document,
-            dependency_document,
-            repository,
-            source_analysis_service,
+    started_at = now()
+    records: list[StageRecord] = []
+    artifacts = repository.path.parent
+
+    with StageTimer(STAGE_BY_NAME["repository_inventory"]) as timer:
+        inventory, inventory_document, inventory_error = _inventory_after_ingest(
+            repository, inventory_service
+        )
+    records.append(
+        timer.record(
+            summary=_summary_of(inventory),
+            error=inventory_error,
+            report=inventory_document,
+            artifact_directory=artifacts,
         )
     )
-    graph, graph_error = _graph_after_source(
-        repository, discovery_document, dependency_document, source_report, graph_service
+
+    with StageTimer(STAGE_BY_NAME["manifest_analysis"]) as timer:
+        analysis, analysis_document, analysis_error = _analysis_after_inventory(
+            inventory_document, repository, analysis_service
+        )
+    records.append(
+        timer.record(
+            summary=_summary_of(analysis),
+            error=analysis_error,
+            report=analysis_document,
+            artifact_directory=artifacts,
+        )
     )
+
+    with StageTimer(STAGE_BY_NAME["component_discovery"]) as timer:
+        discovery, discovery_document, discovery_error = _discovery_after_analysis(
+            inventory_document, analysis_document, repository, discovery_service
+        )
+    records.append(
+        timer.record(
+            summary=_summary_of(discovery),
+            error=discovery_error,
+            report=discovery_document,
+            artifact_directory=artifacts,
+        )
+    )
+
+    with StageTimer(STAGE_BY_NAME["dependency_resolution"]) as timer:
+        (
+            dependencies,
+            dependency_document,
+            dependencies_error,
+        ) = _dependencies_after_discovery(
+            discovery_document, analysis_document, repository, dependency_service
+        )
+    records.append(
+        timer.record(
+            summary=_summary_of(dependencies),
+            error=dependencies_error,
+            report=dependency_document,
+            artifact_directory=artifacts,
+        )
+    )
+
+    with StageTimer(STAGE_BY_NAME["source_code_analysis"]) as timer:
+        source_analysis, source_report, source_analysis_error = (
+            _source_analysis_after_dependencies(
+                inventory_document,
+                discovery_document,
+                dependency_document,
+                repository,
+                source_analysis_service,
+            )
+        )
+    records.append(
+        timer.record(
+            summary=_summary_of(source_analysis),
+            error=source_analysis_error,
+            report=source_report,
+            artifact_directory=artifacts,
+        )
+    )
+
+    with StageTimer(STAGE_BY_NAME["graph_construction"]) as timer:
+        graph, graph_error = _graph_after_source(
+            repository, discovery_document, dependency_document, source_report, graph_service
+        )
+    records.append(
+        timer.record(
+            summary=_summary_of(graph),
+            error=graph_error,
+            artifact_directory=artifacts,
+        )
+    )
+
+    _record_run(repository, records, started_at)
 
     return RecoveryResponse(
         **IngestedRepositoryResponse.model_validate(repository).model_dump(),
@@ -973,6 +1090,36 @@ def _analyse(
         graph_construction=graph,
         graph_construction_error=graph_error,
     )
+
+
+def _summary_of(summary: object | None) -> dict | None:
+    """The stage summary as a plain mapping, or nothing when it was skipped."""
+
+    return summary.model_dump() if summary is not None else None
+
+
+def _record_run(
+    repository: IngestedRepository, records: list[StageRecord], started_at
+) -> None:
+    """Write this run's record beside the artifacts it produced.
+
+    A failure to write it must not fail the recovery: the architecture is
+    already stored, and losing the account of how it was built is a smaller
+    loss than losing the build.
+    """
+
+    try:
+        write_run(
+            repository.path.parent,
+            build_run(
+                repository=repository,
+                stages=records,
+                started_at=started_at,
+                finished_at=now(),
+            ),
+        )
+    except OSError:
+        pass
 
 
 def _describe_git_failure(error: GitCommandError) -> str:

@@ -49,6 +49,7 @@ Degradation detection (C3): install, one-command demo and CLI are in [`app/compo
 | `GET` | `/repositories/{id}/snapshots` | Lists a repository's architecture snapshots, oldest first. |
 | `GET` | `/repositories/{id}/snapshots/{snapshot_id}` | Returns one snapshot with its elements, relationships and evidence. |
 | `GET` | `/repositories/{id}/snapshots/{snapshot_id}/details` | Joins that snapshot onto the recovery artifacts: discovery rules and artifacts, inventory files, resolution evidence, source findings, and any protocol the evidence establishes. |
+| `GET` | `/repositories/{id}/snapshots/{snapshot_id}/recovery` | The stage-by-stage record of how that release was recovered: status, duration, counts, warnings and the artifact each stage wrote, plus what the artifacts now hold. |
 | `DELETE` | `/repositories/{id}` | Removes an ingested repository from the machine. |
 
 ### Repository ingestion
