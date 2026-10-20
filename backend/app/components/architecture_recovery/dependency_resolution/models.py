@@ -217,6 +217,9 @@ class ResolvedRelationship:
     target_class: TargetClass = TargetClass.COMPONENT
     target_infrastructure_kind: InfrastructureKind | None = None
     resolution_method: str | None = None
+    protocols: list[str] = field(default_factory=list)
+    endpoints: list[str] = field(default_factory=list)
+    ports: list[int] = field(default_factory=list)
     evidence: list[ResolutionEvidence] = field(default_factory=list)
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
@@ -239,6 +242,9 @@ class ResolvedRelationship:
                 else None
             ),
             "resolution_method": self.resolution_method,
+            "protocols": self.protocols,
+            "endpoints": self.endpoints,
+            "ports": self.ports,
             "evidence": [
                 item.to_dict() for item in sorted(self.evidence, key=lambda x: x.sort_key())
             ],

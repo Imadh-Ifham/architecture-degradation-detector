@@ -131,6 +131,40 @@ def test_hostname_and_port_are_preserved_in_evidence() -> None:
     assert "http://checkout:5050" in endpoints
 
 
+def test_a_declared_protocol_is_carried_on_the_relationship() -> None:
+    """The endpoint's scheme travels with the edge, not only inside its detail.
+
+    A consumer asking "how do these two talk" should not have to parse an
+    evidence string to find out, and a transport written down in a manifest is
+    a fact about the relationship rather than about one line of one file.
+    """
+
+    report = build_report("compose_app")
+
+    resolved = relationship(
+        report, RelationshipType.CONFIGURED_ENDPOINT, "frontend", "checkout"
+    )
+
+    assert "http" in resolved.protocols
+    assert "http://checkout:5050" in resolved.endpoints
+    assert 5050 in resolved.ports
+
+
+def test_a_relationship_with_no_configured_endpoint_claims_no_protocol() -> None:
+    """A declared dependency is not a call, so nothing is known about transport."""
+
+    report = build_report("compose_app")
+
+    declared = [
+        item
+        for item in report.relationships
+        if item.type is RelationshipType.DECLARED_DEPENDENCY
+    ]
+
+    assert declared
+    assert all(item.protocols == [] for item in declared)
+
+
 def test_port_disambiguates_two_candidate_components() -> None:
     """A hostname shared by two components is resolved only when the port matches."""
 
