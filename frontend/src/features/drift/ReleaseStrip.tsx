@@ -11,11 +11,15 @@
  *   date, because `v1.10.0` sorts before `v1.9.0` as text, and a series in the
  *   wrong order is a trend that is not there.
  *
- *   Releases that are stored but not on the timeline are drawn after it, set
- *   apart and with the reason, rather than left out: "why is v2.0.0-rc1
- *   missing" is a question this row should answer before somebody asks it.
+ *   **Every validated release is in the row, in date order** - including the
+ *   ones the run left off its timeline, drawn dimmed and dashed with the
+ *   reason on them. "I validated sixteen and it shows eight" is a question
+ *   this row should answer before somebody asks it, and a list under it was
+ *   too easy to miss. Those cells cannot be chosen: nothing was detected in
+ *   them, so there is no graph of anti-patterns to draw.
  */
 
+import { useEffect, useRef } from 'react'
 import { Pill } from '../../components/ui'
 import type { DriftRelease } from '../../lib/api'
 import { GATE } from './labels'
@@ -30,13 +34,28 @@ export default function ReleaseStrip({
   onSelect: (releaseId: string) => void
 }) {
   const timeline = releases.filter((release) => release.on_timeline)
-  const elsewhere = releases.filter((release) => !release.on_timeline)
   const most = Math.max(1, ...timeline.map((release) => release.instances.length))
+  // Scrolled to the chosen release: with early releases left off the timeline
+  // in front of it, the one being drawn would otherwise sit out of view.
+  const strip = useRef<HTMLOListElement>(null)
+  useEffect(() => {
+    const row = strip.current
+    const cell = row?.querySelector<HTMLElement>('[aria-pressed="true"]')?.parentElement
+    if (!row || !cell) return
+    row.scrollLeft = cell.offsetLeft - row.clientWidth / 2 + cell.clientWidth / 2
+  }, [selected, releases])
+
+  const ordered = [...releases].sort(
+    (a, b) => a.released_at.localeCompare(b.released_at) || a.release_id.localeCompare(b.release_id),
+  )
 
   return (
     <div className="flex flex-col gap-5">
-      <ol className="flex gap-px overflow-x-auto rounded-card border border-line bg-line">
-        {timeline.map((release, index) => {
+      <ol ref={strip} className="relative flex gap-px overflow-x-auto rounded-card border border-line bg-line">
+        {ordered.map((release) => {
+          if (!release.on_timeline) return <Excluded key={release.release_id} release={release} />
+
+          const index = timeline.indexOf(release)
           const isSelected = release.release_id === selected
           const gate = GATE[release.gate_status]
           const count = release.instances.length
@@ -92,21 +111,39 @@ export default function ReleaseStrip({
         })}
       </ol>
 
-      {elsewhere.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <span className="text-xs tracking-wide text-ink-4">
-            validated, but not on the timeline
-          </span>
-          <ul className="flex flex-wrap gap-x-6 gap-y-2">
-            {elsewhere.map((release) => (
-              <li key={release.release_id} className="flex items-baseline gap-2.5">
-                <span className="font-mono text-xs text-ink-2">{release.release_id}</span>
-                <span className="text-xs text-ink-4">{release.absent_because}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
+  )
+}
+
+/** A validated release the run did not use, with why - so it is seen, not searched for. */
+function Excluded({ release }: { release: DriftRelease }) {
+  const gate = GATE[release.gate_status]
+
+  return (
+    <li className="min-w-40 flex-1">
+      <div
+        title={release.absent_because ?? undefined}
+        className="flex h-full flex-col gap-3 bg-sunken px-5 py-4 opacity-60 outline-1 -outline-offset-4 outline-line-strong outline-dashed"
+      >
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="font-mono text-[11px] text-ink-4">—</span>
+          <span className="font-mono text-[11px] text-ink-4">
+            {release.released_at.slice(0, 10)}
+          </span>
+        </span>
+        <span className="font-mono text-sm text-ink-3 line-through decoration-ink-4">
+          {release.release_id}
+        </span>
+        <span className="text-[11px] leading-snug text-ink-4">{release.absent_because}</span>
+        <span className="flex flex-wrap gap-2">
+          <Pill tone={release.gate_status === 'EXCLUDED' ? gate.tone : 'neutral'}>
+            {release.gate_status === 'EXCLUDED' ? gate.label : 'not used'}
+          </Pill>
+          <span className="font-mono text-[11px] text-ink-4">
+            {release.validation_confidence.toFixed(2)}
+          </span>
+        </span>
+      </div>
+    </li>
   )
 }
