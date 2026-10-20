@@ -199,7 +199,11 @@ function Run({ report }: { report: DegradationReport }) {
         <Stat
           label="releases"
           value={timeline.length}
-          note={`on the timeline · trends need ${report.run.trend.min_releases}`}
+          note={`on the timeline${
+            report.releases.length > timeline.length
+              ? ` · ${report.releases.length - timeline.length} left off`
+              : ''
+          } · trends need ${report.run.trend.min_releases}`}
           tone={timeline.length >= report.run.trend.min_releases ? 'neutral' : 'warn'}
         />
         <Stat
@@ -224,7 +228,11 @@ function Run({ report }: { report: DegradationReport }) {
 
       <Card
         title="Releases"
-        action={<span className="font-mono text-xs text-ink-4">in release order · choose one to draw it</span>}
+        action={
+          <span className="font-mono text-xs text-ink-4">
+            {timeline.length} of {report.releases.length} validated releases used · choose one to draw it
+          </span>
+        }
       >
         <ReleaseStrip releases={report.releases} selected={release?.release_id ?? null} onSelect={select} />
       </Card>
