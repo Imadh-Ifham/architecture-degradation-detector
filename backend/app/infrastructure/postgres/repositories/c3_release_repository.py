@@ -5,7 +5,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from sqlalchemy import Row, Table, insert, select
+from sqlalchemy import Row, Table, delete, insert, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.domain.canonical_release import (
@@ -40,6 +40,60 @@ def _children(
     return grouped
 
 
+def _insert(
+    session: Session,
+    release: CanonicalRelease,
+    raw_payload: Mapping[str, Any],
+    ingested_at: dt.datetime,
+) -> None:
+    key = {"system_id": release.system_id, "release_id": release.release_id}
+    # JSON mode turns tuples into lists for the JSONB columns.
+    children: list[tuple[Table, list[dict[str, Any]]]] = [
+        (
+            c3_element_snapshot,
+            [key | element.model_dump(mode="json") for element in release.elements],
+        ),
+        (
+            c3_dependency_edge,
+            [key | edge.model_dump(mode="json") for edge in release.dependencies],
+        ),
+        (
+            c3_datastore_access,
+            [
+                key | {"position": i} | access.model_dump()
+                for i, access in enumerate(release.datastore_access or ())
+            ],
+        ),
+        (
+            c3_intent_entry,
+            [
+                key | {"position": i} | intent.model_dump()
+                for i, intent in enumerate(release.intent)
+            ],
+        ),
+    ]
+    session.execute(
+        insert(c3_release).values(
+            **key,
+            released_at=release.released_at,
+            architecture_style=release.architecture_style.value,
+            granularity=release.granularity,
+            validation_confidence=release.validation_confidence,
+            gate_status=release.gate_status.value,
+            package_hash=release.package_hash,
+            c1_model_ref=release.c1_model_ref,
+            c2_validation_ref=release.c2_validation_ref,
+            datastore_access_supplied=release.datastore_access is not None,
+            delegation=None if release.delegation is None else list(release.delegation),
+            raw_json=dict(raw_payload),
+            ingested_at=ingested_at,
+        )
+    )
+    for table, rows in children:
+        if rows:
+            session.execute(insert(table), rows)
+
+
 class PostgresReleaseRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self._sessions = sessions
@@ -58,54 +112,26 @@ class PostgresReleaseRepository:
         raw_payload: Mapping[str, Any],
         ingested_at: dt.datetime,
     ) -> None:
-        key = {"system_id": release.system_id, "release_id": release.release_id}
-        # JSON mode turns tuples into lists for the JSONB columns.
-        children: list[tuple[Table, list[dict[str, Any]]]] = [
-            (
-                c3_element_snapshot,
-                [key | element.model_dump(mode="json") for element in release.elements],
-            ),
-            (
-                c3_dependency_edge,
-                [key | edge.model_dump(mode="json") for edge in release.dependencies],
-            ),
-            (
-                c3_datastore_access,
-                [
-                    key | {"position": i} | access.model_dump()
-                    for i, access in enumerate(release.datastore_access or ())
-                ],
-            ),
-            (
-                c3_intent_entry,
-                [
-                    key | {"position": i} | intent.model_dump()
-                    for i, intent in enumerate(release.intent)
-                ],
-            ),
-        ]
         # One transaction per package: either the whole release is stored or none of it.
         with self._sessions.begin() as session:
-            session.execute(
-                insert(c3_release).values(
-                    **key,
-                    released_at=release.released_at,
-                    architecture_style=release.architecture_style.value,
-                    granularity=release.granularity,
-                    validation_confidence=release.validation_confidence,
-                    gate_status=release.gate_status.value,
-                    package_hash=release.package_hash,
-                    c1_model_ref=release.c1_model_ref,
-                    c2_validation_ref=release.c2_validation_ref,
-                    datastore_access_supplied=release.datastore_access is not None,
-                    delegation=None if release.delegation is None else list(release.delegation),
-                    raw_json=dict(raw_payload),
-                    ingested_at=ingested_at,
-                )
-            )
-            for table, rows in children:
-                if rows:
-                    session.execute(insert(table), rows)
+            _insert(session, release, raw_payload, ingested_at)
+
+    def replace(
+        self,
+        release: CanonicalRelease,
+        raw_payload: Mapping[str, Any],
+        ingested_at: dt.datetime,
+    ) -> None:
+        # Delete and insert in one transaction; the child rows go with the release (CASCADE).
+        where = (
+            c3_release.c.system_id == release.system_id,
+            c3_release.c.release_id == release.release_id,
+        )
+        with self._sessions.begin() as session:
+            if session.execute(select(c3_release.c.release_id).where(*where)).first() is None:
+                raise LookupError(f"release {release.system_id}/{release.release_id} not stored")
+            session.execute(delete(c3_release).where(*where))
+            _insert(session, release, raw_payload, ingested_at)
 
     def list_releases(self, system_id: str) -> tuple[CanonicalRelease, ...]:
         with self._sessions() as session:
