@@ -207,6 +207,64 @@ RETURN snapshot
 ORDER BY snapshot.order_timestamp ASC, snapshot.snapshot_id ASC
 """
 
+DELETE_SNAPSHOT_ELEMENTS = """
+MATCH (:ArchitectureSnapshot {repository_id: $repository_id,
+                              snapshot_id: $snapshot_id})
+      -[:CONTAINS]->(element:ArchitectureElement)
+DETACH DELETE element
+"""
+
+DELETE_ONE_SNAPSHOT = """
+MATCH (snapshot:ArchitectureSnapshot {repository_id: $repository_id,
+                                      snapshot_id: $snapshot_id})
+DETACH DELETE snapshot
+"""
+
+DELETE_REPOSITORY_ELEMENTS = """
+MATCH (:ArchitectureSnapshot {repository_id: $repository_id})
+      -[:CONTAINS]->(element:ArchitectureElement)
+DETACH DELETE element
+"""
+
+DELETE_REPOSITORY_SNAPSHOTS = """
+MATCH (snapshot:ArchitectureSnapshot {repository_id: $repository_id})
+DETACH DELETE snapshot
+"""
+
+PRUNE_ORPHAN_REPOSITORY = """
+MATCH (repository:Repository {repository_id: $repository_id})
+WHERE NOT EXISTS { (repository)-[:HAS_RELEASE]->(:Release) }
+  AND NOT EXISTS { (repository)-[:HAS_SNAPSHOT]->(:ArchitectureSnapshot) }
+DETACH DELETE repository
+"""
+"""Only an anchor with nothing left on it, so validation data is never at risk.
+
+`Repository` is shared with the validated projection, which hangs `Release`
+nodes off the same node. Deleting a repository's recovery history must not
+delete the repository anchor while another component still points at it.
+"""
+
+CLEAR_PRECEDENCE_FOR_REPOSITORY = """
+MATCH (snapshot:ArchitectureSnapshot {repository_id: $repository_id})
+      -[previous:PRECEDED_BY]->(:ArchitectureSnapshot)
+DELETE previous
+"""
+
+RELINK_PRECEDENCE_FOR_REPOSITORY = """
+MATCH (snapshot:ArchitectureSnapshot {repository_id: $repository_id})
+WITH snapshot
+ORDER BY snapshot.order_timestamp ASC, snapshot.snapshot_id ASC
+WITH collect(snapshot) AS ordered
+UNWIND range(1, size(ordered) - 1) AS index
+WITH ordered[index - 1] AS earlier, ordered[index] AS later
+MERGE (later)-[:PRECEDED_BY]->(earlier)
+"""
+"""Rebuilt after a deletion, or the survivors keep a hole in their chain.
+
+Deleting a snapshot detaches the links around it, so the next snapshot would
+lose its predecessor and a chronology query would silently skip a release.
+"""
+
 
 class Neo4jArchitectureSnapshotStore:
     """Stores and reads version-scoped architecture snapshots in Neo4j."""
@@ -370,6 +428,66 @@ class Neo4jArchitectureSnapshotStore:
             )
 
         return [_summary_from(dict(record["snapshot"])) for record in records]
+
+    # ------------------------------------------------------------------ #
+    # Removal
+    # ------------------------------------------------------------------ #
+
+    def delete_snapshot(self, repository_id: str, snapshot_id: str) -> bool:
+        """Delete one snapshot and the elements it owns."""
+
+        keys = {"repository_id": repository_id, "snapshot_id": snapshot_id}
+
+        with self._session_factory() as session:
+            self._prepare(session)
+
+            deleted = session.run(
+                """
+                MATCH (snapshot:ArchitectureSnapshot {repository_id: $repository_id,
+                                                      snapshot_id: $snapshot_id})
+                RETURN count(snapshot) AS found
+                """,
+                **keys,
+            ).single()["found"]
+
+            if not deleted:
+                return False
+
+            # Elements first: deleting the snapshot would detach them into
+            # orphans that no query reaches and no sweep collects.
+            session.run(DELETE_SNAPSHOT_ELEMENTS, **keys)
+            session.run(DELETE_ONE_SNAPSHOT, **keys)
+            self._relink(session, repository_id)
+            session.run(PRUNE_ORPHAN_REPOSITORY, repository_id=repository_id)
+
+        return True
+
+    def delete_repository(self, repository_id: str) -> int:
+        """Delete every snapshot of a repository, returning how many went."""
+
+        with self._session_factory() as session:
+            self._prepare(session)
+
+            removed = session.run(
+                """
+                MATCH (snapshot:ArchitectureSnapshot {repository_id: $repository_id})
+                RETURN count(snapshot) AS found
+                """,
+                repository_id=repository_id,
+            ).single()["found"]
+
+            session.run(DELETE_REPOSITORY_ELEMENTS, repository_id=repository_id)
+            session.run(DELETE_REPOSITORY_SNAPSHOTS, repository_id=repository_id)
+            session.run(PRUNE_ORPHAN_REPOSITORY, repository_id=repository_id)
+
+        return int(removed)
+
+    @staticmethod
+    def _relink(session, repository_id: str) -> None:
+        """Rebuild the chronology chain from the snapshots that remain."""
+
+        session.run(CLEAR_PRECEDENCE_FOR_REPOSITORY, repository_id=repository_id)
+        session.run(RELINK_PRECEDENCE_FOR_REPOSITORY, repository_id=repository_id)
 
 
 # --------------------------------------------------------------------------- #

@@ -134,6 +134,19 @@ class MemoryStore:
             for item in rows
         ]
 
+    def delete_snapshot(self, repository_id, snapshot_id):
+        return self.snapshots.pop((repository_id, snapshot_id), None) is not None
+
+    def delete_repository(self, repository_id):
+        removed = [
+            key for key in self.snapshots if key[0] == repository_id
+        ]
+
+        for key in removed:
+            del self.snapshots[key]
+
+        return len(removed)
+
 
 @pytest.fixture
 def store() -> MemoryStore:
@@ -220,6 +233,92 @@ def test_remove_unknown_repository_returns_404(client: TestClient) -> None:
     response = client.delete("/repositories/unknown-id")
 
     assert response.status_code == 404
+
+
+def test_remove_repository_deletes_its_stored_history(
+    client: TestClient, store: MemoryStore
+) -> None:
+    """Removing the clone removes what the clone produced."""
+
+    created = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    assert store.snapshots
+
+    removed = client.delete(f"/repositories/{created['id']}")
+
+    assert removed.status_code == 204
+    assert store.snapshots == {}
+
+
+def test_removing_one_release_keeps_the_other_release_snapshot(
+    client: TestClient, store: MemoryStore
+) -> None:
+    """A release's history outlives the checkout it was analysed from.
+
+    Deleting the `v0.9.0` clone must not erase the `v0.10.0` snapshot, whose
+    clone is still on disk and still claims to have been analysed.
+    """
+
+    first = client.post(
+        "/repositories/releases",
+        json={"url": "https://example.com/team/repo.git", "revision": "v0.9.0"},
+    ).json()
+    client.post(
+        "/repositories/releases",
+        json={"url": "https://example.com/team/repo.git", "revision": "v0.10.0"},
+    )
+
+    assert len(store.snapshots) == 2
+
+    client.delete(f"/repositories/{first['id']}")
+
+    remaining = list(store.snapshots.values())
+
+    assert len(remaining) == 1
+    assert remaining[0].release.release_tag == "v0.10.0"
+
+
+def test_remove_repository_keeps_another_repositorys_history(
+    client: TestClient, store: MemoryStore
+) -> None:
+    kept = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/other.git", "branch": "main"},
+    ).json()
+    removed = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    client.delete(f"/repositories/{removed['id']}")
+
+    assert [item["id"] for item in client.get("/repositories").json()] == [kept["id"]]
+    assert len(store.snapshots) == 1
+
+
+def test_a_refused_purge_keeps_the_clone_so_it_can_be_retried(
+    client: TestClient, store: MemoryStore
+) -> None:
+    """The files go last, so a graph failure leaves something to retry with."""
+
+    created = client.post(
+        "/repositories",
+        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    ).json()
+
+    class RefusingStore(MemoryStore):
+        def delete_repository(self, repository_id):
+            raise RuntimeError("the graph store is unreachable")
+
+    app.dependency_overrides[get_architecture_snapshot_store] = lambda: RefusingStore()
+
+    response = client.delete(f"/repositories/{created['id']}")
+
+    assert response.status_code == 500
+    assert [item["id"] for item in client.get("/repositories").json()] == [created["id"]]
 
 
 def test_ingesting_a_repository_inventories_the_clone(client: TestClient) -> None:
