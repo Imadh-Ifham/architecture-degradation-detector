@@ -106,6 +106,21 @@ class TestWhatTheLogRecords:
         assert calls[0].prompt == "Does the observation obey the rule?"
         assert calls[0].response == VERDICT
 
+    def test_the_evidence_hash_is_recorded_so_a_call_can_be_found_again(
+        self, tmp_path
+    ):
+        """The other half of the canvas join. A published edge names the
+        evidence it was judged from, and this is what makes that name resolve
+        to the request and the answer."""
+
+        log = CallLog()
+        ai = client(tmp_path, log)
+
+        with log.capture() as calls:
+            ask(ai, evidence_hash="package-7f3a")
+
+        assert calls[0].evidence_hash == "package-7f3a"
+
     def test_the_model_that_answered_is_recorded_beside_the_one_requested(
         self, tmp_path
     ):

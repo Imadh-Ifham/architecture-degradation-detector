@@ -304,6 +304,58 @@ class TestTheDocumentAgreeingWithItself:
         assert len(document["nodes"]) == 12
 
 
+class TestTheJoinBackToWhatTheModelsSaid:
+    """The published edge has to be reconnectable to the calls about it.
+
+    The document carries no reasoning text on purpose - it is the contract
+    the next component reads, and a paragraph of prose does not belong in it.
+    The sentences live in the run transcript instead, and `evidence_hash` is
+    the only thing that joins the two. If either side stops carrying it the
+    canvas quietly shows a verdict with nothing behind it, which is the
+    failure worth a test rather than a comment.
+    """
+
+    def test_every_judged_edge_names_the_evidence_it_was_judged_from(
+        self, published
+    ):
+        run, document, _ = published
+
+        judged = [edge for edge in document["links"] if edge["governing_decision"]]
+
+        assert judged, "the corpus produced no governed fact to check"
+        assert all(edge["evidence_hash"] for edge in judged)
+
+    def test_the_published_hash_is_the_one_the_verdict_was_reached_under(
+        self, published
+    ):
+        """Equal to the verdict's own, because that is the value the model
+        request was keyed on - not a second hash computed on the way out."""
+
+        run, document, _ = published
+
+        hashes = {
+            fact.fact_id: fact.verdict.evidence_hash
+            for fact in run.facts
+            if fact.verdict is not None
+        }
+
+        for edge in document["links"]:
+            if edge["fact_id"] in hashes:
+                assert edge["evidence_hash"] == hashes[edge["fact_id"]]
+
+    def test_an_edge_no_model_was_asked_about_carries_no_hash(self, published):
+        """Nothing was sealed and nothing was asked, so there is no call for a
+        reader to be joined to. An empty string says that; a fabricated hash
+        would send the panel looking for a transcript entry that cannot
+        exist."""
+
+        _, document, _ = published
+
+        for edge in document["links"]:
+            if not edge["governing_decision"]:
+                assert edge["evidence_hash"] == ""
+
+
 class TestTheFileStore:
     """The two properties the consumer's fail-safe rests on."""
 

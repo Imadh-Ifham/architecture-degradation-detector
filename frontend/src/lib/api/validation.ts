@@ -240,6 +240,15 @@ export interface ValidatedEdge {
    * documents predate the field and read as an empty string.
    */
   route: string
+  /**
+   * The sealed evidence package this verdict was reached from.
+   *
+   * It is the key the model request was cached on, so it is what joins an
+   * edge back to the calls in the run transcript — which is where the
+   * model's own sentences about this dependency are. Older documents predate
+   * the field and read as an empty string.
+   */
+  evidence_hash: string
   attributes: Record<string, unknown>
 }
 

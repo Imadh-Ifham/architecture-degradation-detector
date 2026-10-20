@@ -114,6 +114,7 @@ def build_graph() -> ValidatedArchitectureGraph:
                 verification_outcome="agree",
                 arbiter_agreement="agreed",
                 route="publish",
+                evidence_hash="b" * 16,
                 attributes={"interaction": "grpc"},
             ),
         ),

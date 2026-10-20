@@ -91,6 +91,7 @@
       "verification_outcome": "agree",
       "arbiter_agreement": "agreed",
       "route": "publish",
+      "evidence_hash": "bbbbbbbbbbbbbbbb",
       "attributes": {
         "interaction": "grpc"
       }
