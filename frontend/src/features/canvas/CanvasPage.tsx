@@ -29,9 +29,12 @@ import {
   Spinner,
   Tabs,
 } from '../../components/ui'
-import { listSnapshots, readPublishedGraph, readSnapshot } from '../../lib/api'
+import { readPublishedGraph, readSnapshot } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import { runKey } from '../../workspace/context'
+import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
+import ReleasePicker from '../../components/ReleasePicker'
 import Handover from './Handover'
 import { provenanceGraph, recoveredGraph, validatedGraph } from './graphs'
 
@@ -48,19 +51,16 @@ const CAPTION: Record<View, string> = {
 }
 
 export default function CanvasPage() {
-  const { repository, repositoryKey, release, run } = useWorkspace()
+  const { repository, repositoryKey, runs } = useWorkspace()
+  const { snapshots, releases, release, selectRelease } = useReleases()
+  const run = runs[runKey(repositoryKey, release)] ?? null
+
   const [view, setView] = useState<View>('recovered')
   const [selected, setSelected] = useState<string | null>(null)
 
-  const history = useRequest(
-    (options) => listSnapshots(repositoryKey, options),
-    [repositoryKey],
-    Boolean(repositoryKey),
-  )
-
   const snapshotId = useMemo(
-    () => history.data?.find((item) => item.release_id === release)?.snapshot_id ?? null,
-    [history.data, release],
+    () => snapshots.find((item) => item.release_id === release)?.snapshot_id ?? null,
+    [snapshots, release],
   )
 
   const snapshot = useRequest(
@@ -70,8 +70,8 @@ export default function CanvasPage() {
   )
 
   const published = useRequest(
-    (options) => readPublishedGraph(repository?.id ?? '', release ?? '', options),
-    [repository?.id, release, run?.run_id],
+    (options) => readPublishedGraph(repositoryKey, release ?? '', options),
+    [repositoryKey, release, run?.run_id],
     Boolean(repository && release),
   )
 
@@ -86,17 +86,19 @@ export default function CanvasPage() {
       : provenanceGraph(published.data)
   }, [view, snapshot.data, published.data])
 
-  if (!repository) {
+  if (!repository || releases.length === 0) {
     return (
       <>
         <PageHeading eyebrow="graphs" title="Canvas" />
         <Card>
           <EmptyState
-            title="No system selected"
-            body="Every graph here is one release of one system, so there has to be one first."
+            title={repository ? 'No recovered release yet' : 'No system selected'}
+            body="Every graph here is one release of one system, so a release has to have been recovered first."
             action={
-              <Link to="/repositories">
-                <Button variant="primary">Add a repository</Button>
+              <Link to={repository ? '/' : '/repositories'}>
+                <Button variant="primary">
+                  {repository ? 'Run the pipeline' : 'Add a repository'}
+                </Button>
               </Link>
             }
           />
@@ -115,11 +117,14 @@ export default function CanvasPage() {
         title="Canvas"
         description={`Every graph produced for ${release ?? 'this release'}, drawn the same way and in the same positions, so switching between them reads as one picture gaining information.`}
         action={
-          published.data ? (
-            <Pill tone="ok">
-              confidence {published.data.graph.validation_confidence.toFixed(2)}
-            </Pill>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-5">
+            <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
+            {published.data ? (
+              <Pill tone="ok">
+                confidence {published.data.graph.validation_confidence.toFixed(2)}
+              </Pill>
+            ) : undefined}
+          </div>
         }
       />
 

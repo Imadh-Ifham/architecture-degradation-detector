@@ -156,7 +156,7 @@ export const PHASES: readonly PhaseDefinition[] = [
   },
   {
     id: 'prioritise',
-    label: 'Prioritise',
+    label: 'Score',
     input: 'what degraded',
     output: 'a ranked list with reasons',
     page: '/priorities',

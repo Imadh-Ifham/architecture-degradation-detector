@@ -15,10 +15,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RepositoryIngestionRequest(BaseModel):
-    """Body of `POST /repositories`."""
+    """Body of `POST /repositories`.
+
+    `revision` pins one tag or commit instead of following a branch tip. It is
+    optional because both acts are ingestion; a pipeline that analyses
+    releases always supplies it, and the record it produces keeps its own
+    checkout so other releases are untouched.
+    """
 
     url: str = Field(min_length=1, max_length=2048)
     branch: str = Field(min_length=1, max_length=255)
+    revision: str | None = Field(default=None, max_length=255)
 
 
 class RepositoryReleaseRequest(BaseModel):

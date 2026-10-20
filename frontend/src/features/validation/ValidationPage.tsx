@@ -42,15 +42,20 @@ import {
   type ValidationRun,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import { runKey } from '../../workspace/context'
+import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
+import ReleasePicker from '../../components/ReleasePicker'
 import ModelComparison from './ModelComparison'
 
 export default function ValidationPage() {
-  const { repository, release, run, isRecovered, isRunning } = useWorkspace()
+  const { repository, repositoryKey, runs } = useWorkspace()
+  const { releases, release, selectRelease } = useReleases()
+  const run = runs[runKey(repositoryKey, release)] ?? null
 
   const published = useRequest(
-    (options) => readPublishedGraph(repository?.id ?? '', release ?? '', options),
-    [repository?.id, release, run?.run_id],
+    (options) => readPublishedGraph(repositoryKey, release ?? '', options),
+    [repositoryKey, release, run?.run_id],
     Boolean(repository && release),
   )
 
@@ -59,18 +64,18 @@ export default function ValidationPage() {
   // behind on a screen nobody thought to update.
   const pipeline = useRequest((options) => describePipeline(options), [])
 
-  if (!repository || !isRecovered) {
+  if (!repository || releases.length === 0) {
     return (
       <>
         <PageHeading eyebrow="judging" title="Validation" />
         <Card>
           <EmptyState
-            title={repository ? 'No architecture for this release yet' : 'No system selected'}
+            title={repository ? 'No recovered release yet' : 'No system selected'}
             body="Validation reads a recovered architecture and the decisions recorded about it, so both have to exist first."
             action={
-              <Link to="/repositories">
+              <Link to={repository ? '/' : '/repositories'}>
                 <Button variant="primary">
-                  {repository ? 'Add a release' : 'Add a repository'}
+                  {repository ? 'Run the pipeline' : 'Add a repository'}
                 </Button>
               </Link>
             }
@@ -89,13 +94,12 @@ export default function ValidationPage() {
         title="Validation"
         description={`What was judged about ${release}, who judged it, and what checked that judgement.`}
         action={
-          isRunning ? (
-            <Spinner label="running" />
-          ) : (
+          <div className="flex flex-wrap items-center gap-5">
+            <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
             <Link to="/decisions">
               <Button variant="primary">{run ? 'Run again' : 'Start validation'}</Button>
             </Link>
-          )
+          </div>
         }
       />
 
