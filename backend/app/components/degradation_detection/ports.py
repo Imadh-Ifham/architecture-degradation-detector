@@ -34,7 +34,21 @@ class ReleaseRepository(Protocol):
     ) -> None:
         """Store one release and the JSON it was built from, in a single transaction.
 
-        Fails if the release is already stored: replacing a release is not supported yet.
+        Fails if the release is already stored; ``replace`` is the way to overwrite one.
+        """
+        ...
+
+    def replace(
+        self,
+        release: CanonicalRelease,
+        raw_payload: Mapping[str, Any],
+        ingested_at: dt.datetime,
+    ) -> None:
+        """Overwrite a stored release and the JSON it was built from, in a single transaction.
+
+        Used when C2 validates a release again: the new package is the release as it now stands.
+        Runs already stored keep the package hashes they were computed from, so they can still
+        be told apart from the new one. Fails if the release was never stored.
         """
         ...
 
@@ -70,4 +84,8 @@ class AnalysisRunRepository(Protocol):
     def load_artifacts(self, run_id: str) -> dict[str, Any] | None:
         """The JSON artifacts of a stored run by name, empty if it did not complete; None if
         the run was never stored."""
+        ...
+
+    def latest_run_id(self, system_id: str) -> str | None:
+        """The id of the most recently started COMPLETED run of one system, or None."""
         ...
