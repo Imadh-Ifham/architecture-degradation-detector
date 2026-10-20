@@ -1,0 +1,88 @@
+# C3 demo configuration: configs/default.yaml with one change, trend.min_releases 3.
+#
+# The API runs detection with this file (setting `degradation_config_path`), so a demonstration
+# with three or four validated releases gets trend results at all. Mann-Kendall on three points
+# can only reach p = 1/3 two-sided, so on this config a trend can be computed and shown but not
+# be significant at alpha 0.05 until enough releases exist; the screen says so.
+#
+# The research configuration stays configs/default.yaml (min_releases 8, plan D-03). The
+# config_hash stored on every run tells the two apart.
+
+schema_version: "1.1.0"
+
+ingest:
+  release_line_regex: "^v?\\d+\\.\\d+\\.\\d+$"   # main release line only [D-06]
+  max_package_bytes: 20000000
+
+gate:                                            # validation confidence [D-07]
+  accept: 0.70                                   # >= accept: ACCEPTED
+  exclude: 0.50                                  # >= exclude: DOWNWEIGHTED, below: EXCLUDED
+
+metrics:
+  normalised_coupling: true                      # [D-04]
+  c1_passthrough:                                # [D-21]
+    - {name: "c1.lcom", unit: "lcom", worsening: "INCREASE"}
+
+detection:                                       # all relative to the release's own distribution
+  hub: {iqr_k: 1.5}
+  unstable: {ratio: 0.3}
+  oversized: {z_max: 3.5}
+  big_ball_of_mud: {largest_scc_share_min: 0.25, modularity_max: 0.30}   # [D-24]
+  modularity: {algorithm: "greedy"}                                       # [D-27]
+
+align:
+  weights: {name: 0.4, neighbours: 0.4, size: 0.2}
+  rename_min: 0.75
+  ambiguity_margin: 0.05
+  part_min: 0.5
+  split_min: 0.5
+
+tracking:
+  instance_jaccard_min: 0.5                      # [D-22]
+
+trend:
+  alpha: 0.05
+  gate_on: "q"                                   # [D-02]
+  sidedness: "two-sided"                         # [D-01]
+  min_releases: 3                                # demo; research value 8 [D-03]
+  exact_below: 10
+  n_perm: 20000
+  seed: 20261013
+  time_axis: "ordinal"                           # [D-05]
+  bh_family: "run"                               # [D-26]
+
+cp: {enabled: false, penalty_c: 2.0, min_size: 2}             # post-PP1
+
+baseline:                                        # comparison only: never decides degradation
+  static:                                        # flags an element above a fixed threshold
+    rules:                                       # at the last release (plan T-13)
+      - {metric: "fan_in", above: 10}
+      - {metric: "size", above: 10000}
+
+context: {enabled: false, buffer_days: 90, strict: false}     # false = trend-only baseline [D-28]
+
+retrieval:                                       # post-PP1
+  mode: "dense"                                  # [D-13]
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_revision: null                       # pinned when M5 is built
+  chunk_tokens: 280
+  chunk_overlap: 50
+  top_k: 6
+  min_score: 0.35
+
+llm:                                             # post-PP1
+  provider: "anthropic"                          # [D-12]
+  model: null                                    # pinned when M5 is built
+  temperature: 0.0
+  max_tokens: 600
+  prompt_version: "classify_v1"
+  cache_mode: "record"
+  timeout_s: 60
+  max_retries: 3
+  max_calls_per_run: 500
+
+review:                                          # post-PP1 [D-19]
+  note_required_for: ["REJECTED", "NEEDS_INVESTIGATION"]
+  note_min_chars: 10
+
+eval: {mode: false}                              # [D-16]

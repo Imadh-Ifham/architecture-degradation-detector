@@ -54,9 +54,7 @@ class ConfigIniSettingsSource(PydanticBaseSettingsSource):
     because the file is shared and may be ahead of a given deployment.
     """
 
-    def __init__(
-        self, settings_cls: type[BaseSettings], path: Path = CONFIG_INI_PATH
-    ) -> None:
+    def __init__(self, settings_cls: type[BaseSettings], path: Path = CONFIG_INI_PATH) -> None:
         """Store the settings class and the INI path to read."""
 
         super().__init__(settings_cls)
@@ -88,12 +86,11 @@ class ConfigIniSettingsSource(PydanticBaseSettingsSource):
 
         return values
 
-    def get_field_value(
-        self, field: FieldInfo, field_name: str
-    ) -> tuple[Any, str, bool]:
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
         """Unused: `__call__` returns the whole mapping instead."""
 
         return None, field_name, False
+
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
@@ -152,6 +149,15 @@ class Settings(BaseSettings):
     # Manifest analysis limits.
     manifest_max_bytes: int = 1_048_576
     manifest_max_documents: int = 64
+
+    # Degradation detection (C3), when run from the API. The demo file is the
+    # research defaults with `trend.min_releases` lowered to 3, so a stack of a
+    # few validated releases gets trend results; the CLI keeps reading
+    # configs/default.yaml. Every run stores the hash of the config it used.
+    degradation_config_path: Path = BACKEND_ROOT / "configs" / "demo.yaml"
+    # Where an API run writes what the scoring phase reads: events.json and the
+    # release package of the window's last release, per run and as `latest`.
+    degradation_outputs_root: Path = BACKEND_ROOT / "artifacts" / "degradation"
 
     # Degradation scoring (C4); see the [scoring] section of config.ini. The
     # defaults are the values fixed in

@@ -16,6 +16,7 @@ $c3Shared = @(
     "app/infrastructure/postgres/models/c3_release.py",
     "app/infrastructure/postgres/repositories/c3_analysis_run_repository.py",
     "app/infrastructure/postgres/repositories/c3_release_repository.py",
+    "app/api/degradation.py",
     "alembic/versions/0001_c3_ingestion.py", "alembic/versions/0002_c3_analysis_run.py"
 )
 $c3Source = @(
@@ -25,6 +26,7 @@ $c3Source = @(
 # Integration tests (PostgreSQL) are linted here but run only with -All.
 $c3Tests = @(
     "tests/components/degradation_detection", "tests/core/test_logging.py", "tests/domain",
+    "tests/api/test_degradation.py",
     "tests/scripts", "tests/shared"
 )
 $c3IntegrationTests = @(

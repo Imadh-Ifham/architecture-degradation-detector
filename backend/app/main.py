@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.degradation import router as degradation_router
 from app.api.health import router as health_router
 from app.api.repositories import router as repositories_router
 from app.api.validations import router as validations_router
@@ -23,6 +24,14 @@ TAGS = [
             "call a language model and the rest are deterministic code."
         ),
     },
+    {
+        "name": "Degradation",
+        "description": (
+            "Detect anti-patterns in every validated release of one system, "
+            "track them across releases, and report only what is statistically "
+            "getting worse."
+        ),
+    },
 ]
 
 app = FastAPI(
@@ -34,6 +43,7 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(repositories_router)
 app.include_router(validations_router)
+app.include_router(degradation_router)
 
 
 @app.get("/")
