@@ -19,6 +19,13 @@
  *
  *   **Every number is what the backend would actually find**, asked for before
  *   anything is run and without writing anything.
+ *
+ *   **And every number can be opened.** Most of these rules were reconstructed
+ *   rather than written by a person, so a count is an assertion until the file
+ *   and the line behind each one can be read — which is what the rule list is
+ *   for. The step that would read a prose decision record is drawn below it and
+ *   does not run, because a screen that silently discards the documents a team
+ *   did write misreports what is possible.
  */
 
 import { useState } from 'react'
