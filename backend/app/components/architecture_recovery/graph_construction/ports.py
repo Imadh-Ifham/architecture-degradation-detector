@@ -30,6 +30,12 @@ class ArchitectureSnapshotStore(Protocol):
 
     **Isolation.** Every read is scoped by `repository_id`. Two repositories
     that share a release tag and a component name stay separate histories.
+
+    **Removal only removes.** `delete_snapshot` and `delete_repository` exist
+    because a clone that is deleted from the machine must not leave its graph
+    behind - history nobody can reach is a leak, not a record. Neither method
+    may touch another repository, and neither may touch the validated graph
+    that a different component owns.
     """
 
     def publish(self, snapshot: ArchitectureSnapshot) -> str:
@@ -44,6 +50,20 @@ class ArchitectureSnapshotStore(Protocol):
 
     def history(self, repository_id: str) -> Sequence[SnapshotSummary]:
         """Return every snapshot of a repository, oldest first."""
+        ...
+
+    def delete_snapshot(self, repository_id: str, snapshot_id: str) -> bool:
+        """Delete one snapshot and the elements it owns.
+
+        Returns whether a snapshot was there to delete.
+        """
+        ...
+
+    def delete_repository(self, repository_id: str) -> int:
+        """Delete every snapshot of a repository.
+
+        Returns how many snapshots were removed.
+        """
         ...
 
 

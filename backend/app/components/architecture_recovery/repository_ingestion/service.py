@@ -196,6 +196,27 @@ class RepositoryIngestionService:
 
         return repositories
 
+    def get(self, repository_id: str) -> IngestedRepository:
+        """Return one ingested repository.
+
+        Raises `RepositoryNotFound` when no such repository exists.
+        """
+
+        directory = self._existing_directory(repository_id)
+        metadata_path = directory / METADATA_FILE_NAME
+
+        if not metadata_path.is_file():
+            raise RepositoryNotFound(
+                f"No ingested repository with id '{repository_id}'."
+            )
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+        return IngestedRepository.from_metadata(
+            metadata,
+            directory / SOURCE_DIRECTORY_NAME,
+        )
+
     def remove(self, repository_id: str) -> None:
         """Delete an ingested repository from the machine.
 

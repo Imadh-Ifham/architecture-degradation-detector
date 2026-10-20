@@ -336,3 +336,144 @@ def test_an_element_can_be_followed_across_releases(sessions) -> None:
     assert len(rows) == 2
     assert {row["size"] for row in rows} == {2.0}
     assert frontend_size == 2
+
+
+def test_deleting_a_repository_removes_every_snapshot_it_owned(sessions) -> None:
+    publisher = store(sessions)
+
+    publisher.publish(build(release(commit="a" * 40), inputs()))
+    publisher.publish(
+        build(release(commit="b" * 40, tag="v1.1.0", released=V2), inputs(with_cart=True))
+    )
+
+    assert publisher.delete_repository(REPOSITORY) == 2
+
+    with sessions() as session:
+        snapshots = session.run(
+            "MATCH (s:ArchitectureSnapshot {repository_id: $repository_id}) "
+            "RETURN count(s) AS count",
+            repository_id=REPOSITORY,
+        ).single()["count"]
+        elements = session.run(
+            "MATCH (e:ArchitectureElement {repository_id: $repository_id}) "
+            "RETURN count(e) AS count",
+            repository_id=REPOSITORY,
+        ).single()["count"]
+        anchors = session.run(
+            "MATCH (r:Repository {repository_id: $repository_id}) "
+            "RETURN count(r) AS count",
+            repository_id=REPOSITORY,
+        ).single()["count"]
+
+    assert snapshots == 0
+    # An element left behind is unreachable from any snapshot and no query
+    # ever collects it, so it has to go with the snapshot that owned it.
+    assert elements == 0
+    assert anchors == 0
+    assert publisher.history(REPOSITORY) == []
+
+
+def test_deleting_one_snapshot_keeps_the_others_and_relinks_the_chain(
+    sessions,
+) -> None:
+    publisher = store(sessions)
+
+    first = build(release(commit="a" * 40), inputs())
+    middle = build(release(commit="b" * 40, tag="v1.1.0", released=V2), inputs())
+    last = build(release(commit="c" * 40, tag="v1.2.0", released=V2), inputs())
+
+    for snapshot in (first, middle, last):
+        publisher.publish(snapshot)
+
+    assert publisher.delete_snapshot(REPOSITORY, middle.snapshot_id) is True
+
+    remaining = {item.release_tag for item in publisher.history(REPOSITORY)}
+
+    assert remaining == {"v1.0.0", "v1.2.0"}
+
+    with sessions() as session:
+        chain = list(
+            session.run(
+                "MATCH (later:ArchitectureSnapshot {repository_id: $repository_id})"
+                "-[:PRECEDED_BY]->(earlier:ArchitectureSnapshot) "
+                "RETURN later.snapshot_id AS later, earlier.snapshot_id AS earlier",
+                repository_id=REPOSITORY,
+            )
+        )
+
+    # Deleting the middle of the chain detaches both of its links, so the
+    # survivor has to be relinked or a chronology query silently skips a
+    # release.
+    assert {row["later"]: row["earlier"] for row in chain} == {
+        last.snapshot_id: first.snapshot_id
+    }
+
+
+def test_deleting_a_snapshot_leaves_no_orphan_elements(sessions) -> None:
+    publisher = store(sessions)
+
+    snapshot = build(release(commit="a" * 40), inputs())
+    publisher.publish(snapshot)
+
+    publisher.delete_snapshot(REPOSITORY, snapshot.snapshot_id)
+
+    with sessions() as session:
+        elements = session.run(
+            "MATCH (e:ArchitectureElement {repository_id: $repository_id}) "
+            "RETURN count(e) AS count",
+            repository_id=REPOSITORY,
+        ).single()["count"]
+
+    assert elements == 0
+
+
+def test_deleting_a_missing_snapshot_reports_nothing_to_delete(sessions) -> None:
+    publisher = store(sessions)
+
+    assert publisher.delete_snapshot(REPOSITORY, "snapshot:not-there") is False
+    assert publisher.delete_repository(REPOSITORY) == 0
+
+
+def test_deleting_a_repository_leaves_another_repository_alone(sessions) -> None:
+    publisher = store(sessions)
+
+    publisher.publish(build(release(commit="a" * 40), inputs()))
+    publisher.publish(
+        build(release(repository_id=OTHER_REPOSITORY, commit="d" * 40), inputs())
+    )
+
+    publisher.delete_repository(REPOSITORY)
+
+    assert len(publisher.history(OTHER_REPOSITORY)) == 1
+    assert publisher.history(REPOSITORY) == []
+
+
+def test_deleting_recovery_history_keeps_a_shared_repository_anchor(sessions) -> None:
+    """The validated projection hangs its own releases off the same node.
+
+    Removing recovery's history must not take the anchor with it while another
+    component still points at it, or that component's graph is orphaned.
+    """
+
+    publisher = store(sessions)
+    publisher.publish(build(release(commit="a" * 40), inputs()))
+
+    with sessions() as session:
+        session.run(
+            "MERGE (repository:Repository {repository_id: $repository_id}) "
+            "MERGE (release:Release {repository_id: $repository_id, "
+            "release_id: 'v1.0.0'}) "
+            "MERGE (repository)-[:HAS_RELEASE]->(release)",
+            repository_id=REPOSITORY,
+        )
+
+    publisher.delete_repository(REPOSITORY)
+
+    with sessions() as session:
+        anchors = session.run(
+            "MATCH (r:Repository {repository_id: $repository_id}) "
+            "RETURN count(r) AS count",
+            repository_id=REPOSITORY,
+        ).single()["count"]
+
+    assert anchors == 1

@@ -385,8 +385,34 @@ def read_snapshot(
 def remove_repository(
     repository_id: str,
     service: RepositoryIngestionService = Depends(get_repository_ingestion_service),
+    store: ArchitectureSnapshotStore = Depends(get_architecture_snapshot_store),
 ) -> None:
-    """Remove an ingested repository from the machine."""
+    """Remove an ingested repository from the machine and from the graph.
+
+    The clone and its snapshot go together: a snapshot nobody can reach is a
+    leak, and a clone whose history silently survived would be the same leak
+    found later.
+    """
+
+    try:
+        repository = service.get(repository_id)
+    except RepositoryNotFound as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+
+    # Purge before deleting the files. If the graph store is unreachable the
+    # clone stays, so the caller can retry; the reverse order would delete the
+    # only thing that could still be used to rebuild the history.
+    try:
+        _purge_snapshots(store, service, repository)
+    except Exception as error:  # noqa: BLE001 - any driver failure is one outcome
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not remove the stored history of '{repository_id}': "
+            f"{error}",
+        ) from error
 
     try:
         service.remove(repository_id)
@@ -395,6 +421,38 @@ def remove_repository(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(error),
         ) from error
+
+
+def _purge_snapshots(
+    store: ArchitectureSnapshotStore,
+    service: RepositoryIngestionService,
+    repository: IngestedRepository,
+) -> None:
+    """Delete the snapshots this clone is the last evidence for.
+
+    One repository's history outlives any single clone. Removing the checkout
+    of `v1.0.0` must not erase the snapshot of `v1.2.0`, which is still
+    ingested and whose artifacts are still on disk - the two would then
+    disagree about what has been analysed.
+
+    So a clone removes its own revision's snapshots, and the whole history is
+    dropped only when no clone of that repository remains.
+    """
+
+    key = repository.repository_key
+    remaining = [
+        other
+        for other in service.list_ingested()
+        if other.id != repository.id and other.repository_key == key
+    ]
+
+    if not remaining:
+        store.delete_repository(key)
+        return
+
+    for summary in store.history(key):
+        if summary.commit_sha == repository.commit:
+            store.delete_snapshot(key, summary.snapshot_id)
 
 
 def _inventory_after_ingest(
