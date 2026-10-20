@@ -34,7 +34,7 @@ class RepositoryDecisionRecords:
     def collect(self, request: SourceRequest) -> SourceOutcome:
         """Read every decision record the code repository holds."""
 
-        records, in_adr_directory = collect_decision_documents(
+        records, in_adr_directory, markdown_seen = collect_decision_documents(
             self._reader, request.code_repository_id, request, self.name
         )
 
@@ -43,7 +43,7 @@ class RepositoryDecisionRecords:
             ran=True,
             records=records,
             reason=declared_source_reason(
-                records, in_adr_directory, "this repository"
+                records, in_adr_directory, markdown_seen, "this repository"
             ),
         )
 

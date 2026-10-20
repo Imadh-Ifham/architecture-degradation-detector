@@ -452,7 +452,11 @@ class TestDeclaredRecords:
 
         assert outcome.ran is True
         assert outcome.records == ()
-        assert outcome.reason == "no decision records in this repository"
+        assert (outcome.reason or "").startswith("no decision records in this repository")
+        assert "none of them in a directory kept for decisions" in (outcome.reason or ""), (
+            "the release has markdown; saying only 'no decision records' reads "
+            "as the reader having missed it"
+        )
 
     def test_a_record_is_read_with_its_interval_and_its_provenance(self):
         document = (
@@ -634,7 +638,9 @@ class TestWhatEachModeWouldFind:
 
         assert available["repo_adr"].ran is True
         assert available["repo_adr"].records == 0
-        assert available["repo_adr"].reason == "no decision records in this repository"
+        assert (available["repo_adr"].reason or "").startswith(
+            "no decision records in this repository"
+        )
 
     @pytest.mark.parametrize("release", RELEASES)
     def test_the_combined_mode_is_the_only_one_with_anything_in_it(self, release):

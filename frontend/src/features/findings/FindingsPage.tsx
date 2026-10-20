@@ -105,7 +105,14 @@ export default function FindingsPage() {
         title="Findings"
         description={`Every dependency in ${release ?? 'this release'}, with what was concluded about it and the evidence that conclusion rests on.`}
         action={
-          <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
+          <div className="flex flex-wrap items-center gap-5">
+            <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
+            <Link to="/">
+              <Button size="sm" variant="quiet">
+                Back to the pipeline
+              </Button>
+            </Link>
+          </div>
         }
       />
 

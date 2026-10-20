@@ -207,10 +207,18 @@ export default function ArchitecturePage() {
               releases={releases}
               value={release}
               onChange={(next) => {
+                // Cleared because a selection is an id from the release that
+                // was showing, and ids are not stable across releases: kept,
+                // it either resolves to a different element or to nothing.
                 setSelection(null)
                 selectRelease(next)
               }}
             />
+            <Link to="/">
+              <Button size="sm" variant="quiet">
+                Back to the pipeline
+              </Button>
+            </Link>
           </div>
         }
       />

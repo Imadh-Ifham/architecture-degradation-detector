@@ -39,6 +39,7 @@ from app.components.architecture_validation.decision_knowledge._events import (
     DECISION_SUPERSEDED,
     RELEASE_SCANNED,
     record_hash,
+    recorded_event,
 )
 from app.components.architecture_validation.decision_knowledge._index import (
     DecisionIndex,
@@ -134,6 +135,7 @@ def rule(
     source: str = "config_scan",
     constraint: ConstraintKind = ConstraintKind.MAY_CALL,
     release: str = "v1.0.0",
+    source_ref: str | None = None,
 ) -> object:
     """One record, built the way a source builds it."""
 
@@ -145,7 +147,7 @@ def rule(
         object_=object_,
         source=source,
         source_repository=REPOSITORY,
-        source_ref=f"{decision_id}.yaml",
+        source_ref=source_ref or f"{decision_id}.yaml",
         source_tier=SourceTier.EXECUTABLE_CONFIG,
         source_strength=EvidenceStrength.AUTHORITATIVE,
         extraction_method=ExtractionMethod.RECONSTRUCTED,
@@ -313,6 +315,134 @@ class TestTheLogAndTheIndex:
 
         assert service.history(REPOSITORY).releases_seen == ("v1.0.0", "v1.1.0")
         assert [e["event"] for e in store.events].count(RELEASE_SCANNED) == 2
+
+    def test_scanning_an_older_release_second_does_not_open_a_rival_interval(self):
+        """The order a stack is validated in is the architect's, not the log's.
+
+        A rule first seen at `v1.1.0` opens an interval there. Scanning
+        `v1.0.0` afterwards finds the same rule, stated by the same source -
+        it is the same rule known to be older, not a second one. Recording it
+        again leaves two open intervals over one pair, and every fact about
+        that pair resolves to `ambiguous` from then on, at every release.
+
+        This was the whole stack reading `ambiguous` with confidence 0.0 after
+        a release was validated out of order.
+        """
+
+        store = ListStore()
+        service = service_with(store)
+
+        later = SourceRequest(REPOSITORY, "v1.1.0", SCANNED_AT)
+        service.append_scan(
+            later, (from_source("config_scan", rule("same", release="v1.1.0")),)
+        )
+
+        earlier = SourceRequest(REPOSITORY, "v1.0.0", SCANNED_AT)
+        service.append_scan(
+            earlier, (from_source("config_scan", rule("same", release="v1.0.0")),)
+        )
+
+        versions = service.history(REPOSITORY).versions_of("a", "may_call", "b")
+
+        assert len(versions) == 1, (
+            "one rule, one interval - a second open interval over the same "
+            "pair is what the resolver reports as ambiguous"
+        )
+        assert versions[0].valid_from == "v1.0.0", (
+            "the interval opens where the rule is now known to start"
+        )
+        assert versions[0].valid_to is None
+
+    def test_a_rule_found_at_an_older_release_governs_that_release(self):
+        """Backdating has to move the interval, not just suppress the rival.
+
+        Declining to record the rule again and leaving the interval where it
+        was would make the earlier release `uncovered` instead of `ambiguous`
+        - a different wrong answer, and one that reads as a finding about the
+        repository rather than a fault in the log.
+        """
+
+        service = service_with()
+
+        service.append_scan(
+            SourceRequest(REPOSITORY, "v1.1.0", SCANNED_AT),
+            (from_source("config_scan", rule("same", release="v1.1.0")),),
+        )
+        service.append_scan(
+            SourceRequest(REPOSITORY, "v1.0.0", SCANNED_AT),
+            (from_source("config_scan", rule("same", release="v1.0.0")),),
+        )
+
+        version = service.history(REPOSITORY).versions_of("a", "may_call", "b")[0]
+
+        assert version.covers("v1.0.0"), "the release it was just found at"
+        assert version.covers("v1.1.0"), "and the one it was first seen at"
+
+    def test_a_log_that_already_holds_duplicates_still_replays_to_one_rule(self):
+        """Replay has to be idempotent, not only append-only.
+
+        A log written *before* the scan knew how to backdate holds the same
+        rule recorded once per release. Reading those as rivals makes every
+        fact about the pair `ambiguous` for ever - a log that can never be read
+        correctly again, and that no amount of fixing the **writer** repairs.
+
+        So the events are built here the way that writer built them, rather
+        than through `append_scan`: going through the scan would exercise the
+        fix that stops them being written and never reach the one that reads
+        them.
+        """
+
+        duplicates = [
+            recorded_event(rule("same", release=release), sequence)
+            for sequence, release in enumerate(("v1.2.0", "v1.0.0", "v1.1.0"), start=1)
+        ]
+
+        assert len({event["record_hash"] for event in duplicates}) == 1, (
+            "one rule from one file - the same hash recorded three times, "
+            "which is what the broken log on disk holds"
+        )
+
+        versions = DecisionIndex.from_events(duplicates).versions_of(
+            "a", "may_call", "b"
+        )
+        still_open = [v for v in versions if v.valid_to is None]
+
+        assert len(still_open) == 1, (
+            "two open intervals over one pair is what the resolver reports "
+            "as ambiguous"
+        )
+        assert still_open[0].valid_from == "v1.0.0", (
+            "and it holds from the earliest release that stated it"
+        )
+
+    def test_two_files_stating_one_rule_stay_two_records(self):
+        """The distinction `record_hash` exists to make, kept.
+
+        Collapsing duplicates must not collapse a rule genuinely stated in two
+        places: a release that drops one of them has changed something, and a
+        reader that merged them could not report it.
+        """
+
+        store = ListStore()
+        service = service_with(store)
+        service.append_scan(
+            SourceRequest(REPOSITORY, "v1.0.0", SCANNED_AT),
+            (
+                from_source(
+                    "config_scan",
+                    rule("same", release="v1.0.0"),
+                    rule("same", release="v1.0.0", source_ref="elsewhere.yaml"),
+                ),
+            ),
+        )
+
+        versions = service.history(REPOSITORY).versions_of("a", "may_call", "b")
+
+        assert len(versions) == 2
+        assert {v.record.source_ref for v in versions} == {
+            "same.yaml",
+            "elsewhere.yaml",
+        }
 
     def test_a_permission_is_not_indexed_in_both_directions(self):
         """None of the four constraints is symmetric. Indexing both orderings

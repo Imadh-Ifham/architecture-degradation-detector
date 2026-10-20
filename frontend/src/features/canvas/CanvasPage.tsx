@@ -119,6 +119,11 @@ export default function CanvasPage() {
         action={
           <div className="flex flex-wrap items-center gap-5">
             <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
+            <Link to="/">
+              <Button size="sm" variant="quiet">
+                Back to the pipeline
+              </Button>
+            </Link>
             {published.data ? (
               <Pill tone="ok">
                 confidence {published.data.graph.validation_confidence.toFixed(2)}

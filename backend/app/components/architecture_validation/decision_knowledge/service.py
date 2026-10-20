@@ -27,6 +27,7 @@ from ..ports import DecisionKnowledgeStore, SourceArtifactReader
 from datetime import datetime
 
 from ._events import (
+    DECISION_BACKDATED,
     DECISION_RECORDED,
     DECISION_SUPERSEDED,
     changes,
@@ -235,6 +236,9 @@ class DecisionKnowledgeService:
         closed = len(
             [e for e in new_events if e["event"] == DECISION_SUPERSEDED]
         )
+        backdated = len(
+            [e for e in new_events if e["event"] == DECISION_BACKDATED]
+        )
         already_seen = request.release_id in index.releases_seen
 
         if new_events or not already_seen:
@@ -244,6 +248,7 @@ class DecisionKnowledgeService:
                     sources=sorted(outcome.source for outcome in outcomes if outcome.ran),
                     recorded=recorded,
                     closed=closed,
+                    backdated=backdated,
                     sequence=len(history) + len(new_events) + 1,
                     at=request.extracted_at,
                 )
@@ -258,6 +263,7 @@ class DecisionKnowledgeService:
                 {record_hash(record) for record in records}
                 & index.covering(request.release_id)
             ),
+            backdated=backdated,
             events=tuple(new_events),
         )
 

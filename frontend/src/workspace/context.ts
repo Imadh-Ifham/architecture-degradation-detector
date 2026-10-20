@@ -21,6 +21,7 @@
 
 import { createContext } from 'react'
 import type {
+  DecisionMode,
   IngestedRepository,
   RepositoryConfiguration,
   RepositoryConfigurationInput,
@@ -38,6 +39,13 @@ export interface RepositoryOption {
   /** The repository's own identity, which every clone of it shares. */
   key: string
   url: string
+}
+
+/** What one release is judged against. */
+export interface DecisionChoice {
+  mode: DecisionMode
+  /** Only the modes that read a second repository use this. */
+  adrRepositoryId: string | null
 }
 
 export interface Workspace {
@@ -91,6 +99,44 @@ export interface Workspace {
   rememberRun: (run: ValidationRun) => void
   /** The release the last run was about, as a starting point for a screen. */
   focusedRelease: string | null
+  /**
+   * Point every result screen at one release.
+   *
+   * What makes a link from a pipeline row to the architecture of *that*
+   * release work: the screens already fall back to this when they have no
+   * local choice of their own, so a link sets it and navigates.
+   */
+  focusRelease: (releaseId: string) => void
+
+  /* What each release is judged against ---------------------------------- */
+
+  /**
+   * One choice per release, keyed by release id.
+   *
+   * **Per release rather than per run.** A stack of ten releases is not
+   * necessarily judged the same way throughout: a team adopts decision
+   * records partway through its history, so the mode that has anything to say
+   * about `v0.9.0` may not be the one that has anything to say about `v2.0.0`.
+   * One global mode would quietly validate the early releases against a source
+   * that did not exist yet.
+   */
+  decisionChoices: Record<string, DecisionChoice>
+  chooseDecision: (releaseId: string, choice: DecisionChoice) => void
+  /** Apply one choice to every release at once, for the common case. */
+  chooseDecisionForAll: (choice: DecisionChoice) => void
+
+  /** The release being validated right now, or null. One at a time. */
+  validatingRelease: string | null
+  /** Validate one release against the choice made for it. */
+  validateRelease: (releaseId: string) => Promise<boolean>
+  /**
+   * Validate every release that has a source chosen, one after another.
+   * Clones nothing: recovery already happened, and the expensive half is
+   * the model calls, which are paced one release at a time.
+   */
+  validateAllReleases: () => Promise<void>
+  /** Why the last validation failed, named with the release it was for. */
+  validationError: string | null
 
   selectRepository: (repositoryKey: string) => void
   reload: () => void

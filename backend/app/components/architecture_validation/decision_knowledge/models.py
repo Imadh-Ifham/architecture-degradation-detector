@@ -102,6 +102,13 @@ class AppendOutcome:
     recorded: int
     closed: int
     unchanged: int
+    backdated: int = 0
+    """Rules this release showed to be older than the log had recorded.
+
+    A scan of a release earlier than any seen before moves intervals back
+    rather than opening rivals, and a count that omitted it would report that
+    scan as having done nothing at all.
+    """
     events: tuple[dict, ...] = ()
 
     def to_dict(self) -> dict:

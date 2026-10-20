@@ -43,7 +43,7 @@ class ExternalDecisionRecords:
                 source=self.name, ran=False, reason="no decision repository was named"
             )
 
-        records, in_adr_directory = collect_decision_documents(
+        records, in_adr_directory, markdown_seen = collect_decision_documents(
             self._reader, request.adr_repository_id, request, self.name
         )
 
@@ -52,7 +52,7 @@ class ExternalDecisionRecords:
             ran=True,
             records=records,
             reason=declared_source_reason(
-                records, in_adr_directory, "that repository"
+                records, in_adr_directory, markdown_seen, "that repository"
             ),
         )
 

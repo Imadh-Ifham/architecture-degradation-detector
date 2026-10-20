@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
+import { useNavigate } from 'react-router'
 import {
   Button,
   Card,
@@ -46,7 +46,31 @@ export default function RepositoriesPage() {
     isLoadingConfigurations,
     addConfiguration,
     removeConfiguration,
+    startPipeline,
+    isPipelineRunning,
+    pipelineSnapshots,
+    pipelineError,
   } = useWorkspace()
+
+  const navigate = useNavigate()
+
+  // Recovery has to happen before the decisions screen can report what any
+  // release would be judged against, so the button that goes there runs it.
+  // The progress is named rather than hidden behind a spinner: cloning ten
+  // releases is minutes, and a button that looks stuck is a button somebody
+  // presses twice.
+  const working = pipelineSnapshots.find(
+    (snapshot) => snapshot.phase === 'ingesting' || snapshot.phase === 'recovering',
+  )
+  const recoveryProgress = working
+    ? `${working.phase === 'ingesting' ? 'cloning' : 'recovering'} ${
+        pipelineSnapshots.indexOf(working) + 1
+      } of ${pipelineSnapshots.length} — ${working.configuration.release_tag}`
+    : 'starting'
+
+  const goToDecisions = async () => {
+    if (await startPipeline()) navigate('/decisions')
+  }
 
   const [url, setUrl] = useState('')
   const [branch, setBranch] = useState('main')
@@ -191,9 +215,14 @@ export default function RepositoriesPage() {
               <span className="font-mono text-xs">
                 {saved.release_tag} · {saved.branch}
               </span>
-              <Link to="/" className="text-xs text-ink underline-offset-4 hover:underline">
-                add another, then run the pipeline →
-              </Link>
+              {/* No shortcut to the pipeline from here. A release reaches it
+                  through the decisions screen, because the pipeline validates
+                  against the source chosen for each release and there is no
+                  source until somebody chooses one. A link that skipped that
+                  led to a stack the pipeline could do nothing with. */}
+              <span className="text-xs text-ink-4">
+                add another, or choose what they are judged against below
+              </span>
             </p>
           )}
         </form>
@@ -252,12 +281,30 @@ export default function RepositoriesPage() {
         </ol>
 
         {configurations.length > 0 && (
-          <div className="mt-7 border-t border-line pt-6">
-            <Link to="/">
-              <Button variant="primary" size="sm">
-                Open the pipeline
+          <div className="mt-7 flex flex-col gap-4 border-t border-line pt-6">
+            <div className="flex flex-wrap items-center gap-5">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={isPipelineRunning}
+                onClick={goToDecisions}
+              >
+                {isPipelineRunning ? 'Recovering…' : 'Select the decision knowledge'}
               </Button>
-            </Link>
+              {isPipelineRunning && <Spinner label={recoveryProgress} />}
+            </div>
+
+            <p className="max-w-prose text-xs leading-relaxed text-ink-4">
+              {/* Said plainly because the button does more than its name. A
+                  release has to be recovered before anything can report what
+                  it would be judged against, and cloning several is minutes
+                  rather than seconds. */}
+              Each configured release is cloned and recovered first — what a
+              release is judged against cannot be read until it exists. Then
+              you choose, per release, on the decisions screen.
+            </p>
+
+            {pipelineError && <ErrorState message={pipelineError} />}
           </div>
         )}
       </Card>
