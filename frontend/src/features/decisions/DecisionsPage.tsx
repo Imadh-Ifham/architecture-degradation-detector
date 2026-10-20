@@ -2,9 +2,14 @@
  * Decisions screen.
  *
  * Description:
- *   The one choice the analysis cannot make for a person: what this release
- *   is judged against. Three sources, each showing what it would supply
- *   **before** it is chosen, and the choice starts the run.
+ *   The one choice the analysis cannot make for a person: what a release is
+ *   judged against. Three sources, each showing what it would supply
+ *   **before** it is chosen, and choosing one runs that release's validation.
+ *
+ *   **The release is chosen here, for this screen only.** The header selects a
+ *   repository; how many releases it has, and which one this screen is about,
+ *   is this screen's business. Validating v0.9.0 here does not change what any
+ *   other screen is showing.
  *
  *   **The empty source is the interesting one.** Most repositories keep no
  *   written decision records at all, and a screen that greys that row out
@@ -12,11 +17,11 @@
  *   nothing would report "nothing contradicts the architecture" — which is
  *   indistinguishable from a clean result on a healthy system.
  *
- *   **Every number is what the backend would actually find**, asked for
- *   before anything is run and without writing anything.
+ *   **Every number is what the backend would actually find**, asked for before
+ *   anything is run and without writing anything.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
   Button,
@@ -29,8 +34,16 @@ import {
   Spinner,
   inputClass,
 } from '../../components/ui'
-import { readDecisionSources, type DecisionMode, type ModeAvailability } from '../../lib/api'
+import ReleasePicker from '../../components/ReleasePicker'
+import {
+  messageOf,
+  readDecisionSources,
+  runValidation,
+  type DecisionMode,
+  type ModeAvailability,
+} from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
 
 const MODE: Record<DecisionMode, { title: string; detail: string }> = {
@@ -51,20 +64,13 @@ const MODE: Record<DecisionMode, { title: string; detail: string }> = {
 
 export default function DecisionsPage() {
   const navigate = useNavigate()
-  const {
-    repository,
-    repositoryKey,
-    release,
-    isRecovered,
-    hasCheckout,
-    decisionMode,
-    chooseDecisionMode,
-    startRun,
-    isRunning,
-    runError,
-  } = useWorkspace()
+  const { repository, repositoryKey, repositories, rememberRun } = useWorkspace()
+  const { releases, release, snapshot, selectRelease } = useReleases()
 
   const [adrRepository, setAdrRepository] = useState('')
+  const [mode, setMode] = useState<DecisionMode | null>(null)
+  const [isRunning, setIsRunning] = useState(false)
+  const [runError, setRunError] = useState<string | null>(null)
 
   const sources = useRequest(
     (options) => readDecisionSources(repositoryKey, release ?? '', options),
@@ -72,25 +78,25 @@ export default function DecisionsPage() {
     Boolean(repository && release),
   )
 
-  // The backend already knows which source has the most to offer. Starting on
-  // its answer means the common case is one button rather than a decision.
+  // The backend already knows which source has the most to offer, so the
+  // recommendation is the default choice until somebody picks another. Derived
+  // rather than copied into state, so a later probe cannot leave a stale
+  // selection behind.
   const recommended = sources.data?.recommended ?? null
-  useEffect(() => {
-    if (recommended && !decisionMode) chooseDecisionMode(recommended)
-  }, [recommended, decisionMode, chooseDecisionMode])
+  const chosen = mode ?? recommended
 
-  if (!repository || !isRecovered) {
+  if (!repository || releases.length === 0) {
     return (
       <>
         <PageHeading eyebrow="intent" title="Decisions" />
         <Card>
           <EmptyState
-            title={repository ? 'No architecture for this release yet' : 'No system selected'}
-            body="Decisions are read for one release of one repository, so there has to be a recovered release first."
+            title={repository ? 'No recovered release yet' : 'No system selected'}
+            body="Decision sources are read for one release of one repository, so a release has to have been recovered first."
             action={
-              <Link to="/repositories">
+              <Link to={repository ? '/' : '/repositories'}>
                 <Button variant="primary">
-                  {repository ? 'Add a release' : 'Add a repository'}
+                  {repository ? 'Run the pipeline' : 'Add a repository'}
                 </Button>
               </Link>
             }
@@ -100,14 +106,37 @@ export default function DecisionsPage() {
     )
   }
 
-  const chosen = decisionMode ?? recommended
   const needsRepository = chosen === 'external_adr' && !adrRepository.trim()
 
-  const run = async () => {
-    if (!chosen) return
+  // The configuration a release is judged against is read from a working tree
+  // at that release's commit; a clone at another commit is a different file.
+  const hasCheckout = Boolean(
+    snapshot && repositories.some((clone) => clone.commit === snapshot.commit_sha),
+  )
 
-    const started = await startRun(chosen, adrRepository.trim())
-    if (started) navigate('/')
+  const run = async () => {
+    if (!chosen || !release) return
+
+    setIsRunning(true)
+    setRunError(null)
+
+    try {
+      rememberRun(
+        await runValidation({
+          repository_id: repositoryKey,
+          release_id: release,
+          decision_mode: chosen,
+          adr_repository_id: adrRepository.trim() || null,
+        }),
+      )
+      navigate('/validation')
+    } catch (cause) {
+      // The backend names the input that is missing and the release it is
+      // missing for. A message written here would throw that away.
+      setRunError(messageOf(cause))
+    } finally {
+      setIsRunning(false)
+    }
   }
 
   return (
@@ -117,13 +146,23 @@ export default function DecisionsPage() {
         title="Decisions"
         description={`What ${release} is judged against. Every source says what it would supply before it is chosen, so an empty one is visible rather than discovered.`}
         action={
-          sources.data?.recommended ? (
-            <Pill tone="ok">recommended: {MODE[sources.data.recommended].title.split(',')[0]}</Pill>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-5">
+            <ReleasePicker
+              releases={releases}
+              value={release}
+              onChange={selectRelease}
+              disabled={isRunning}
+            />
+            {sources.data?.recommended ? (
+              <Pill tone="ok">
+                recommended: {MODE[sources.data.recommended].title.split(',')[0]}
+              </Pill>
+            ) : undefined}
+          </div>
         }
       />
 
-      {!hasCheckout && release && (
+      {!hasCheckout && (
         <Card>
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3">
@@ -132,12 +171,12 @@ export default function DecisionsPage() {
             <p className="max-w-prose text-sm leading-relaxed text-ink-2">
               {release} was analysed from a revision that is not checked out
               here, so its configuration cannot be read. The run will still
-              finish, and it will report every dependency as ungoverned —
-              which looks exactly like a repository that records no decisions.
+              finish, and it will report every dependency as ungoverned — which
+              looks exactly like a repository that records no decisions.
             </p>
             <div>
-              <Link to="/repositories">
-                <Button>Add {release} as a release</Button>
+              <Link to="/">
+                <Button>Open the pipeline</Button>
               </Link>
             </div>
           </div>
@@ -150,13 +189,13 @@ export default function DecisionsPage() {
       {sources.data && (
         <>
           <div className="grid gap-7 lg:grid-cols-3">
-            {sources.data.modes.map((mode) => (
+            {sources.data.modes.map((available) => (
               <Source
-                key={mode.mode}
-                mode={mode}
-                isChosen={mode.mode === chosen}
-                isRecommended={mode.mode === sources.data?.recommended}
-                onChoose={() => chooseDecisionMode(mode.mode)}
+                key={available.mode}
+                mode={available}
+                isChosen={available.mode === chosen}
+                isRecommended={available.mode === sources.data?.recommended}
+                onChoose={() => setMode(available.mode)}
               />
             ))}
           </div>
@@ -191,7 +230,8 @@ export default function DecisionsPage() {
                   {chosen ? MODE[chosen].title.toLowerCase() : 'nothing selected'}
                 </span>
                 <span className="text-xs text-ink-4">
-                  The run takes a few seconds, then the pipeline replays what each stage did.
+                  The run takes a few seconds, then the validation screen shows what
+                  each stage did.
                 </span>
               </div>
 

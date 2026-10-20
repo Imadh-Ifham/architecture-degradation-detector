@@ -2,20 +2,24 @@
  * The application shell.
  *
  * Description:
- *   A rail of pages on the left, grouped by what somebody is doing, a thin
- *   instrument bar across the top saying what is being looked at, and one
- *   work surface. Every screen renders into the surface and nothing else
- *   moves.
+ *   A rail of pages on the left, a thin instrument bar across the top saying
+ *   which repository is being looked at, and one work surface. Every screen
+ *   renders into the surface and nothing else moves.
+ *
+ *   **The bar selects a repository, never a release.** A release is what a
+ *   screen shows, and each screen owns that choice - two screens comparing two
+ *   releases is the normal case, and one global answer makes one of them
+ *   wrong. The repository is genuinely one answer for the whole application.
  *
  *   The rail carries the state of the work as well as its names: whether a
  *   repository is selected, whether its architecture has been recovered, and
- *   whether this release has been validated. Those three answers decide what
- *   every screen can show, so a person should not have to open three screens
- *   to find them.
+ *   whether anything was validated in this session. Those three answers decide
+ *   what every screen can show, so a person should not have to open three
+ *   screens to find them.
  *
- *   The content column is width-capped and generously padded. Dense is not
- *   the same as informative: a screen with room around its figures is read,
- *   and one without it is skimmed.
+ *   The content column is width-capped and generously padded. Dense is not the
+ *   same as informative: a screen with room around its figures is read, and
+ *   one without it is skimmed.
  */
 
 import { NavLink, Outlet } from 'react-router'
@@ -24,40 +28,49 @@ import ConnectionBadge from '../components/ConnectionBadge'
 import { useWorkspace } from '../workspace/useWorkspace'
 
 export default function AppLayout() {
-  const { repository, release, releases, selectRelease } = useWorkspace()
+  const {
+    repository,
+    repositoryKey,
+    repositoryOptions,
+    selectRepository,
+    releases,
+    runs,
+    isLoading,
+  } = useWorkspace()
+
+  const validated = Object.keys(runs).some((key) =>
+    key.startsWith(`${repositoryKey}::`),
+  )
 
   return (
     <div className="min-h-svh lg:grid lg:grid-cols-[264px_minmax(0,1fr)]">
-      <Sidebar />
+      <Sidebar
+        hasRepository={Boolean(repository)}
+        releaseCount={releases.length}
+        validated={validated}
+      />
 
       <div className="flex min-w-0 flex-col">
         <header className="sticky top-0 z-30 flex flex-wrap items-center gap-6 border-b border-line bg-panel px-8 py-4">
-          <span className="flex items-baseline gap-2.5 text-sm">
-            <span className="text-xs text-ink-4">repository</span>
-            <span className="font-mono text-ink">
-              {repository ? shortName(repository.url) : 'none yet'}
-            </span>
-          </span>
-
-          <span className="h-4 w-px bg-line" />
-
           <span className="flex items-center gap-2.5 text-sm">
-            <span className="text-xs text-ink-4">release</span>
-            {releases.length > 0 ? (
+            <span className="text-xs text-ink-4">repository</span>
+            {repositoryOptions.length > 1 ? (
               <select
-                value={release ?? ''}
-                onChange={(event) => selectRelease(event.target.value)}
-                aria-label="Release"
-                className="rounded-control border border-line-strong bg-raised px-2.5 py-1 font-mono text-sm text-ink focus:border-ai focus:outline-none"
+                value={repositoryKey}
+                onChange={(event) => selectRepository(event.target.value)}
+                aria-label="Repository"
+                className="max-w-[42ch] rounded-control border border-line-strong bg-raised px-2.5 py-1 font-mono text-sm text-ink focus:border-ai focus:outline-none"
               >
-                {releases.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
+                {repositoryOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {shortName(option.url)}
                   </option>
                 ))}
               </select>
             ) : (
-              <span className="font-mono text-ink-4">not recovered yet</span>
+              <span className="font-mono text-ink">
+                {repository ? shortName(repository.url) : isLoading ? 'reading…' : 'none yet'}
+              </span>
             )}
           </span>
 
@@ -75,9 +88,15 @@ export default function AppLayout() {
   )
 }
 
-function Sidebar() {
-  const { repository, releases, run, isRecovered } = useWorkspace()
-
+function Sidebar({
+  hasRepository,
+  releaseCount,
+  validated,
+}: {
+  hasRepository: boolean
+  releaseCount: number
+  validated: boolean
+}) {
   return (
     <nav
       aria-label="Sections"
@@ -122,16 +141,16 @@ function Sidebar() {
       {/* The three answers every screen depends on, so nobody has to go and
           find out which of them is the reason a page is empty. */}
       <div className="hidden flex-col gap-3 border-t border-line px-6 py-5 lg:flex">
-        <Readiness label="repository added" met={Boolean(repository)} />
+        <Readiness label="repository added" met={hasRepository} />
         <Readiness
           label="architecture recovered"
-          met={isRecovered}
-          detail={releases.length > 0 ? `${releases.length} releases` : undefined}
+          met={releaseCount > 0}
+          detail={releaseCount > 0 ? `${releaseCount} releases` : undefined}
         />
         <Readiness
-          label="release validated"
-          met={Boolean(run)}
-          detail={run ? `${run.model_calls} model calls` : undefined}
+          label="validated in this session"
+          met={validated}
+          detail={undefined}
         />
       </div>
     </nav>

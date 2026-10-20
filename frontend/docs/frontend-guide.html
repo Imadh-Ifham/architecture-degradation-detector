@@ -198,8 +198,15 @@ git checkout -b feature/frontend-&lt;your-area&gt;
   <hr class="rule">
   <p>
     A fixed rail of <strong>pages</strong> on the left, a thin bar across the
-    top saying which repository and release are being looked at, and one work
-    surface. Nothing else moves.
+    top saying which <strong>repository</strong> is being looked at, and one
+    work surface. Nothing else moves.
+  </p>
+  <p>
+    <strong>The bar never selects a release.</strong> How many releases a
+    repository has, and which one a screen shows, is that screen's own choice
+    (<code>workspace/useReleases.ts</code> plus a
+    <code>ReleasePicker</code>). Two screens comparing two releases is the
+    normal case, and one global answer would make one of them wrong.
   </p>
 
   <h3>The sidebar names places, not steps</h3>

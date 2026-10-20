@@ -37,13 +37,19 @@ import {
   type ValidatedEdge,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import { runKey } from '../../workspace/context'
+import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
+import ReleasePicker from '../../components/ReleasePicker'
 import ReviewQueue from './ReviewQueue'
 
 type Bucket = 'all' | 'confirmed' | 'contradicted' | 'needs_review' | 'uncovered'
 
 export default function FindingsPage() {
-  const { repository, repositoryKey, release, run } = useWorkspace()
+  const { repository, repositoryKey, runs } = useWorkspace()
+  const { releases, release, selectRelease } = useReleases()
+  const run = runs[runKey(repositoryKey, release)] ?? null
+
   const [bucket, setBucket] = useState<Bucket>('all')
   const [selected, setSelected] = useState<string | null>(null)
 
@@ -98,7 +104,24 @@ export default function FindingsPage() {
         eyebrow="judged"
         title="Findings"
         description={`Every dependency in ${release ?? 'this release'}, with what was concluded about it and the evidence that conclusion rests on.`}
+        action={
+          <ReleasePicker releases={releases} value={release} onChange={selectRelease} />
+        }
       />
+
+      {releases.length === 0 && (
+        <Card>
+          <EmptyState
+            title="No recovered release yet"
+            body="Findings are what a validation run produced, so a release has to be recovered and validated first."
+            action={
+              <Link to="/">
+                <Button variant="primary">Run the pipeline</Button>
+              </Link>
+            }
+          />
+        </Card>
+      )}
 
       {graph.isLoading && <Spinner label="reading the published result" />}
 

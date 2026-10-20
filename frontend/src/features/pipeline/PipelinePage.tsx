@@ -6,19 +6,24 @@
  *
  *   **A run is a stack, not a single release.** Recovery is executed for
  *   snapshot 1, then 2, then 3; validation starts only once every one of them
- *   has recovered, and then runs in the same order. Both phases are
- *   sequential on purpose: a run that is watched is a run whose progress can
- *   be reported, and "which snapshot is it on" has one answer.
+ *   has recovered, and then runs in the same order. Both phases are sequential
+ *   on purpose: a run that is watched is a run whose progress can be reported,
+ *   and "which snapshot is it on" has one answer.
  *
- *   **Configured and running are separate.** Adding a snapshot here (or on
- *   the repositories screen) writes down what to analyse and clones nothing.
- *   Only pressing run starts the work.
+ *   **One stack, one row per snapshot, details under the row they belong to.**
+ *   The header selects a repository and never a release, and this screen does
+ *   not inherit a release from anywhere: every configured snapshot carries its
+ *   own recovery and its own verdict, and opening one does not hide the others.
+ *
+ *   **Configured and running are separate.** Adding a snapshot here (or on the
+ *   repositories screen) writes down what to analyse and clones nothing. Only
+ *   pressing run starts the work.
  *
  *   **A failure is never carried forward.** A snapshot that fails to clone or
- *   recover is marked failed with the backend's own words, and validation
- *   does not start at all while any snapshot is in that state - validating
- *   the ones that happened to work would publish a result that reads like a
- *   clean run of a smaller pipeline.
+ *   recover is marked failed with the backend's own words, and validation does
+ *   not start at all while any snapshot is in that state - validating the ones
+ *   that happened to work would publish a result that reads like a clean run of
+ *   a smaller pipeline.
  *
  *   The drawing is the explanation of the order, which is why it is the only
  *   place in the application where motion is allowed.
@@ -45,12 +50,17 @@ import {
   messageOf,
   type DecisionMode,
   type RepositoryConfiguration,
+  type StageDescription,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
 import { useWorkspace } from '../../workspace/useWorkspace'
-import type { PipelinePhase, SnapshotPhase, SnapshotRun } from '../../workspace/pipeline'
+import type {
+  PipelinePhase,
+  SnapshotPhase,
+  SnapshotRun,
+} from '../../workspace/pipeline'
 import PipelineFlow, { type PhaseState } from './PipelineFlow'
-import RecoveryReport from './RecoveryReport'
+import RecoveryStages from './RecoveryStages'
 import StageTrack from './StageTrack'
 import { toStageViews } from './stageViews'
 
@@ -72,26 +82,26 @@ export default function PipelinePage() {
     isPipelineRunning,
     pipelineError,
     startPipeline,
-    decisionMode,
   } = useWorkspace()
 
   const described = useRequest((options) => describePipeline(options), [])
 
-  const [mode, setMode] = useState<DecisionMode>(decisionMode ?? 'combined')
+  const [mode, setMode] = useState<DecisionMode>('combined')
   const [adrRepository, setAdrRepository] = useState('')
-  const [selected, setSelected] = useState<PhaseId>('recover')
-  const [opened, setOpened] = useState<string | null>(null)
+  const [selectedPhase, setSelectedPhase] = useState<PhaseId>('recover')
+  const [opened, setOpened] = useState<string[]>([])
 
   const progress = useMemo(
     () => new Map(pipelineSnapshots.map((snapshot) => [snapshot.configuration.id, snapshot])),
     [pipelineSnapshots],
   )
 
-  const openedSnapshot =
-    (opened ? pipelineSnapshots.find((item) => item.configuration.id === opened) : null) ??
-    pipelineSnapshots.find((item) => item.phase === 'failed') ??
-    pipelineSnapshots[pipelineSnapshots.length - 1] ??
-    null
+  const toggle = (configurationId: string) =>
+    setOpened((current) =>
+      current.includes(configurationId)
+        ? current.filter((id) => id !== configurationId)
+        : [...current, configurationId],
+    )
 
   const phaseStates = useMemo<Record<PhaseId, PhaseState>>(
     () => ({
@@ -104,10 +114,12 @@ export default function PipelinePage() {
   )
 
   const run = async () => {
+    setOpened([])
     await startPipeline(mode, adrRepository.trim())
   }
 
-  const phase = PHASES.find((item) => item.id === selected)!
+  const phase = PHASES.find((item) => item.id === selectedPhase)!
+  const validated = pipelineSnapshots.some((snapshot) => snapshot.phase === 'validated')
 
   return (
     <>
@@ -141,7 +153,11 @@ export default function PipelinePage() {
           </span>
         }
       >
-        <PipelineFlow states={phaseStates} selected={selected} onSelect={setSelected} />
+        <PipelineFlow
+          states={phaseStates}
+          selected={selectedPhase}
+          onSelect={setSelectedPhase}
+        />
 
         <RunStatus
           phase={pipelinePhase}
@@ -156,15 +172,17 @@ export default function PipelinePage() {
         configurationsError={configurationsError}
         isLoading={isLoadingConfigurations}
         progress={progress}
+        opened={opened}
         isRunning={isPipelineRunning}
+        stagesDescribed={described.data?.stages ?? []}
         onAdd={addConfiguration}
         onRemove={removeConfiguration}
-        onOpen={setOpened}
+        onToggle={toggle}
       />
 
       <Card
         title="What this run is judged against"
-        action={<Pill tone={mode === 'combined' ? 'ok' : 'neutral'}>{MODE[mode].split(',')[0]}</Pill>}
+        action={<Pill tone="neutral">{MODE[mode].split(',')[0]}</Pill>}
       >
         <div className="flex flex-wrap items-end gap-6">
           <Field label="Decisions come from">
@@ -203,59 +221,6 @@ export default function PipelinePage() {
         </div>
       </Card>
 
-      {openedSnapshot?.recovery && <RecoveryReport recovery={openedSnapshot.recovery} />}
-
-      {openedSnapshot?.run && (
-        <Card
-          title="What validation did"
-          action={
-            <span className="font-mono text-xs text-ink-4">
-              run {openedSnapshot.run.run_id} · {openedSnapshot.run.status}
-            </span>
-          }
-        >
-          <div className="flex flex-col gap-8">
-            <StatRow>
-              <Stat
-                label="confidence"
-                value={openedSnapshot.run.validation_confidence.toFixed(2)}
-                note={`over ${countedFacts(openedSnapshot.run)} dependencies`}
-                tone="ok"
-              />
-              <Stat
-                label="model calls"
-                value={openedSnapshot.run.model_calls}
-                note={openedSnapshot.run.verification_mode ?? 'verification not requested'}
-                tone="ai"
-              />
-              <Stat
-                label="judged against"
-                value={(openedSnapshot.run.decision_mode ?? 'unknown').replace(/_/g, ' ')}
-                note={
-                  openedSnapshot.run.style_resolved
-                    ? `style ${openedSnapshot.run.style_resolved}`
-                    : undefined
-                }
-              />
-              <Stat
-                label="status"
-                value={openedSnapshot.run.status}
-                note={openedSnapshot.run.published_ref ? 'published' : 'nothing published'}
-                tone={openedSnapshot.run.status === 'completed' ? 'ok' : 'warn'}
-              />
-            </StatRow>
-
-            <StageTrack
-              stages={toStageViews(
-                described.data?.stages ?? [],
-                openedSnapshot.run.stages,
-                openedSnapshot.run.stages.length,
-              )}
-            />
-          </div>
-        </Card>
-      )}
-
       <Card
         title={`${phase.label} — what it does`}
         action={
@@ -288,11 +253,19 @@ export default function PipelinePage() {
         </div>
       </Card>
 
-      {pipelineSnapshots.some((snapshot) => snapshot.phase === 'validated') && (
+      {validated && (
         <Card title="The rest of this result">
           <div className="grid gap-5 sm:grid-cols-2">
-            <Elsewhere to="/validation" title="Validation" body="How the last release was judged." />
-            <Elsewhere to="/findings" title="Findings" body="Every dependency with its verdict." />
+            <Elsewhere
+              to="/validation"
+              title="Validation"
+              body="How a release was judged, one release at a time."
+            />
+            <Elsewhere
+              to="/findings"
+              title="Findings"
+              body="Every dependency with its verdict."
+            />
             <Elsewhere to="/canvas" title="Canvas" body="The published graph, drawn." />
             <Elsewhere to="/architecture" title="Architecture" body="What recovery found." />
           </div>
@@ -309,23 +282,27 @@ function SnapshotsCard({
   configurationsError,
   isLoading,
   progress,
+  opened,
   isRunning,
+  stagesDescribed,
   onAdd,
   onRemove,
-  onOpen,
+  onToggle,
 }: {
   configurations: RepositoryConfiguration[]
   configurationsError: string | null
   isLoading: boolean
   progress: Map<string, SnapshotRun>
+  opened: string[]
   isRunning: boolean
+  stagesDescribed: StageDescription[]
   onAdd: (input: {
     url: string
     branch: string
     release_tag: string
   }) => Promise<RepositoryConfiguration>
   onRemove: (configurationId: string) => Promise<void>
-  onOpen: (configurationId: string) => void
+  onToggle: (configurationId: string) => void
 }) {
   const [url, setUrl] = useState('')
   const [branch, setBranch] = useState('main')
@@ -426,12 +403,11 @@ function SnapshotsCard({
           {configurations.map((configuration, index) => {
             const snapshot = progress.get(configuration.id)
             const phase = snapshot?.phase ?? 'queued'
+            const isOpen = opened.includes(configuration.id)
+            const hasDetails = Boolean(snapshot?.recovery || snapshot?.run)
 
             return (
-              <li
-                key={configuration.id}
-                className="flex flex-col gap-4 bg-panel px-6 py-5"
-              >
+              <li key={configuration.id} className="flex flex-col gap-5 bg-panel px-6 py-5">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="flex min-w-0 items-center gap-4">
                     <span className="font-mono text-xs text-ink-4">
@@ -452,10 +428,10 @@ function SnapshotsCard({
                     <Button
                       size="sm"
                       variant="quiet"
-                      onClick={() => onOpen(configuration.id)}
-                      disabled={!snapshot}
+                      onClick={() => onToggle(configuration.id)}
+                      disabled={!hasDetails}
                     >
-                      Details
+                      {isOpen ? 'Hide details' : 'Details'}
                     </Button>
                     <Button
                       size="sm"
@@ -472,6 +448,70 @@ function SnapshotsCard({
                     {snapshot.fault ? `${faultLabel(snapshot.fault)}: ` : ''}
                     {snapshot.error}
                   </p>
+                )}
+
+                {isOpen && snapshot?.recovery && (
+                  <div className="flex flex-col gap-4 border-t border-line pt-5">
+                    <span className="font-mono text-[11px] tracking-wide text-ink-4 uppercase">
+                      what recovery found
+                    </span>
+                    <RecoveryStages recovery={snapshot.recovery} />
+                  </div>
+                )}
+
+                {isOpen && snapshot?.run && (
+                  <div className="flex flex-col gap-5 border-t border-line pt-5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-3">
+                      <span className="font-mono text-[11px] tracking-wide text-ink-4 uppercase">
+                        what validation did
+                      </span>
+                      <span className="font-mono text-xs text-ink-4">
+                        run {snapshot.run.run_id} · {snapshot.run.status}
+                      </span>
+                    </div>
+
+                    <StatRow>
+                      <Stat
+                        label="confidence"
+                        value={snapshot.run.validation_confidence.toFixed(2)}
+                        note={`over ${countedFacts(snapshot.run)} dependencies`}
+                        tone="ok"
+                      />
+                      <Stat
+                        label="model calls"
+                        value={snapshot.run.model_calls}
+                        note={
+                          snapshot.run.verification_mode ?? 'verification not requested'
+                        }
+                        tone="ai"
+                      />
+                      <Stat
+                        label="judged against"
+                        value={(snapshot.run.decision_mode ?? 'unknown').replace(/_/g, ' ')}
+                        note={
+                          snapshot.run.style_resolved
+                            ? `style ${snapshot.run.style_resolved}`
+                            : undefined
+                        }
+                      />
+                      <Stat
+                        label="published"
+                        value={snapshot.run.published_ref ? 'yes' : 'no'}
+                        note={snapshot.run.release_id}
+                        tone={snapshot.run.published_ref ? 'ok' : 'warn'}
+                      />
+                    </StatRow>
+
+                    {stagesDescribed.length > 0 && (
+                      <StageTrack
+                        stages={toStageViews(
+                          stagesDescribed,
+                          snapshot.run.stages,
+                          snapshot.run.stages.length,
+                        )}
+                      />
+                    )}
+                  </div>
                 )}
               </li>
             )
@@ -532,7 +572,10 @@ function RunStatus({
   const validated = snapshots.filter((snapshot) => snapshot.phase === 'validated').length
   const failed = snapshots.filter((snapshot) => snapshot.phase === 'failed').length
   const current = snapshots.find(
-    (snapshot) => snapshot.phase === 'ingesting' || snapshot.phase === 'recovering' || snapshot.phase === 'validating',
+    (snapshot) =>
+      snapshot.phase === 'ingesting' ||
+      snapshot.phase === 'recovering' ||
+      snapshot.phase === 'validating',
   )
   const position = current ? snapshots.indexOf(current) + 1 : 0
 
@@ -541,8 +584,8 @@ function RunStatus({
       {isRunning && current && (
         <div className="flex flex-wrap items-baseline gap-4">
           <span className="text-sm text-ink">
-            {current.phase === 'validating' ? 'Validating' : 'Recovering'}{' '}
-            {position} of {snapshots.length} — {current.configuration.release_tag}
+            {current.phase === 'validating' ? 'Validating' : 'Recovering'} {position} of{' '}
+            {snapshots.length} — {current.configuration.release_tag}
           </span>
           <span className="font-mono text-xs text-ink-4">
             {current.phase === 'ingesting'
@@ -567,7 +610,7 @@ function RunStatus({
             {validated} of {snapshots.length} snapshots recovered and validated.
           </span>
           <span className="font-mono text-xs text-ink-4">
-            the last release this run produced is what the result screens show
+            each one keeps its own result — open a row to read it
           </span>
         </div>
       )}
@@ -586,15 +629,7 @@ function RunStatus({
   )
 }
 
-function Elsewhere({
-  to,
-  title,
-  body,
-}: {
-  to: string
-  title: string
-  body: string
-}) {
+function Elsewhere({ to, title, body }: { to: string; title: string; body: string }) {
   return (
     <Link
       to={to}
@@ -632,10 +667,7 @@ function recoverState(
   return 'done'
 }
 
-function validateState(
-  phase: PipelinePhase,
-  snapshots: SnapshotRun[],
-): PhaseState {
+function validateState(phase: PipelinePhase, snapshots: SnapshotRun[]): PhaseState {
   const validationFailed = snapshots.some((snapshot) => snapshot.fault === 'validation')
 
   if (phase === 'validating') return 'running'

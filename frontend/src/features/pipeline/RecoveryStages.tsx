@@ -4,16 +4,20 @@
  * Description:
  *   Recovery runs six stages, and each reports what it saw. The clone
  *   succeeding and the analysis succeeding are different events: a stage can
- *   fail with the clone intact, and the response says so per stage rather
- *   than failing the request.
+ *   fail with the clone intact, and the response says so per stage rather than
+ *   failing the request.
  *
  *   So every stage is shown either way - its counts, or the reason it could
  *   not run. A stage that quietly reported nothing would be indistinguishable
  *   from a repository that genuinely has nothing in it, and the last stage is
  *   the one that decides whether validation has anything to read.
+ *
+ *   Rendered without a card of its own, because it belongs under the snapshot
+ *   it describes: one run has one of these per configured snapshot, and a
+ *   column of cards for a stack of three is a page nobody reads.
  */
 
-import { Card, Pill } from '../../components/ui'
+import { Pill } from '../../components/ui'
 import type { RecoveryResult, StageSummary } from '../../lib/api'
 
 /** The stages of recovery, in the order the backend runs them. */
@@ -50,33 +54,24 @@ const STAGES: { key: keyof RecoveryResult; label: string; headline: string[] }[]
   },
 ]
 
-export default function RecoveryReport({ recovery }: { recovery: RecoveryResult }) {
+export default function RecoveryStages({ recovery }: { recovery: RecoveryResult }) {
   return (
-    <Card
-      title="What recovery found"
-      action={
-        <span className="font-mono text-xs text-ink-4">
-          {recovery.release_tag ?? recovery.branch} · {recovery.commit.slice(0, 7)}
-        </span>
-      }
-    >
-      <ol className="grid gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
-        {STAGES.map((stage) => (
-          <Stage
-            key={stage.label}
-            label={stage.label}
-            headline={stage.headline}
-            summary={recovery[stage.key] as StageSummary | null | undefined}
-            error={
-              recovery[`${String(stage.key)}_error` as keyof RecoveryResult] as
-                | string
-                | null
-                | undefined
-            }
-          />
-        ))}
-      </ol>
-    </Card>
+    <ol className="grid gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
+      {STAGES.map((stage) => (
+        <Stage
+          key={stage.label}
+          label={stage.label}
+          headline={stage.headline}
+          summary={recovery[stage.key] as StageSummary | null | undefined}
+          error={
+            recovery[`${String(stage.key)}_error` as keyof RecoveryResult] as
+              | string
+              | null
+              | undefined
+          }
+        />
+      ))}
+    </ol>
   )
 }
 

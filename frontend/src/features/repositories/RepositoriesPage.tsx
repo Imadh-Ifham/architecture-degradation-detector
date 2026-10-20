@@ -36,10 +36,10 @@ import { useWorkspace } from '../../workspace/useWorkspace'
 export default function RepositoriesPage() {
   const {
     repositories,
-    repository,
+    repositoryKey,
     isLoading,
     error,
-    select,
+    selectRepository,
     reload,
     configurations,
     configurationsError,
@@ -292,10 +292,14 @@ export default function RepositoriesPage() {
               </div>
 
               <div className="flex items-center gap-3">
-                {repository?.id === item.id ? (
+                {(item.repository_id ?? item.id) === repositoryKey ? (
                   <Pill tone="ok">selected</Pill>
                 ) : (
-                  <Button size="sm" variant="quiet" onClick={() => select(item.id)}>
+                  <Button
+                    size="sm"
+                    variant="quiet"
+                    onClick={() => selectRepository(item.repository_id ?? item.id)}
+                  >
                     Select
                   </Button>
                 )}
