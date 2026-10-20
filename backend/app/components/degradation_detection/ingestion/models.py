@@ -20,6 +20,7 @@ RELEASE_CONFLICT = "RELEASE_CONFLICT"
 # Reason codes M1 logs without rejecting anything.
 RELEASE_STORED = "RELEASE_STORED"
 RELEASE_UNCHANGED = "RELEASE_UNCHANGED"
+RELEASE_REPLACED = "RELEASE_REPLACED"
 SELF_LOOP_DROPPED = "SELF_LOOP_DROPPED"
 RELEASE_OFF_MAIN_LINE = "RELEASE_OFF_MAIN_LINE"
 RELEASE_EXCLUDED = "RELEASE_EXCLUDED"
@@ -37,6 +38,7 @@ class RawPackage(InternalModel):
 class IngestStatus(StrEnum):
     STORED = "STORED"
     UNCHANGED = "UNCHANGED"  # same release, same content: idempotent no-op
+    REPLACED = "REPLACED"  # same release, new content, and the caller asked to replace it
     REJECTED = "REJECTED"  # never touched the store
 
 
