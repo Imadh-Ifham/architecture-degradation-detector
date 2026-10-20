@@ -48,6 +48,7 @@ from ..models import (
 DECISION_RECORDED = "DECISION_RECORDED"
 DECISION_SUPERSEDED = "DECISION_SUPERSEDED"
 DECISION_CONFIRMED = "DECISION_CONFIRMED"
+DECISION_BACKDATED = "DECISION_BACKDATED"
 RELEASE_SCANNED = "RELEASE_SCANNED"
 
 RECORD_HASH_LENGTH = 16
@@ -130,6 +131,50 @@ def superseded_event(
     }
 
 
+def backdated_event(
+    *,
+    open_event: dict,
+    release_id: str,
+    sequence: int,
+    at: datetime,
+) -> dict:
+    """The event that moves a rule's interval back to an earlier release.
+
+    **Why a log needs this at all.** A rule's interval opens at the first
+    release the log happened to be shown. Scan a release *older* than that one
+    and the same rule is found again - stated by the same source, in the same
+    file - and it is not a new rule, it is the same rule known to be older
+    than previously recorded. Recording it again would open a second interval
+    over the same pair, and two open intervals over one pair is exactly the
+    `ambiguous` the resolver reports when it cannot tell which decision
+    governs.
+
+    **Why it is an event rather than an edit.** The log is append-only, so the
+    earlier record stays and this says what changed about it and why. An
+    interval that silently moved would make a replay of the same log produce a
+    different answer depending on when it was read.
+    """
+
+    return {
+        "seq": sequence,
+        "event": DECISION_BACKDATED,
+        "at": at.isoformat(),
+        "record_hash": open_event["record_hash"],
+        "decision_id": open_event["decision_id"],
+        "subject": open_event["subject"],
+        "constraint": open_event["constraint"],
+        "object": open_event["object"],
+        "valid_from": release_id,
+        "previous_valid_from": open_event["valid_from"],
+        "source": open_event["source"],
+        "source_repository": open_event["source_repository"],
+        "reason": (
+            f"also stated by {open_event['source']} at {release_id}, "
+            f"which precedes {open_event['valid_from']}"
+        ),
+    }
+
+
 def changes(
     *,
     open_events: dict[str, dict],
@@ -167,12 +212,29 @@ def changes(
         and event["source"] in closing
         and release_sort_key(event["valid_from"]) <= release
     ]
+    # A rule the log already holds, whose interval opens *after* this release.
+    # It is the same rule seen earlier than the log knew, not a new one - so it
+    # is backdated rather than recorded, and it must not also count as new.
+    #
+    # Without this the log is order-dependent in the one direction nobody
+    # notices until a stack is validated out of order: scanning v0.10.7 and
+    # then v0.9.0 opens a second interval over every pair, both of them open,
+    # and every fact at every release afterwards resolves to `ambiguous`.
+    backdating = [
+        event
+        for digest, event in sorted(open_events.items())
+        if digest in scanned
+        and digest not in covered
+        and release_sort_key(event["valid_from"]) > release
+    ]
+    backdated = {event["record_hash"] for event in backdating}
+
     new = [
         (digest, record)
         for digest, record in sorted(
             scanned.items(), key=lambda item: (item[1].decision_id, item[1].source_ref)
         )
-        if digest not in covered
+        if digest not in covered and digest not in backdated
     ]
 
     superseded_by_new: dict[str, str] = {}
@@ -195,6 +257,14 @@ def changes(
         events.append(
             recorded_event(
                 record, sequence, supersedes=superseded_by_new.get(record.decision_id)
+            )
+        )
+        sequence += 1
+
+    for event in backdating:
+        events.append(
+            backdated_event(
+                open_event=event, release_id=release_id, sequence=sequence, at=at
             )
         )
         sequence += 1
@@ -229,6 +299,7 @@ def release_scanned_event(
     sources: Sequence[str],
     recorded: int,
     closed: int,
+    backdated: int,
     sequence: int,
     at: datetime,
 ) -> dict:
@@ -248,6 +319,7 @@ def release_scanned_event(
         "sources": list(sources),
         "recorded": recorded,
         "closed": closed,
+        "backdated": backdated,
     }
 
 

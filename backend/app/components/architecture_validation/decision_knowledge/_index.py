@@ -28,7 +28,9 @@ Description:
 from dataclasses import dataclass, field
 
 from .._identity import canonical_name
+from .._release import release_sort_key
 from ._events import (
+    DECISION_BACKDATED,
     DECISION_CONFIRMED,
     DECISION_RECORDED,
     DECISION_SUPERSEDED,
@@ -89,11 +91,45 @@ class DecisionIndex:
             if kind == DECISION_RECORDED:
                 record = record_from_event(event)
                 key = index_key(record.subject, record.constraint, record.object)
+                digest = event["record_hash"]
+
+                standing_at = open_versions.get(digest)
+                if standing_at is not None:
+                    # The same rule, from the same file, already open. Not a
+                    # second decision about this pair - the same one, recorded
+                    # again by a scan that did not know the log held it.
+                    #
+                    # **Replay has to be idempotent, not just append-only.** A
+                    # log written before the scan knew how to backdate holds
+                    # these duplicates, and reading them as rivals makes every
+                    # fact about the pair `ambiguous` for ever - a log that can
+                    # never be read correctly again. Collapsing them here
+                    # repairs such a log on read instead of requiring somebody
+                    # to delete it, and leaves a correct log untouched.
+                    #
+                    # A rule stated in *two different files* has two hashes and
+                    # stays two versions, which is the distinction `record_hash`
+                    # exists to make.
+                    at_key, position = standing_at
+                    standing = versions[at_key][position]
+                    if release_sort_key(record.valid_from) < release_sort_key(
+                        standing.valid_from
+                    ):
+                        versions[at_key][position] = DecisionVersion(
+                            record=standing.record,
+                            valid_from=record.valid_from,
+                            valid_to=standing.valid_to,
+                        )
+                        open_events[digest] = {
+                            **open_events[digest],
+                            "valid_from": record.valid_from,
+                        }
+                    continue
+
                 entry = DecisionVersion(
                     record=record, valid_from=record.valid_from, valid_to=record.valid_to
                 )
                 versions.setdefault(key, []).append(entry)
-                digest = event["record_hash"]
                 located[digest] = (key, len(versions[key]) - 1)
                 if record.valid_to is None:
                     open_events[digest] = event
@@ -114,6 +150,30 @@ class DecisionIndex:
                     valid_from=standing.valid_from,
                     valid_to=standing.valid_to,
                 )
+                continue
+
+            if kind == DECISION_BACKDATED:
+                # The same rule, known to be older than the log recorded. Its
+                # interval opens earlier; nothing else about it changes, and
+                # the record it opened stays where it is.
+                placed = located.get(event["record_hash"])
+                if placed is None:
+                    continue
+                key, position = placed
+                standing = versions[key][position]
+                versions[key][position] = DecisionVersion(
+                    record=standing.record,
+                    valid_from=event["valid_from"],
+                    valid_to=standing.valid_to,
+                )
+                open_event = open_events.get(event["record_hash"])
+                if open_event is not None:
+                    # So a later scan of a release earlier still compares
+                    # against where the interval now opens, not where it did.
+                    open_events[event["record_hash"]] = {
+                        **open_event,
+                        "valid_from": event["valid_from"],
+                    }
                 continue
 
             if kind == DECISION_SUPERSEDED:
