@@ -36,9 +36,9 @@ import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import ReleasePicker from '../../components/ReleasePicker'
 import Handover from './Handover'
-import { provenanceGraph, recoveredGraph, validatedGraph } from './graphs'
+import { antiPatternGraph, provenanceGraph, recoveredGraph, validatedGraph } from './graphs'
 
-type View = 'recovered' | 'validated' | 'provenance'
+type View = 'recovered' | 'validated' | 'provenance' | 'antipatterns'
 
 /** What each graph is, in one line, above the drawing it describes. */
 const CAPTION: Record<View, string> = {
@@ -48,10 +48,12 @@ const CAPTION: Record<View, string> = {
     'The same system with a verdict on every dependency. This is the artifact the next phase reads.',
   provenance:
     'The same graph again, showing which verdicts a language model was involved in reaching.',
+  antipatterns:
+    'The same graph with the anti-patterns detection found in this release. Whether they are getting worse is on the drift screen.',
 }
 
 export default function CanvasPage() {
-  const { repository, repositoryKey, runs } = useWorkspace()
+  const { repository, repositoryKey, runs, degradation } = useWorkspace()
   const { snapshots, releases, release, selectRelease } = useReleases()
   const run = runs[runKey(repositoryKey, release)] ?? null
 
@@ -75,16 +77,25 @@ export default function CanvasPage() {
     Boolean(repository && release),
   )
 
+  // The release as detection saw it, if detection has run over it.
+  const detected = useMemo(
+    () => degradation?.releases.find((item) => item.release_id === release) ?? null,
+    [degradation, release],
+  )
+
   const drawing = useMemo(() => {
     if (view === 'recovered') {
       return snapshot.data ? recoveredGraph(snapshot.data) : null
     }
 
     if (!published.data) return null
+    if (view === 'antipatterns') {
+      return detected ? antiPatternGraph(published.data, detected) : null
+    }
     return view === 'validated'
       ? validatedGraph(published.data)
       : provenanceGraph(published.data)
-  }, [view, snapshot.data, published.data])
+  }, [view, snapshot.data, published.data, detected])
 
   if (!repository || releases.length === 0) {
     return (
@@ -140,6 +151,7 @@ export default function CanvasPage() {
               { id: 'recovered', label: 'Recovered architecture' },
               { id: 'validated', label: 'Validated architecture' },
               { id: 'provenance', label: 'Model involvement' },
+              { id: 'antipatterns', label: 'Anti-patterns' },
             ]}
             active={view}
             onChange={setView}
@@ -164,6 +176,18 @@ export default function CanvasPage() {
             action={
               <Link to="/decisions">
                 <Button variant="primary">Choose what to validate it against</Button>
+              </Link>
+            }
+          />
+        )}
+
+        {!isLoading && !error && view === 'antipatterns' && !detected && (
+          <EmptyState
+            title="Degradation has not been detected for this release"
+            body="Detection reads every validated release at once. Run it from the pipeline or the drift screen, and this tab shows what it found here."
+            action={
+              <Link to="/drift">
+                <Button variant="primary">Open drift</Button>
               </Link>
             }
           />
@@ -212,6 +236,15 @@ function Legend({ view }: { view: View }) {
         <GraphKey tone="faint" dashed>
           no decision governs it
         </GraphKey>
+      </>
+    )
+  }
+
+  if (view === 'antipatterns') {
+    return (
+      <>
+        <GraphKey tone="bad">in an anti-pattern · edge inside a cycle</GraphKey>
+        <GraphKey>not part of one</GraphKey>
       </>
     )
   }

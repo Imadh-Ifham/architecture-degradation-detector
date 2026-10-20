@@ -12,9 +12,11 @@
  */
 
 import type { GraphEdge, GraphNode } from '../../components/graph/GraphCanvas'
+import { badgeOf, cyclicEdges, membership } from '../drift/graphs'
 import type {
   ArchitectureDetails,
   ArchitectureSnapshot,
+  DriftRelease,
   PublishedGraph,
   ValidatedEdge,
   ValidationRollup,
@@ -119,6 +121,45 @@ export function provenanceGraph(document: PublishedGraph): {
       emphasis: edge.model_calls > 0,
       label: edge.model_calls > 0 ? `${edge.model_calls}` : undefined,
     })),
+  }
+}
+
+/**
+ * The validated graph again, with the anti-patterns detection found in it.
+ *
+ * Drawn over the published document rather than detection's own copy, so it
+ * keeps every element the other tabs have - datastores included, which
+ * detection does not count as elements - and every box stays where it is.
+ */
+export function antiPatternGraph(
+  document: PublishedGraph,
+  release: DriftRelease,
+): {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+} {
+  const members = membership(release)
+  const inCycle = cyclicEdges(release)
+
+  return {
+    nodes: document.nodes.map((node) => ({
+      id: node.id,
+      title: node.name,
+      subtitle: node.kind.replace(/_/g, ' '),
+      badge: badgeOf(members.get(node.id)),
+      tone: members.has(node.id) ? 'bad' : 'neutral',
+    })),
+    edges: document.links.map((edge) => {
+      const cyclic = inCycle.has(`${edge.source}->${edge.target}`)
+
+      return {
+        id: edge.fact_id,
+        source: edge.source,
+        target: edge.target,
+        tone: cyclic ? 'bad' : 'neutral',
+        emphasis: cyclic,
+      }
+    }),
   }
 }
 
