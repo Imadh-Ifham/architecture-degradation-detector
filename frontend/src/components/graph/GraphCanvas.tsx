@@ -26,6 +26,13 @@ import { NODE_HEIGHT, NODE_WIDTH, edgePath, layeredLayout } from './layout'
 
 export type GraphTone = 'neutral' | 'ok' | 'warn' | 'bad' | 'ai' | 'faint'
 
+/**
+ * Above this many edges, labels are drawn on hover and on the selected edge
+ * only. Below it they are all drawn, because at that size the labels are the
+ * most informative thing on the drawing rather than noise.
+ */
+const LABELLED_EDGE_LIMIT = 18
+
 export interface GraphNode {
   id: string
   title: string
@@ -78,6 +85,8 @@ export default function GraphCanvas({
   edges,
   selected,
   onSelect,
+  selectedEdge,
+  onSelectEdge,
   legend,
   footer,
 }: {
@@ -85,10 +94,13 @@ export default function GraphCanvas({
   edges: GraphEdge[]
   selected?: string | null
   onSelect?: (id: string | null) => void
+  selectedEdge?: string | null
+  onSelectEdge?: (id: string | null) => void
   legend?: ReactNode
   footer?: ReactNode
 }) {
   const [hovered, setHovered] = useState<string | null>(null)
+  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null)
   const focus = hovered ?? selected ?? null
   const viewport = useRef<HTMLDivElement>(null)
   const { view, controls, onPointerDown, isPanning } = usePanZoom(viewport)
@@ -147,23 +159,46 @@ export default function GraphCanvas({
             const path = edgePath(from, to)
             const midX = (from.x + NODE_WIDTH + to.x) / 2
             const midY = (from.y + to.y + NODE_HEIGHT) / 2
+            const isSelected = edge.id === selectedEdge
+            const isHovered = edge.id === hoveredEdge
+
+            // A label on every edge turns a drawing into a wall of text. The
+            // label is drawn where it is read: on the edge under the pointer,
+            // on the edge that was clicked, and - when the graph is small
+            // enough that they do not collide - on all of them.
+            const showLabel =
+              edge.label && (isSelected || isHovered || edges.length <= LABELLED_EDGE_LIMIT)
 
             return (
-              <g key={edge.id} className={touched ? '' : 'opacity-15'}>
+              <g
+                key={edge.id}
+                className={`${touched ? '' : 'opacity-15'} ${
+                  onSelectEdge ? 'cursor-pointer' : ''
+                }`}
+                onMouseEnter={() => setHoveredEdge(edge.id)}
+                onMouseLeave={() => setHoveredEdge(null)}
+                onClick={(event) => {
+                  if (!onSelectEdge) return
+                  event.stopPropagation()
+                  onSelectEdge(isSelected ? null : edge.id)
+                }}
+              >
+                {/* A wider invisible path: a 1.3px line is a hard thing to hit. */}
+                <path d={path} fill="none" strokeWidth="14" className="stroke-transparent" />
                 <path
                   d={path}
                   fill="none"
-                  strokeWidth={edge.emphasis ? 2.2 : 1.3}
+                  strokeWidth={isSelected ? 2.8 : edge.emphasis ? 2.2 : 1.3}
                   strokeDasharray={edge.dashed ? '5 5' : undefined}
                   className={STROKE[tone]}
                   markerEnd="url(#graph-arrow)"
                 />
-                {edge.label && (
+                {showLabel && (
                   <>
                     <rect
-                      x={midX - 20}
+                      x={midX - Math.max(20, edge.label!.length * 3.6)}
                       y={midY - 9}
-                      width="40"
+                      width={Math.max(40, edge.label!.length * 7.2)}
                       height="18"
                       rx="9"
                       className={`fill-sunken ${STROKE[tone]}`}

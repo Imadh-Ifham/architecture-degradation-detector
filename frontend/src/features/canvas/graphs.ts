@@ -13,6 +13,7 @@
 
 import type { GraphEdge, GraphNode } from '../../components/graph/GraphCanvas'
 import type {
+  ArchitectureDetails,
   ArchitectureSnapshot,
   PublishedGraph,
   ValidatedEdge,
@@ -20,7 +21,10 @@ import type {
 } from '../../lib/api'
 
 /** The architecture as recovery found it, before anything judged it. */
-export function recoveredGraph(snapshot: ArchitectureSnapshot): {
+export function recoveredGraph(
+  snapshot: ArchitectureSnapshot,
+  details?: ArchitectureDetails | null,
+): {
   nodes: GraphNode[]
   edges: GraphEdge[]
 } {
@@ -30,6 +34,10 @@ export function recoveredGraph(snapshot: ArchitectureSnapshot): {
     outgoing.set(edge.source_id, (outgoing.get(edge.source_id) ?? 0) + 1)
   }
 
+  const protocols = new Map(
+    (details?.relationships ?? []).map((edge) => [edge.id, edge]),
+  )
+
   return {
     nodes: snapshot.elements.map((element) => ({
       id: element.id,
@@ -37,17 +45,33 @@ export function recoveredGraph(snapshot: ArchitectureSnapshot): {
       subtitle: element.kind.replace(/_/g, ' '),
       badge: outgoing.get(element.id) ? `${outgoing.get(element.id)} →` : undefined,
     })),
-    edges: snapshot.relationships.map((edge) => ({
-      id: edge.id,
-      source: edge.source_id,
-      target: edge.target_id,
-      // Source-level evidence is stronger than a line in a manifest, and the
-      // drawing says so rather than treating every edge as equally certain.
-      tone: edge.confirmed_by_source ? 'ok' : 'neutral',
-      dashed: edge.kind === 'infrastructure_dependency',
-      emphasis: edge.confirmed_by_source,
-    })),
+    edges: snapshot.relationships.map((edge) => {
+      const detail = protocols.get(edge.id)
+
+      return {
+        id: edge.id,
+        source: edge.source_id,
+        target: edge.target_id,
+        // Source-level evidence is stronger than a line in a manifest, and the
+        // drawing says so rather than treating every edge as equally certain.
+        tone: edge.confirmed_by_source ? 'ok' : 'neutral',
+        dashed: edge.kind === 'infrastructure_dependency',
+        emphasis: edge.confirmed_by_source,
+        // Only ever what the evidence establishes. A dependency with no
+        // declared protocol and no typed source finding gets no label, rather
+        // than a guess from a port number.
+        label: protocolLabel(detail?.protocols ?? []),
+      } satisfies GraphEdge
+    }),
   }
+}
+
+/** One protocol, or a count when the edges disagree about which one it is. */
+function protocolLabel(protocols: string[]): string | undefined {
+  if (protocols.length === 0) return undefined
+  if (protocols.length === 1) return protocols[0]
+
+  return `${protocols.length} protocols`
 }
 
 /** The same architecture with the verdict drawn on the edge it is about. */

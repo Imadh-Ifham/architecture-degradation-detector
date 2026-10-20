@@ -71,6 +71,9 @@ from app.components.architecture_recovery.repository_ingestion.schemas import (
     RepositoryReleaseRequest,
 )
 from app.components.architecture_recovery.repository_ingestion.service import (
+    SOURCE_DIRECTORY_NAME,
+)
+from app.components.architecture_recovery.repository_ingestion.service import (
     RepositoryIngestionService,
 )
 from app.components.architecture_recovery.repository_ingestion.validation import (
@@ -86,6 +89,7 @@ from app.components.architecture_recovery.repository_inventory import (
     RepositoryInventorySummaryResponse,
     inventory_options_from_settings,
 )
+from app.components.architecture_recovery.snapshot_details import SnapshotDetails
 from app.components.architecture_recovery.source_code_analysis import (
     SourceCodeAnalysisError,
     SourceCodeAnalysisReport,
@@ -107,6 +111,7 @@ from app.infrastructure.git.client import GitClient, GitCommandError
 from app.infrastructure.workspace import (
     ConfigurationStoreError,
     RepositoryConfigurationStore,
+    WorkspaceCheckouts,
 )
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
@@ -274,6 +279,17 @@ def get_configuration_store() -> RepositoryConfigurationStore:
     """
 
     return RepositoryConfigurationStore(settings.repositories_root)
+
+
+@lru_cache
+def get_workspace_checkouts() -> WorkspaceCheckouts:
+    """Provide the resolver that finds a release's checkout.
+
+    Declared as a dependency so a test can point it at the workspace it built
+    rather than at the machine's own.
+    """
+
+    return WorkspaceCheckouts(settings.repositories_root, SOURCE_DIRECTORY_NAME)
 
 
 @router.post(
@@ -554,6 +570,51 @@ def read_snapshot(
 ) -> dict[str, Any]:
     """Return one stored architecture snapshot with its evidence."""
 
+    snapshot = _read_stored_snapshot(store, repository_id, snapshot_id)
+
+    return snapshot.to_dict()
+
+
+@router.get(
+    "/{repository_id}/snapshots/{snapshot_id}/details",
+    summary="The evidence behind one recovered snapshot",
+    response_description=(
+        "Every element and relationship of the snapshot, joined with the "
+        "recovery artifacts that identified it: discovery rules and "
+        "artifacts, inventory files, resolution evidence, source findings, "
+        "and any communication protocol the evidence establishes."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "That snapshot does not exist for that repository."
+        }
+    },
+)
+def read_snapshot_details(
+    repository_id: str,
+    snapshot_id: str,
+    store: ArchitectureSnapshotStore = Depends(get_architecture_snapshot_store),
+    checkouts: WorkspaceCheckouts = Depends(get_workspace_checkouts),
+) -> dict[str, Any]:
+    """Join a stored snapshot onto the artifacts the recovery stages wrote.
+
+    The snapshot says what was concluded; this says why. It reads and never
+    analyses, so a release whose clone is gone still returns its snapshot
+    with the artifacts reported as absent rather than failing.
+    """
+
+    snapshot = _read_stored_snapshot(store, repository_id, snapshot_id)
+
+    checkout = checkouts.find(repository_id, snapshot.release.release_id)
+
+    return SnapshotDetails(checkout.parent if checkout else None).build(snapshot)
+
+
+def _read_stored_snapshot(
+    store: ArchitectureSnapshotStore, repository_id: str, snapshot_id: str
+):
+    """Read one snapshot, refusing with the status that fits the failure."""
+
     try:
         snapshot = store.read(repository_id, snapshot_id)
     except Exception as error:  # noqa: BLE001
@@ -568,7 +629,7 @@ def read_snapshot(
             detail=f"No snapshot '{snapshot_id}' for repository '{repository_id}'.",
         )
 
-    return snapshot.to_dict()
+    return snapshot
 
 
 @router.delete("/{repository_id}", status_code=status.HTTP_204_NO_CONTENT)
