@@ -2,35 +2,42 @@
  * The pipeline screen - what the application opens on.
  *
  * Description:
- *   One job: configure the snapshots, run them, and show the run happening.
+ *   One job: configure the snapshots, recover them, and show it happening.
  *
  *   **A run is a stack, not a single release.** Recovery is executed for
- *   snapshot 1, then 2, then 3; validation starts only once every one of them
- *   has recovered, and then runs in the same order. Both phases are sequential
- *   on purpose: a run that is watched is a run whose progress can be reported,
- *   and "which snapshot is it on" has one answer.
+ *   snapshot 1, then 2, then 3, sequentially on purpose: a run that is watched
+ *   is a run whose progress can be reported, and "which snapshot is it on" has
+ *   one answer.
+ *
+ *   **It recovers and stops.** Validation is not started here, because it
+ *   cannot begin until somebody has chosen what the releases are judged
+ *   against - and that is the one choice the analysis cannot make for a
+ *   person. So a finished recovery hands over to the decisions screen, where
+ *   every source shows what it would supply before it is picked. This screen
+ *   held a second copy of that selector once, defaulted to one mode, and so
+ *   validated against a source nobody had chosen.
  *
  *   **One stack, one row per snapshot, details under the row they belong to.**
- *   The header selects a repository and never a release, and this screen does
- *   not inherit a release from anywhere: every configured snapshot carries its
- *   own recovery and its own verdict, and opening one does not hide the others.
+ *   Details are open by default - they are what somebody came to read - and
+ *   while a snapshot is moving it is the only one left expanded, so the row
+ *   that is working is not pushed off the screen by three that are finished.
  *
  *   **Configured and running are separate.** Adding a snapshot here (or on the
  *   repositories screen) writes down what to analyse and clones nothing. Only
  *   pressing run starts the work.
  *
  *   **A failure is never carried forward.** A snapshot that fails to clone or
- *   recover is marked failed with the backend's own words, and validation does
- *   not start at all while any snapshot is in that state - validating the ones
- *   that happened to work would publish a result that reads like a clean run of
- *   a smaller pipeline.
+ *   recover is marked failed with the backend's own words, and the stack is
+ *   reported as blocked rather than offered for judgement - a release
+ *   validated against a partial stack would read like a clean run of a smaller
+ *   pipeline.
  *
  *   The drawing is the explanation of the order, which is why it is the only
  *   place in the application where motion is allowed.
  */
 
 import { useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import {
   Button,
   Card,
@@ -48,11 +55,12 @@ import { PHASES, type PhaseId } from '../../layouts/navigation'
 import {
   describePipeline,
   messageOf,
-  type DecisionMode,
   type RepositoryConfiguration,
   type StageDescription,
+  type ValidationRun,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import { runKey } from '../../workspace/context'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import type {
   PipelinePhase,
@@ -64,13 +72,8 @@ import RecoveryStages from './RecoveryStages'
 import StageTrack from './StageTrack'
 import { toStageViews } from './stageViews'
 
-const MODE: Record<DecisionMode, string> = {
-  combined: 'Both, plus rules recovered from configuration',
-  repo_adr: 'Decision records in this repository',
-  external_adr: 'Decision records in a repository you name',
-}
-
 export default function PipelinePage() {
+  const navigate = useNavigate()
   const {
     configurations,
     configurationsError,
@@ -82,51 +85,69 @@ export default function PipelinePage() {
     isPipelineRunning,
     pipelineError,
     startPipeline,
+    runs,
   } = useWorkspace()
 
   const described = useRequest((options) => describePipeline(options), [])
 
-  const [mode, setMode] = useState<DecisionMode>('combined')
-  const [adrRepository, setAdrRepository] = useState('')
   const [selectedPhase, setSelectedPhase] = useState<PhaseId>('recover')
-  const [opened, setOpened] = useState<string[]>([])
+
+  // Hidden, not opened. Details are what somebody came to read, so a row that
+  // has them shows them; the list records the ones a person closed rather than
+  // the ones they had to open.
+  const [hidden, setHidden] = useState<string[]>([])
 
   const progress = useMemo(
     () => new Map(pipelineSnapshots.map((snapshot) => [snapshot.configuration.id, snapshot])),
     [pipelineSnapshots],
   )
 
+  // While a snapshot is working, it is the only one expanded. Four open rows
+  // during a run means the one that is moving is somewhere off the screen.
+  const working = pipelineSnapshots.find((snapshot) =>
+    snapshot.phase === 'ingesting' || snapshot.phase === 'recovering',
+  )
+  const activeId = isPipelineRunning ? (working?.configuration.id ?? null) : null
+
   const toggle = (configurationId: string) =>
-    setOpened((current) =>
+    setHidden((current) =>
       current.includes(configurationId)
         ? current.filter((id) => id !== configurationId)
         : [...current, configurationId],
     )
 
+  // A run reaches this screen through the session's runs, not through the
+  // snapshot, because the decisions screen is what started it.
+  const validated = pipelineSnapshots.some((snapshot) => runFor(snapshot, runs))
+
   const phaseStates = useMemo<Record<PhaseId, PhaseState>>(
     () => ({
       recover: recoverState(pipelinePhase, pipelineSnapshots, configurations.length),
-      validate: validateState(pipelinePhase, pipelineSnapshots),
+      validate: validateState(pipelinePhase, validated),
       detect: 'reserved',
       prioritise: 'reserved',
     }),
-    [pipelinePhase, pipelineSnapshots, configurations.length],
+    [pipelinePhase, pipelineSnapshots, validated, configurations.length],
   )
 
   const run = async () => {
-    setOpened([])
-    await startPipeline(mode, adrRepository.trim())
+    setHidden([])
+
+    // Recovery is all this starts. A recovered stack has to be judged against
+    // something, nothing but a person may choose what, and the screen that
+    // asks shows every source's yield at the moment of choosing - so the
+    // handoff is a redirect rather than a sentence somebody might not read.
+    if (await startPipeline()) navigate('/decisions')
   }
 
   const phase = PHASES.find((item) => item.id === selectedPhase)!
-  const validated = pipelineSnapshots.some((snapshot) => snapshot.phase === 'validated')
 
   return (
     <>
       <PageHeading
         eyebrow="analysis"
         title="Pipeline"
-        description="Four phases. Recovery runs for every configured snapshot first; validation starts only after all of them have recovered, and runs in the same order."
+        description="Four phases. Running the pipeline recovers every configured snapshot, one at a time, and stops there — what they are judged against is chosen on the decisions screen."
         action={
           <div className="flex items-center gap-5">
             {isPipelineRunning && <Spinner label="running" />}
@@ -172,7 +193,9 @@ export default function PipelinePage() {
         configurationsError={configurationsError}
         isLoading={isLoadingConfigurations}
         progress={progress}
-        opened={opened}
+        hidden={hidden}
+        activeId={activeId}
+        runs={runs}
         isRunning={isPipelineRunning}
         stagesDescribed={described.data?.stages ?? []}
         onAdd={addConfiguration}
@@ -180,46 +203,11 @@ export default function PipelinePage() {
         onToggle={toggle}
       />
 
-      <Card
-        title="What this run is judged against"
-        action={<Pill tone="neutral">{MODE[mode].split(',')[0]}</Pill>}
-      >
-        <div className="flex flex-wrap items-end gap-6">
-          <Field label="Decisions come from">
-            <select
-              value={mode}
-              onChange={(event) => setMode(event.target.value as DecisionMode)}
-              disabled={isPipelineRunning}
-              className={inputClass}
-            >
-              <option value="combined">{MODE.combined}</option>
-              <option value="repo_adr">{MODE.repo_adr}</option>
-              <option value="external_adr">{MODE.external_adr}</option>
-            </select>
-          </Field>
-
-          {mode === 'external_adr' && (
-            <Field
-              label="Decision repository id"
-              hint="Added on the repositories screen first, then named here."
-            >
-              <input
-                value={adrRepository}
-                onChange={(event) => setAdrRepository(event.target.value)}
-                disabled={isPipelineRunning}
-                placeholder="the id shown on the repositories screen"
-                className={inputClass}
-              />
-            </Field>
-          )}
-
-          <p className="max-w-prose text-xs leading-relaxed text-ink-4">
-            Every snapshot in this run is judged against the same source. A mode
-            that would supply nothing stops the run at validation rather than
-            reporting a clean result.
-          </p>
-        </div>
-      </Card>
+      <JudgedAgainst
+        phase={pipelinePhase}
+        isRunning={isPipelineRunning}
+        validated={validated}
+      />
 
       <Card
         title={`${phase.label} — what it does`}
@@ -248,7 +236,7 @@ export default function PipelinePage() {
               ? 'This phase runs in the backend. Its screen is reserved and not written yet — the pipeline draws it so that it is not forgotten.'
               : phase.id === 'recover'
                 ? 'Recovery runs for every configured snapshot, one at a time, when the pipeline starts.'
-                : 'Validation runs for every recovered snapshot, one at a time, after recovery has finished for all of them.'}
+                : 'Validation is started on the decisions screen, once somebody has chosen what these releases are judged against. The pipeline recovers the stack and stops there.'}
           </p>
         </div>
       </Card>
@@ -282,7 +270,9 @@ function SnapshotsCard({
   configurationsError,
   isLoading,
   progress,
-  opened,
+  hidden,
+  activeId,
+  runs,
   isRunning,
   stagesDescribed,
   onAdd,
@@ -293,7 +283,11 @@ function SnapshotsCard({
   configurationsError: string | null
   isLoading: boolean
   progress: Map<string, SnapshotRun>
-  opened: string[]
+  /** The rows this person closed. Everything else with details is open. */
+  hidden: string[]
+  /** The snapshot currently moving, which is the only one left expanded. */
+  activeId: string | null
+  runs: Record<string, ValidationRun>
   isRunning: boolean
   stagesDescribed: StageDescription[]
   onAdd: (input: {
@@ -403,8 +397,15 @@ function SnapshotsCard({
           {configurations.map((configuration, index) => {
             const snapshot = progress.get(configuration.id)
             const phase = snapshot?.phase ?? 'queued'
-            const isOpen = opened.includes(configuration.id)
-            const hasDetails = Boolean(snapshot?.recovery || snapshot?.run)
+            const run = runFor(snapshot, runs)
+            const hasDetails = Boolean(snapshot?.recovery || run)
+
+            // Open unless this person closed it, and collapsed while a
+            // different snapshot is the one moving.
+            const isOpen =
+              hasDetails &&
+              !hidden.includes(configuration.id) &&
+              (activeId === null || activeId === configuration.id)
 
             return (
               <li key={configuration.id} className="flex flex-col gap-5 bg-panel px-6 py-5">
@@ -459,46 +460,46 @@ function SnapshotsCard({
                   </div>
                 )}
 
-                {isOpen && snapshot?.run && (
+                {isOpen && run && (
                   <div className="flex flex-col gap-5 border-t border-line pt-5">
                     <div className="flex flex-wrap items-baseline justify-between gap-3">
                       <span className="font-mono text-[11px] tracking-wide text-ink-4 uppercase">
                         what validation did
                       </span>
                       <span className="font-mono text-xs text-ink-4">
-                        run {snapshot.run.run_id} · {snapshot.run.status}
+                        run {run.run_id} · {run.status}
                       </span>
                     </div>
 
                     <StatRow>
                       <Stat
                         label="confidence"
-                        value={snapshot.run.validation_confidence.toFixed(2)}
-                        note={`over ${countedFacts(snapshot.run)} dependencies`}
+                        value={run.validation_confidence.toFixed(2)}
+                        note={`over ${countedFacts(run)} dependencies`}
                         tone="ok"
                       />
                       <Stat
                         label="model calls"
-                        value={snapshot.run.model_calls}
+                        value={run.model_calls}
                         note={
-                          snapshot.run.verification_mode ?? 'verification not requested'
+                          run.verification_mode ?? 'verification not requested'
                         }
                         tone="ai"
                       />
                       <Stat
                         label="judged against"
-                        value={(snapshot.run.decision_mode ?? 'unknown').replace(/_/g, ' ')}
+                        value={(run.decision_mode ?? 'unknown').replace(/_/g, ' ')}
                         note={
-                          snapshot.run.style_resolved
-                            ? `style ${snapshot.run.style_resolved}`
+                          run.style_resolved
+                            ? `style ${run.style_resolved}`
                             : undefined
                         }
                       />
                       <Stat
                         label="published"
-                        value={snapshot.run.published_ref ? 'yes' : 'no'}
-                        note={snapshot.run.release_id}
-                        tone={snapshot.run.published_ref ? 'ok' : 'warn'}
+                        value={run.published_ref ? 'yes' : 'no'}
+                        note={run.release_id}
+                        tone={run.published_ref ? 'ok' : 'warn'}
                       />
                     </StatRow>
 
@@ -506,8 +507,8 @@ function SnapshotsCard({
                       <StageTrack
                         stages={toStageViews(
                           stagesDescribed,
-                          snapshot.run.stages,
-                          snapshot.run.stages.length,
+                          run.stages,
+                          run.stages.length,
                         )}
                       />
                     )}
@@ -528,8 +529,6 @@ function SnapshotStatus({ phase }: { phase: SnapshotPhase }) {
     ingesting: 'ai',
     recovering: 'ai',
     recovered: 'ok',
-    validating: 'ai',
-    validated: 'ok',
     failed: 'bad',
   }[phase] as 'neutral' | 'ok' | 'bad' | 'ai'
 
@@ -542,8 +541,6 @@ function label(phase: SnapshotPhase): string {
     ingesting: 'cloning',
     recovering: 'recovering',
     recovered: 'recovered',
-    validating: 'validating',
-    validated: 'validated',
     failed: 'failed',
   }[phase]
 }
@@ -558,6 +555,63 @@ function faultLabel(fault: NonNullable<SnapshotRun['fault']>): string {
 
 /* The run's own status ------------------------------------------------------ */
 
+/**
+ * What this run is judged against — which is a question, not a setting.
+ *
+ * This card used to hold a second copy of the decision-source selector, with
+ * `combined` as its default. That made the pipeline validate against a source
+ * nobody had chosen, while the decisions screen presented itself as the place
+ * the choice is made: two controls for one decision, and the one that actually
+ * ran was the one with no yields on screen beside it.
+ *
+ * So it is a handoff now. **Highlighted once the stack is recovered**, because
+ * at that moment it is the only thing left to do and a quiet row is a row
+ * somebody reads past.
+ */
+function JudgedAgainst({
+  phase,
+  isRunning,
+  validated,
+}: {
+  phase: PipelinePhase
+  isRunning: boolean
+  /** Whether anything in this stack has been judged yet. */
+  validated: boolean
+}) {
+  // Recovered and not yet judged is the only moment this is the next thing to
+  // do. The pipeline phase stays `recovered` after the decisions screen has
+  // run, so without this the card would go on asking for a choice already made.
+  const isWaiting = phase === 'recovered' && !isRunning && !validated
+
+  return (
+    <Card
+      title="What this run is judged against"
+      action={
+        isWaiting ? (
+          <Pill tone="ai">choose this next</Pill>
+        ) : (
+          <Pill tone="neutral">chosen on the decisions screen</Pill>
+        )
+      }
+      className={isWaiting ? 'border-ai' : ''}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-6">
+        <p className="max-w-prose text-sm leading-relaxed text-ink-2">
+          {isWaiting
+            ? 'Every snapshot has recovered. Nothing has been judged yet — pick what these releases are validated against, and start it there.'
+            : 'Validation is started on the decisions screen, where every source shows what it would supply before it is chosen. A release judged against a source nobody picked reports that nothing contradicts it, which is indistinguishable from a healthy system.'}
+        </p>
+
+        <Link to="/decisions">
+          <Button variant={isWaiting ? 'primary' : undefined}>
+            {isWaiting ? 'Choose and validate' : 'Open decisions'}
+          </Button>
+        </Link>
+      </div>
+    </Card>
+  )
+}
+
 function RunStatus({
   phase,
   snapshots,
@@ -569,13 +623,10 @@ function RunStatus({
   error: string | null
   isRunning: boolean
 }) {
-  const validated = snapshots.filter((snapshot) => snapshot.phase === 'validated').length
+  const recovered = snapshots.filter((snapshot) => snapshot.phase === 'recovered').length
   const failed = snapshots.filter((snapshot) => snapshot.phase === 'failed').length
   const current = snapshots.find(
-    (snapshot) =>
-      snapshot.phase === 'ingesting' ||
-      snapshot.phase === 'recovering' ||
-      snapshot.phase === 'validating',
+    (snapshot) => snapshot.phase === 'ingesting' || snapshot.phase === 'recovering',
   )
   const position = current ? snapshots.indexOf(current) + 1 : 0
 
@@ -584,38 +635,35 @@ function RunStatus({
       {isRunning && current && (
         <div className="flex flex-wrap items-baseline gap-4">
           <span className="text-sm text-ink">
-            {current.phase === 'validating' ? 'Validating' : 'Recovering'} {position} of{' '}
-            {snapshots.length} — {current.configuration.release_tag}
+            Recovering {position} of {snapshots.length} —{' '}
+            {current.configuration.release_tag}
           </span>
           <span className="font-mono text-xs text-ink-4">
-            {current.phase === 'ingesting'
-              ? 'cloning'
-              : current.phase === 'recovering'
-                ? 'recovery stages running'
-                : 'validation stages running'}
+            {current.phase === 'ingesting' ? 'cloning' : 'recovery stages running'}
           </span>
         </div>
       )}
 
       {!isRunning && phase === 'idle' && (
         <span className="text-sm text-ink-3">
-          Nothing has run yet. Recovery runs for every configured snapshot, then
-          validation runs for every recovered one.
+          Nothing has run yet. Recovery runs for every configured snapshot; what
+          they are then judged against is chosen on the decisions screen.
         </span>
       )}
 
-      {!isRunning && phase === 'complete' && (
+      {!isRunning && phase === 'recovered' && (
         <div className="flex flex-col gap-1.5">
           <span className="text-sm text-ink">
-            {validated} of {snapshots.length} snapshots recovered and validated.
+            {recovered} of {snapshots.length} snapshots recovered. Nothing has
+            been judged yet.
           </span>
           <span className="font-mono text-xs text-ink-4">
-            each one keeps its own result — open a row to read it
+            choose what they are validated against on the decisions screen
           </span>
         </div>
       )}
 
-      {!isRunning && (phase === 'failed' || phase === 'blocked') && (
+      {!isRunning && phase === 'blocked' && (
         <div className="flex flex-col gap-1.5">
           <span className="text-sm text-bad">
             {failed} of {snapshots.length} snapshots did not finish.
@@ -667,16 +715,41 @@ function recoverState(
   return 'done'
 }
 
-function validateState(phase: PipelinePhase, snapshots: SnapshotRun[]): PhaseState {
-  const validationFailed = snapshots.some((snapshot) => snapshot.fault === 'validation')
-
-  if (phase === 'validating') return 'running'
-  if (validationFailed) return 'failed'
+/**
+ * The validate node, which this screen no longer runs.
+ *
+ * It is `waiting` from the moment the stack is recovered until somebody has
+ * chosen what judges it - waiting on a person rather than on a call, and for
+ * as long as they take. Drawing it `done` before that would put a green phase
+ * over a result that does not exist, and drawing it `blocked` would say the
+ * stack is not ready when it is.
+ */
+function validateState(phase: PipelinePhase, validated: boolean): PhaseState {
+  if (validated) return 'done'
+  if (phase === 'recovered') return 'waiting'
   if (phase === 'recovering') return 'waiting'
-  if (phase === 'complete') return 'done'
   return 'blocked'
 }
 
-function countedFacts(run: SnapshotRun['run']): number {
+function countedFacts(run: ValidationRun | undefined): number {
   return run?.stages.find((stage) => stage.name === 'classification')?.counts.facts ?? 0
+}
+
+/**
+ * The validation this snapshot got, if it has had one.
+ *
+ * Looked up rather than carried on the snapshot, because the pipeline no
+ * longer runs validation - the decisions screen does, and what it produced
+ * reaches this screen through the runs the session remembers. Keyed by the
+ * identity recovery stores the architecture under, which is the key the run
+ * was started with.
+ */
+function runFor(
+  snapshot: SnapshotRun | undefined,
+  runs: Record<string, ValidationRun>,
+): ValidationRun | undefined {
+  const key = snapshot?.recovery?.repository_id
+  if (!key) return undefined
+
+  return runs[runKey(key, snapshot.configuration.release_tag)]
 }

@@ -1,20 +1,29 @@
 /**
- * One pipeline run: recover every snapshot, then validate every snapshot.
+ * One pipeline run: recover every configured snapshot, and stop there.
  *
  * Description:
- *   The order is the whole point of this module. Recovery is the expensive
- *   step and validation reads what recovery produced, so every snapshot is
- *   recovered first and validation starts only once all of them have. Both
- *   phases run one snapshot at a time: a run that is watched is a run whose
- *   progress can be reported, and sequential execution is what makes "which
- *   snapshot is it on" a question with one answer.
+ *   Recovery is the expensive step and it is the only step this module runs.
+ *   Snapshots are recovered one at a time: a run that is watched is a run
+ *   whose progress can be reported, and sequential execution is what makes
+ *   "which snapshot is it on" a question with one answer.
+ *
+ *   **Validation is deliberately not here.** It cannot be started until
+ *   somebody has chosen what the release is judged against, and that choice is
+ *   the one thing the analysis cannot make for a person - a release validated
+ *   against a source nobody picked reports "nothing contradicts the
+ *   architecture", which is indistinguishable from a clean result on a healthy
+ *   system. So this module hands back a recovered stack and the decisions
+ *   screen starts the validation, with the yields of every source on screen at
+ *   the moment of choosing.
+ *
+ *   Running it here with a default would be the same mistake in a different
+ *   place: a mode selected by a constant is not a decision anybody made.
  *
  *   **A failure is never carried forward.** A snapshot that fails to clone,
  *   fails to recover, or recovers without producing a snapshot is marked
- *   failed with the reason, and the validation phase does not start at all
- *   while any snapshot is in that state. Validating only the snapshots that
- *   happened to work would publish a result that reads like a clean run of a
- *   smaller pipeline.
+ *   failed with the reason, and the stack is reported as blocked. A partially
+ *   recovered stack that went on to be validated would read like a clean run
+ *   of a smaller pipeline.
  *
  *   This is wiring, not UI: it takes the calls and an `onChange` sink so the
  *   pipeline screen can render progress and a test can run it without React.
@@ -24,11 +33,8 @@ import {
   ingestRepository,
   messageOf,
   runRecovery,
-  runValidation,
-  type DecisionMode,
   type RecoveryResult,
   type RepositoryConfiguration,
-  type ValidationRun,
 } from '../lib/api'
 
 export type SnapshotPhase =
@@ -36,12 +42,10 @@ export type SnapshotPhase =
   | 'ingesting'
   | 'recovering'
   | 'recovered'
-  | 'validating'
-  | 'validated'
   | 'failed'
 
 /** Which call failed, so the screen can say where the run stopped. */
-export type SnapshotFault = 'ingest' | 'recovery' | 'validation'
+export type SnapshotFault = 'ingest' | 'recovery'
 
 export interface SnapshotRun {
   configuration: RepositoryConfiguration
@@ -49,30 +53,27 @@ export interface SnapshotRun {
   /** The clone's workspace id, once ingestion has produced one. */
   repositoryId: string | null
   recovery: RecoveryResult | null
-  run: ValidationRun | null
   error: string | null
   fault: SnapshotFault | null
 }
 
-export type PipelinePhase =
-  | 'idle'
-  | 'recovering'
-  | 'validating'
-  | 'complete'
-  | 'blocked'
-  | 'failed'
+/**
+ * How far the stack has got.
+ *
+ * `recovered` is a terminal state here and it is not "complete": the stack is
+ * ready to be judged and nothing has judged it. Calling it complete is what
+ * would let a screen show four green phases over a result that does not exist.
+ */
+export type PipelinePhase = 'idle' | 'recovering' | 'recovered' | 'blocked'
 
 export interface RunPipelineOptions {
-  decisionMode: DecisionMode
-  adrRepositoryId?: string | null
   onChange: (snapshots: SnapshotRun[]) => void
   onPhase?: (phase: PipelinePhase) => void
-  onValidated?: (snapshot: SnapshotRun) => void
 }
 
 export interface PipelineOutcome {
   snapshots: SnapshotRun[]
-  /** Set when validation never started, because recovery did not finish. */
+  /** Set when the stack did not finish recovering, so it cannot be judged. */
   blockedAt: 'recovery' | null
 }
 
@@ -85,7 +86,6 @@ export async function runPipeline(
     phase: 'queued',
     repositoryId: null,
     recovery: null,
-    run: null,
     error: null,
     fault: null,
   }))
@@ -157,35 +157,7 @@ export async function runPipeline(
     return { snapshots, blockedAt: 'recovery' }
   }
 
-  options.onPhase?.('validating')
-
-  for (let index = 0; index < snapshots.length; index += 1) {
-    const snapshot = snapshots[index]
-
-    update(index, { phase: 'validating' })
-
-    try {
-      const run = await runValidation({
-        repository_id: snapshot.recovery?.repository_id ?? snapshot.repositoryId ?? '',
-        release_id: snapshot.configuration.release_tag,
-        decision_mode: options.decisionMode,
-        adr_repository_id: options.adrRepositoryId || null,
-      })
-
-      const validated: SnapshotRun = { ...snapshots[index], phase: 'validated', run }
-      update(index, { phase: 'validated', run })
-      options.onValidated?.(validated)
-    } catch (cause) {
-      update(index, {
-        phase: 'failed',
-        fault: 'validation',
-        error: messageOf(cause),
-      })
-    }
-  }
-
-  const failed = snapshots.some((snapshot) => snapshot.phase === 'failed')
-  options.onPhase?.(failed ? 'failed' : 'complete')
+  options.onPhase?.('recovered')
 
   return { snapshots, blockedAt: null }
 }

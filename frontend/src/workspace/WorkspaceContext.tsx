@@ -29,7 +29,6 @@ import {
   listSnapshots,
   removeConfiguration as deleteConfiguration,
   saveConfiguration,
-  type DecisionMode,
   type RepositoryConfigurationInput,
   type SnapshotSummary,
   type ValidationRun,
@@ -121,51 +120,49 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setFocusedRelease(run.release_id)
   }, [])
 
-  const startPipeline = useCallback(
-    async (mode: DecisionMode, adrRepositoryId?: string) => {
-      if (isPipelineRunning || configurations.length === 0) return
+  /**
+   * Recover every configured snapshot.
+   *
+   * Returns whether the stack is ready to be judged, so the screen that
+   * started it can send somebody to choose what it is judged against. It
+   * returns the answer rather than navigating, because a context that routes
+   * is a context two screens cannot both use.
+   */
+  const startPipeline = useCallback(async () => {
+    if (isPipelineRunning || configurations.length === 0) return false
 
-      setIsPipelineRunning(true)
-      setPipelineError(null)
-      setPipelineSnapshots([])
-      setPipelinePhase('recovering')
+    setIsPipelineRunning(true)
+    setPipelineError(null)
+    setPipelineSnapshots([])
+    setPipelinePhase('recovering')
 
-      try {
-        const outcome = await runPipeline(configurations, {
-          decisionMode: mode,
-          adrRepositoryId,
-          onPhase: setPipelinePhase,
-          onChange: setPipelineSnapshots,
-          onValidated: (snapshot) => {
-            if (snapshot.run) rememberRun(snapshot.run)
-          },
-        })
+    try {
+      const outcome = await runPipeline(configurations, {
+        onPhase: setPipelinePhase,
+        onChange: setPipelineSnapshots,
+      })
 
-        if (outcome.blockedAt === 'recovery') {
-          const failed = outcome.snapshots.filter(
-            (snapshot) => snapshot.phase === 'failed',
-          ).length
+      if (outcome.blockedAt === 'recovery') {
+        const failed = outcome.snapshots.filter(
+          (snapshot) => snapshot.phase === 'failed',
+        ).length
 
-          setPipelineError(
-            `${failed} of ${outcome.snapshots.length} snapshots did not recover, so validation did not start. A release validated against a partial stack would read like a clean run.`,
-          )
-        }
-      } finally {
-        setIsPipelineRunning(false)
-        // The clones and their snapshots exist now, so the header's
-        // repository list and the release lists must both see them.
-        reloadRepositories()
-        reloadSnapshots()
+        setPipelineError(
+          `${failed} of ${outcome.snapshots.length} snapshots did not recover, so the stack cannot be judged. A release validated against a partial stack would read like a clean run.`,
+        )
+
+        return false
       }
-    },
-    [
-      configurations,
-      isPipelineRunning,
-      reloadRepositories,
-      reloadSnapshots,
-      rememberRun,
-    ],
-  )
+
+      return true
+    } finally {
+      setIsPipelineRunning(false)
+      // The clones and their snapshots exist now, so the header's
+      // repository list and the release lists must both see them.
+      reloadRepositories()
+      reloadSnapshots()
+    }
+  }, [configurations, isPipelineRunning, reloadRepositories, reloadSnapshots])
 
   const addConfiguration = useCallback(
     async (input: RepositoryConfigurationInput) => {
