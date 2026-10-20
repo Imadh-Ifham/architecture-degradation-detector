@@ -97,6 +97,9 @@ class _RelationshipDraft:
     target_infrastructure_kind: InfrastructureKind | None
     resolution_method: str | None
     evidence: list[ResolutionEvidence] = field(default_factory=list)
+    protocols: set[str] = field(default_factory=set)
+    endpoints: set[str] = field(default_factory=set)
+    ports: set[int] = field(default_factory=set)
 
 
 @dataclass
@@ -336,6 +339,16 @@ class DependencyResolver:
 
             self._add_evidence(draft.evidence, evidence)
             self._add_evidence(draft.evidence, [match.to_evidence()])
+
+            # The endpoint resolved to this target, so what it declares about
+            # the transport travels with the relationship. Kept as sets: two
+            # endpoints naming one pair are two facts, not a conflict to
+            # resolve by taking whichever was read first.
+            if endpoint.protocol:
+                draft.protocols.add(endpoint.protocol.lower())
+            if endpoint.port:
+                draft.ports.add(endpoint.port)
+            draft.endpoints.add(_format_endpoint(endpoint))
 
             if infrastructure is not None:
                 self._add_evidence(draft.evidence, list(infrastructure.evidence))
@@ -677,6 +690,9 @@ class DependencyResolver:
                 target_class=draft.target_class,
                 target_infrastructure_kind=draft.target_infrastructure_kind,
                 resolution_method=draft.resolution_method,
+                protocols=sorted(draft.protocols),
+                endpoints=sorted(draft.endpoints),
+                ports=sorted(draft.ports),
                 evidence=sorted(draft.evidence, key=lambda item: item.sort_key()),
             )
             for draft in self._relationships.values()

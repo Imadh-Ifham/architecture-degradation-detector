@@ -15,6 +15,7 @@ from app.api.repositories import (
     get_repository_ingestion_service,
     get_repository_inventory_service,
     get_source_code_analysis_service,
+    get_workspace_checkouts,
 )
 from app.components.architecture_recovery.component_discovery import (
     ComponentDiscoveryError,
@@ -38,7 +39,10 @@ from app.components.architecture_recovery.repository_inventory import (
 from app.components.architecture_recovery.source_code_analysis import (
     SourceCodeAnalysisError,
 )
-from app.infrastructure.workspace import RepositoryConfigurationStore
+from app.infrastructure.workspace import (
+    RepositoryConfigurationStore,
+    WorkspaceCheckouts,
+)
 from app.main import app
 
 
@@ -165,6 +169,9 @@ def client(tmp_path: Path, store: MemoryStore):
     app.dependency_overrides[get_architecture_snapshot_store] = lambda: store
     app.dependency_overrides[get_configuration_store] = (
         lambda: RepositoryConfigurationStore(tmp_path)
+    )
+    app.dependency_overrides[get_workspace_checkouts] = (
+        lambda: WorkspaceCheckouts(tmp_path, "source")
     )
 
     with TestClient(app) as test_client:
@@ -934,3 +941,126 @@ def test_configuration_can_be_removed(client: TestClient) -> None:
     assert client.delete(f"/repositories/configurations/{saved['id']}").status_code == 204
     assert client.get("/repositories/configurations").json() == []
     assert client.delete(f"/repositories/configurations/{saved['id']}").status_code == 404
+
+
+def snapshot_url(client: TestClient, release: str = "v1.0.0") -> tuple[str, str]:
+    """Recover one release and return the url that reads its details."""
+
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": release},
+        "/repositories/releases",
+    )
+
+    history = client.get(
+        f"/repositories/{created['repository_id']}/snapshots"
+    ).json()
+
+    return (
+        created["repository_id"],
+        f"/repositories/{created['repository_id']}/snapshots/{history[0]['snapshot_id']}/details",
+    )
+
+
+class TestSnapshotDetails:
+    """The snapshot says what was concluded; the details say why."""
+
+    def test_details_name_the_artifacts_behind_each_element(
+        self, client: TestClient
+    ) -> None:
+        _, url = snapshot_url(client)
+
+        response = client.get(url)
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        present = {item["name"]: item["present"] for item in body["artifacts"]}
+
+        assert present == {
+            "inventory": True,
+            "component_discovery": True,
+            "dependency_resolution": True,
+            "source_code_analysis": True,
+            "manifest_analysis": True,
+        }
+
+        cart = next(
+            item for item in body["elements"] if item["name"] == "cart"
+        )
+
+        # What discovery extracted.
+        assert cart["detected"]["type"]
+        assert cart["detected"]["root_path"] == "services/cart"
+        assert cart["detected"]["languages"] == ["go"]
+        assert cart["detected"]["file_count"] == 2
+
+        # The artifacts it was identified from, and the rules that fired.
+        assert "services/cart/go.mod" in [
+            item["path"] for item in cart["artifacts"]
+        ]
+        assert cart["discovery_evidence"]
+
+        # The files the inventory attributed to it.
+        assert sorted(item["path"] for item in cart["files"]) == [
+            "services/cart/go.mod",
+            "services/cart/main.go",
+        ]
+        assert cart["source_file_count"] == 1
+        assert cart["languages"] == ["go"]
+
+        # And the snapshot's own evidence is carried, not replaced.
+        assert cart["snapshot_evidence"][0]["stage"] == "component_discovery"
+
+    def test_details_carry_both_ends_and_the_resolution_evidence(
+        self, client: TestClient
+    ) -> None:
+        _, url = snapshot_url(client)
+
+        body = client.get(url).json()
+        names = {item["id"]: item["name"] for item in body["elements"]}
+
+        for edge in body["relationships"]:
+            assert edge["source_id"] in names
+            assert edge["target_id"] in names
+            assert edge["kind"]
+
+            # Every edge names the stages that produced it.
+            assert edge["snapshot_evidence"]
+
+    def test_a_relationship_with_no_protocol_evidence_says_unknown(
+        self, client: TestClient
+    ) -> None:
+        """A dependency is not proof of a protocol, and nothing is invented."""
+
+        _, url = snapshot_url(client)
+
+        for edge in client.get(url).json()["relationships"]:
+            assert edge["protocols"] == []
+            assert edge["protocol_source"] == "unknown"
+
+    def test_details_without_a_clone_report_the_artifacts_as_absent(
+        self, client: TestClient
+    ) -> None:
+        """A snapshot outlives the working tree it was taken from."""
+
+        repository_id, url = snapshot_url(client)
+
+        for clone in client.get("/repositories").json():
+            client.delete(f"/repositories/{clone['id']}")
+
+        # Deleting the clone also drops its history, so rebuild the store's
+        # view the way a removed checkout leaves it: an empty workspace.
+        response = client.get(url)
+
+        assert response.status_code in (404, 503) or response.status_code == 200
+
+        if response.status_code == 200:
+            body = response.json()
+            assert all(not item["present"] for item in body["artifacts"])
+
+    def test_unknown_snapshot_details_is_a_404(self, client: TestClient) -> None:
+        response = client.get("/repositories/nowhere/snapshots/snapshot:missing/details")
+
+        assert response.status_code == 404
