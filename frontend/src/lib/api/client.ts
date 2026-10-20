@@ -102,6 +102,12 @@ async function describeFailure(response: Response): Promise<string> {
       return body.detail
     }
 
+    // A refusal that carries more than a sentence puts the sentence in
+    // `message` and the rest beside it.
+    if (typeof body?.detail?.message === 'string') {
+      return body.detail.message
+    }
+
     // Validation errors arrive as a list of {msg, loc} entries.
     if (Array.isArray(body?.detail)) {
       const messages = body.detail
