@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.repositories import (
     get_architecture_snapshot_store,
     get_component_discovery_service,
+    get_configuration_store,
     get_dependency_resolution_service,
     get_graph_construction_service,
     get_manifest_analysis_service,
@@ -37,6 +38,7 @@ from app.components.architecture_recovery.repository_inventory import (
 from app.components.architecture_recovery.source_code_analysis import (
     SourceCodeAnalysisError,
 )
+from app.infrastructure.workspace import RepositoryConfigurationStore
 from app.main import app
 
 
@@ -161,11 +163,42 @@ def client(tmp_path: Path, store: MemoryStore):
         lambda: GraphConstructionService(store=store)
     )
     app.dependency_overrides[get_architecture_snapshot_store] = lambda: store
+    app.dependency_overrides[get_configuration_store] = (
+        lambda: RepositoryConfigurationStore(tmp_path)
+    )
 
     with TestClient(app) as test_client:
         yield test_client
 
     app.dependency_overrides.clear()
+
+
+def ingest(client: TestClient, payload: dict, route: str = "/repositories") -> dict:
+    """Clone a repository. Ingestion alone analyses nothing."""
+
+    response = client.post(route, json=payload)
+
+    assert response.status_code == 201
+
+    return response.json()
+
+
+def recover(client: TestClient, ingested: dict) -> dict:
+    """Run recovery over a clone, the way the pipeline does."""
+
+    response = client.post(f"/repositories/{ingested['id']}/recovery")
+
+    assert response.status_code == 200
+
+    return response.json()
+
+
+def ingest_and_recover(
+    client: TestClient, payload: dict, route: str = "/repositories"
+) -> dict:
+    """The two calls a pipeline makes for one snapshot, recovery body returned."""
+
+    return recover(client, ingest(client, payload, route))
 
 
 def test_ingest_repository_then_list_it(client: TestClient) -> None:
@@ -218,10 +251,10 @@ def test_ingest_requires_both_fields(client: TestClient) -> None:
 
 
 def test_remove_repository_deletes_it(client: TestClient) -> None:
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     removed = client.delete(f"/repositories/{created['id']}")
 
@@ -240,10 +273,10 @@ def test_remove_repository_deletes_its_stored_history(
 ) -> None:
     """Removing the clone removes what the clone produced."""
 
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert store.snapshots
 
@@ -262,13 +295,15 @@ def test_removing_one_release_keeps_the_other_release_snapshot(
     clone is still on disk and still claims to have been analysed.
     """
 
-    first = client.post(
+    first = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": "v0.9.0"},
         "/repositories/releases",
-        json={"url": "https://example.com/team/repo.git", "revision": "v0.9.0"},
-    ).json()
-    client.post(
+    )
+    ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": "v0.10.0"},
         "/repositories/releases",
-        json={"url": "https://example.com/team/repo.git", "revision": "v0.10.0"},
     )
 
     assert len(store.snapshots) == 2
@@ -284,14 +319,14 @@ def test_removing_one_release_keeps_the_other_release_snapshot(
 def test_remove_repository_keeps_another_repositorys_history(
     client: TestClient, store: MemoryStore
 ) -> None:
-    kept = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/other.git", "branch": "main"},
-    ).json()
-    removed = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    kept = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/other.git", "branch": "main"},
+    )
+    removed = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     client.delete(f"/repositories/{removed['id']}")
 
@@ -304,10 +339,10 @@ def test_a_refused_purge_keeps_the_clone_so_it_can_be_retried(
 ) -> None:
     """The files go last, so a graph failure leaves something to retry with."""
 
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     class RefusingStore(MemoryStore):
         def delete_repository(self, repository_id):
@@ -321,13 +356,13 @@ def test_a_refused_purge_keeps_the_clone_so_it_can_be_retried(
     assert [item["id"] for item in client.get("/repositories").json()] == [created["id"]]
 
 
-def test_ingesting_a_repository_inventories_the_clone(client: TestClient) -> None:
-    """A successful clone is inventoried automatically."""
+def test_recovery_inventories_the_clone(client: TestClient) -> None:
+    """Recovery inventories a clone that is already on disk."""
 
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert created["inventory_error"] is None
 
@@ -350,13 +385,13 @@ def test_ingesting_a_repository_inventories_the_clone(client: TestClient) -> Non
     assert not (Path(created["path"]) / INVENTORY_FILE_NAME).exists()
 
 
-def test_ingesting_a_repository_analyzes_the_manifests(client: TestClient) -> None:
-    """A successful clone is inventoried and then analyzed automatically."""
+def test_recovery_analyzes_the_manifests(client: TestClient) -> None:
+    """Manifests are analysed straight after the inventory."""
 
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert created["manifest_analysis_error"] is None
 
@@ -385,18 +420,18 @@ def test_analysis_is_skipped_when_the_inventory_fails(client: TestClient) -> Non
         lambda: FailingInventoryService()
     )
 
-    body = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert body["inventory"] is None
     assert body["manifest_analysis"] is None
     assert "no repository inventory" in body["manifest_analysis_error"]
 
 
-def test_analysis_failure_does_not_fail_the_ingest(client: TestClient) -> None:
-    """A downstream failure must not undo the clone or the inventory."""
+def test_analysis_failure_does_not_fail_the_recovery(client: TestClient) -> None:
+    """A downstream failure must not undo the inventory."""
 
     class FailingAnalysisService:
         def run(self, inventory, root, output_directory):
@@ -406,27 +441,23 @@ def test_analysis_failure_does_not_fail_the_ingest(client: TestClient) -> None:
         lambda: FailingAnalysisService()
     )
 
-    response = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
     )
-
-    assert response.status_code == 201
-
-    body = response.json()
 
     assert body["inventory"] is not None
     assert body["manifest_analysis"] is None
     assert body["manifest_analysis_error"] == "analysis workspace is not writable"
 
 
-def test_ingesting_a_repository_discovers_components(client: TestClient) -> None:
+def test_recovery_discovers_components(client: TestClient) -> None:
     """Component discovery runs automatically after its prerequisites."""
 
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert created["component_discovery_error"] is None
 
@@ -444,13 +475,13 @@ def test_ingesting_a_repository_discovers_components(client: TestClient) -> None
     assert not (Path(created["path"]) / "component_discovery.json").exists()
 
 
-def test_ingesting_a_repository_resolves_dependencies(client: TestClient) -> None:
+def test_recovery_resolves_dependencies(client: TestClient) -> None:
     """Dependency resolution runs automatically after component discovery."""
 
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert created["dependency_resolution_error"] is None
 
@@ -467,13 +498,13 @@ def test_ingesting_a_repository_resolves_dependencies(client: TestClient) -> Non
     assert not (Path(created["path"]) / "dependency_resolution.json").exists()
 
 
-def test_ingesting_a_repository_analyzes_source_code(client: TestClient) -> None:
+def test_recovery_analyzes_source_code(client: TestClient) -> None:
     """Source code analysis runs automatically after dependency resolution."""
 
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert created["source_code_analysis_error"] is None
 
@@ -493,10 +524,10 @@ def test_ingesting_a_repository_analyzes_source_code(client: TestClient) -> None
 def test_previous_response_fields_are_unchanged(client: TestClient) -> None:
     """Adding source code analysis must not disturb the earlier stages' output."""
 
-    created = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     # The ingestion fields are still present and correct.
     assert created["url"] == "https://example.com/team/repo.git"
@@ -529,20 +560,20 @@ def test_dependency_resolution_is_skipped_when_discovery_fails(
         lambda: FailingDiscoveryService()
     )
 
-    body = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert body["dependency_resolution"] is None
     assert "no component discovery" in body["dependency_resolution_error"]
     assert body["manifest_analysis"] is not None
 
 
-def test_dependency_resolution_failure_does_not_fail_the_ingest(
+def test_dependency_resolution_failure_does_not_fail_the_recovery(
     client: TestClient,
 ) -> None:
-    """A downstream failure must not undo the clone or the earlier stages."""
+    """A downstream failure must not undo the earlier stages."""
 
     class FailingDependencyService:
         def run(self, discovery, analysis, output_directory):
@@ -552,14 +583,10 @@ def test_dependency_resolution_failure_does_not_fail_the_ingest(
         lambda: FailingDependencyService()
     )
 
-    response = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
     )
-
-    assert response.status_code == 201
-
-    body = response.json()
 
     assert body["component_discovery"] is not None
     assert body["dependency_resolution"] is None
@@ -571,10 +598,10 @@ def test_dependency_resolution_failure_does_not_fail_the_ingest(
     assert "no dependency resolution" in body["source_code_analysis_error"]
 
 
-def test_source_analysis_failure_does_not_fail_the_ingest(
+def test_source_analysis_failure_does_not_fail_the_recovery(
     client: TestClient,
 ) -> None:
-    """A source analysis failure must not undo the clone or earlier stages."""
+    """A source analysis failure must not undo earlier stages."""
 
     class FailingSourceAnalysisService:
         def run(self, inventory, discovery, dependencies, root, output_directory):
@@ -584,14 +611,10 @@ def test_source_analysis_failure_does_not_fail_the_ingest(
         lambda: FailingSourceAnalysisService()
     )
 
-    response = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
     )
-
-    assert response.status_code == 201
-
-    body = response.json()
 
     assert body["dependency_resolution"] is not None
     assert body["source_code_analysis"] is None
@@ -612,10 +635,10 @@ def test_discovery_is_skipped_when_analysis_fails(client: TestClient) -> None:
         lambda: FailingAnalysisService()
     )
 
-    body = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert body["component_discovery"] is None
     assert "no manifest analysis" in body["component_discovery_error"]
@@ -632,17 +655,17 @@ def test_discovery_is_skipped_when_the_inventory_fails(client: TestClient) -> No
         lambda: FailingInventoryService()
     )
 
-    body = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
-    ).json()
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
 
     assert body["component_discovery"] is None
     assert "no repository inventory" in body["component_discovery_error"]
 
 
-def test_discovery_failure_does_not_fail_the_ingest(client: TestClient) -> None:
-    """A downstream failure must not undo the clone or the earlier stages."""
+def test_discovery_failure_does_not_fail_the_recovery(client: TestClient) -> None:
+    """A downstream failure must not undo the earlier stages."""
 
     class FailingDiscoveryService:
         def run(self, inventory, analysis, output_directory):
@@ -652,14 +675,10 @@ def test_discovery_failure_does_not_fail_the_ingest(client: TestClient) -> None:
         lambda: FailingDiscoveryService()
     )
 
-    response = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
     )
-
-    assert response.status_code == 201
-
-    body = response.json()
 
     assert body["inventory"] is not None
     assert body["manifest_analysis"] is not None
@@ -672,10 +691,11 @@ def test_ingesting_a_release_records_a_snapshot(
 ) -> None:
     """A tag can be analyzed on its own, and the snapshot is retrievable."""
 
-    created = client.post(
+    created = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
         "/repositories/releases",
-        json={"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
-    ).json()
+    )
 
     assert created["graph_construction_error"] is None
     assert created["release_tag"] == "v1.0.0"
@@ -702,14 +722,16 @@ def test_ingesting_a_release_records_a_snapshot(
 def test_two_releases_keep_two_snapshots(client: TestClient) -> None:
     """A newer release must not overwrite the snapshot of an older one."""
 
-    first = client.post(
+    first = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
         "/repositories/releases",
-        json={"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
-    ).json()
-    second = client.post(
+    )
+    second = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": "v1.2.0"},
         "/repositories/releases",
-        json={"url": "https://example.com/team/repo.git", "revision": "v1.2.0"},
-    ).json()
+    )
 
     repository_id = first["repository_id"]
 
@@ -731,8 +753,8 @@ def test_unknown_snapshot_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_inventory_failure_does_not_fail_the_ingest(client: TestClient) -> None:
-    """The clone is the primary operation; an inventory problem must not undo it."""
+def test_inventory_failure_does_not_fail_the_recovery(client: TestClient) -> None:
+    """Analysis is downstream of the clone; an inventory problem must not undo it."""
 
     class FailingInventoryService:
         def run_for_ingested(self, repository):
@@ -742,17 +764,173 @@ def test_inventory_failure_does_not_fail_the_ingest(client: TestClient) -> None:
         lambda: FailingInventoryService()
     )
 
-    response = client.post(
-        "/repositories",
-        json={"url": "https://example.com/team/repo.git", "branch": "main"},
+    body = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
     )
-
-    assert response.status_code == 201
-
-    body = response.json()
 
     assert body["inventory"] is None
     assert body["inventory_error"] == "workspace is not writable"
 
     # The clone survives, and is still listed.
     assert [item["id"] for item in client.get("/repositories").json()] == [body["id"]]
+
+
+def test_ingesting_a_repository_does_not_analyse_it(
+    client: TestClient, store: MemoryStore
+) -> None:
+    """Cloning and recovering are two calls, so a clone produces no analysis."""
+
+    created = ingest(
+        client,
+        {"url": "https://example.com/team/repo.git", "branch": "main"},
+    )
+
+    beside = Path(created["path"]).parent
+
+    assert store.snapshots == {}
+    assert not (beside / INVENTORY_FILE_NAME).exists()
+    assert not (beside / "manifest_analysis.json").exists()
+    assert not (beside / "component_discovery.json").exists()
+
+    # And the clone is ready for the recovery call that analyses it.
+    assert recover(client, created)["graph_construction_error"] is None
+
+
+def test_recovery_requires_an_ingested_repository(client: TestClient) -> None:
+    response = client.post("/repositories/not-ingested/recovery")
+
+    assert response.status_code == 404
+    assert "not-ingested" in response.json()["detail"]
+
+
+def test_configurations_are_saved_without_cloning(client: TestClient) -> None:
+    """Setup writes down a snapshot; it does not clone or analyse anything."""
+
+    saved = client.post(
+        "/repositories/configurations",
+        json={
+            "url": "https://example.com/team/repo.git",
+            "branch": "main",
+            "release_tag": "v1.0.0",
+        },
+    )
+
+    assert saved.status_code == 201
+
+    body = saved.json()
+
+    assert body["url"] == "https://example.com/team/repo.git"
+    assert body["branch"] == "main"
+    assert body["release_tag"] == "v1.0.0"
+    assert body["created_at"]
+
+    assert client.get("/repositories").json() == []
+
+    listed = client.get("/repositories/configurations")
+
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()] == [body["id"]]
+
+
+def test_saving_the_same_configuration_twice_keeps_one_row(
+    client: TestClient,
+) -> None:
+    """Configuring a snapshot twice is an edit, not a second stack entry."""
+
+    payload = {
+        "url": "https://example.com/team/repo.git",
+        "branch": "main",
+        "release_tag": "v1.0.0",
+    }
+
+    first = client.post("/repositories/configurations", json=payload).json()
+    second = client.post(
+        "/repositories/configurations",
+        json={**payload, "branch": "release"},
+    ).json()
+
+    assert first["id"] != second["id"]
+
+    rows = client.get("/repositories/configurations").json()
+
+    assert [row["id"] for row in rows] == [first["id"], second["id"]]
+
+    # Saving the first one again replaces it in place rather than appending.
+    client.post("/repositories/configurations", json=payload)
+
+    assert [row["id"] for row in client.get("/repositories/configurations").json()] == [
+        first["id"],
+        second["id"],
+    ]
+
+
+def test_configuration_rejects_an_unorderable_release_tag(
+    client: TestClient,
+) -> None:
+    """Validation compares releases, so a tag that cannot be ordered is refused."""
+
+    response = client.post(
+        "/repositories/configurations",
+        json={
+            "url": "https://example.com/team/repo.git",
+            "branch": "main",
+            "release_tag": "release-2025-04-01",
+        },
+    )
+
+    assert response.status_code == 400
+    assert client.get("/repositories/configurations").json() == []
+
+
+def test_configuration_rejects_an_unsupported_url(client: TestClient) -> None:
+    response = client.post(
+        "/repositories/configurations",
+        json={
+            "url": "file:///etc/passwd",
+            "branch": "main",
+            "release_tag": "v1.0.0",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_configuration_rejects_an_unsafe_branch(client: TestClient) -> None:
+    response = client.post(
+        "/repositories/configurations",
+        json={
+            "url": "https://example.com/team/repo.git",
+            "branch": "--upload-pack=evil",
+            "release_tag": "v1.0.0",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_configuration_requires_a_release_tag(client: TestClient) -> None:
+    response = client.post(
+        "/repositories/configurations",
+        json={
+            "url": "https://example.com/team/repo.git",
+            "branch": "main",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_configuration_can_be_removed(client: TestClient) -> None:
+    saved = client.post(
+        "/repositories/configurations",
+        json={
+            "url": "https://example.com/team/repo.git",
+            "branch": "main",
+            "release_tag": "v1.0.0",
+        },
+    ).json()
+
+    assert client.delete(f"/repositories/configurations/{saved['id']}").status_code == 204
+    assert client.get("/repositories/configurations").json() == []
+    assert client.delete(f"/repositories/configurations/{saved['id']}").status_code == 404

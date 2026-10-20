@@ -1,26 +1,35 @@
-"""Repository ingestion endpoints.
+"""Repository ingestion and recovery endpoints.
 
 Author: Imadh Ifham
 Date: 2026-10-13
 Description:
-    Exposes the repository ingestion subcomponent over HTTP: clone a
-    repository onto the machine, list what is present, and remove it again.
+    Exposes repository setup, ingestion, recovery, and removal over HTTP.
 
-    A successful clone is followed immediately by a repository inventory,
-    manifest analysis, component discovery, dependency resolution, source code
-    analysis and graph construction, and each stage's summary is included in
-    the response. The subcomponents stay independent: this transport layer is
-    the only place that knows the order in which they run.
+    **Three separate acts, deliberately not one endpoint.** Configuring a
+    snapshot writes down what should be analysed and touches nothing else.
+    Ingesting clones it. Recovering analyses the clone stage by stage. A
+    caller that only wanted to write down a release does not pay for a clone,
+    and a caller that wants to analyse many snapshots decides the order
+    itself - which is what the pipeline does.
 
-    Release-aware analysis is available through `POST /repositories/releases`,
-    and the resulting history through `GET /repositories/{id}/snapshots`. Both
-    read and write the same graph store that graph construction publishes to.
+    A recovery runs that clone through a repository inventory, manifest
+    analysis, component discovery, dependency resolution, source code analysis
+    and graph construction, and each stage's summary is included in the
+    response. The subcomponents stay independent: this transport layer is the
+    only place that knows the order in which they run.
+
+    Release-aware ingestion is available through `POST /repositories/releases`
+    or by naming `revision` on `POST /repositories`, and the resulting history
+    through `GET /repositories/{id}/snapshots`. Both read and write the same
+    graph store that graph construction publishes to.
 """
 
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 
 from app.components.architecture_recovery.component_discovery import (
     ComponentDiscoveryError,
@@ -66,6 +75,9 @@ from app.components.architecture_recovery.repository_ingestion.service import (
 )
 from app.components.architecture_recovery.repository_ingestion.validation import (
     redact_credentials,
+    validate_branch,
+    validate_release_tag,
+    validate_url,
 )
 from app.components.architecture_recovery.repository_inventory import (
     RepositoryInventory,
@@ -81,18 +93,31 @@ from app.components.architecture_recovery.source_code_analysis import (
     SourceCodeAnalysisSummaryResponse,
     source_code_analysis_service_from_settings,
 )
+from app.components.architecture_validation.observation_normalization import (
+    UnorderableRelease,
+    release_sort_key,
+)
 from app.core.config import settings
 from app.domain.repository import IngestedRepository
+from app.domain.repository_configuration import (
+    RepositoryConfiguration,
+    configuration_id_for,
+)
 from app.infrastructure.git.client import GitClient, GitCommandError
+from app.infrastructure.workspace import (
+    ConfigurationStoreError,
+    RepositoryConfigurationStore,
+)
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
 
 
-class RepositoryIngestionResponse(IngestedRepositoryResponse):
-    """An ingested repository plus the analysis taken from the fresh clone.
+class RecoveryResponse(IngestedRepositoryResponse):
+    """A recovered repository: the clone's record plus each stage's summary.
 
     Each optional block is null when its stage could not run, in which case the
-    matching `*_error` explains why. The clone itself is unaffected either way.
+    matching `*_error` explains why. The clone itself is unaffected either way,
+    and a snapshot that reached graph construction is what validation reads.
     """
 
     inventory: RepositoryInventorySummaryResponse | None = None
@@ -107,6 +132,34 @@ class RepositoryIngestionResponse(IngestedRepositoryResponse):
     source_code_analysis_error: str | None = None
     graph_construction: GraphConstructionSummaryResponse | None = None
     graph_construction_error: str | None = None
+
+
+class RepositoryConfigurationRequest(BaseModel):
+    """Body of `POST /repositories/configurations`.
+
+    The three fields are a snapshot's whole identity. The release tag is
+    required because it is what names the revision downstream - recovery
+    identifies a checkout by commit, and a commit carries no order for the
+    decision history to compare releases against.
+    """
+
+    url: str = Field(min_length=1, max_length=2048)
+    branch: str = Field(min_length=1, max_length=255)
+    release_tag: str = Field(min_length=1, max_length=255)
+
+
+class RepositoryConfigurationResponse(BaseModel):
+    """One configured snapshot. Nothing has been cloned or analysed."""
+
+    id: str
+    url: str
+    branch: str
+    release_tag: str
+    created_at: str
+
+    @classmethod
+    def from_record(cls, record: RepositoryConfiguration) -> "RepositoryConfigurationResponse":
+        return cls(**record.to_dict())
 
 
 @lru_cache
@@ -211,35 +264,40 @@ def get_graph_construction_service() -> GraphConstructionService:
     )
 
 
+@lru_cache
+def get_configuration_store() -> RepositoryConfigurationStore:
+    """Provide the store the configured snapshots live in.
+
+    The workspace root rather than a setting of its own: a configured snapshot
+    and the clone it later produces belong to the same workspace, and two
+    roots would let one be deleted while the other still pointed at it.
+    """
+
+    return RepositoryConfigurationStore(settings.repositories_root)
+
+
 @router.post(
     "",
-    response_model=RepositoryIngestionResponse,
+    response_model=IngestedRepositoryResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def ingest_repository(
     request: RepositoryIngestionRequest,
     service: RepositoryIngestionService = Depends(get_repository_ingestion_service),
-    inventory_service: RepositoryInventoryService = Depends(
-        get_repository_inventory_service
-    ),
-    analysis_service: ManifestAnalysisService = Depends(
-        get_manifest_analysis_service
-    ),
-    discovery_service: ComponentDiscoveryService = Depends(
-        get_component_discovery_service
-    ),
-    dependency_service: DependencyResolutionService = Depends(
-        get_dependency_resolution_service
-    ),
-    source_analysis_service: SourceCodeAnalysisService = Depends(
-        get_source_code_analysis_service
-    ),
-    graph_service: GraphConstructionService = Depends(get_graph_construction_service),
-) -> RepositoryIngestionResponse:
-    """Clone the branch tip and run every recovery stage over it."""
+) -> IngestedRepositoryResponse:
+    """Clone the named revision, or the branch tip, and nothing else.
+
+    Analysis is a separate call (`POST /repositories/{id}/recovery`) so that
+    the clone and the pipeline can fail, retry and be ordered independently.
+    """
 
     try:
-        repository = service.ingest(request.url, request.branch)
+        if request.revision and request.revision.strip():
+            repository = service.ingest_revision(
+                request.url, request.revision.strip(), request.branch
+            )
+        else:
+            repository = service.ingest(request.url, request.branch)
     except InvalidRepositorySource as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -251,46 +309,22 @@ def ingest_repository(
             detail=redact_credentials(_describe_git_failure(error)),
         ) from error
 
-    return _analyse(
-        repository,
-        inventory_service,
-        analysis_service,
-        discovery_service,
-        dependency_service,
-        source_analysis_service,
-        graph_service,
-    )
+    return IngestedRepositoryResponse.model_validate(repository)
 
 
 @router.post(
     "/releases",
-    response_model=RepositoryIngestionResponse,
+    response_model=IngestedRepositoryResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def ingest_release(
     request: RepositoryReleaseRequest,
     service: RepositoryIngestionService = Depends(get_repository_ingestion_service),
-    inventory_service: RepositoryInventoryService = Depends(
-        get_repository_inventory_service
-    ),
-    analysis_service: ManifestAnalysisService = Depends(
-        get_manifest_analysis_service
-    ),
-    discovery_service: ComponentDiscoveryService = Depends(
-        get_component_discovery_service
-    ),
-    dependency_service: DependencyResolutionService = Depends(
-        get_dependency_resolution_service
-    ),
-    source_analysis_service: SourceCodeAnalysisService = Depends(
-        get_source_code_analysis_service
-    ),
-    graph_service: GraphConstructionService = Depends(get_graph_construction_service),
-) -> RepositoryIngestionResponse:
-    """Clone one explicit revision and record it as its own snapshot.
+) -> IngestedRepositoryResponse:
+    """Clone one explicit revision and record it as its own checkout.
 
-    The workspace is keyed by the revision, so analyzing `v1.2.0` leaves the
-    checkout and snapshot of `v1.0.0` untouched.
+    Kept beside the `revision` field on `POST /repositories` because both are
+    one act; neither runs the pipeline.
     """
 
     try:
@@ -306,6 +340,58 @@ def ingest_release(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=redact_credentials(_describe_git_failure(error)),
+        ) from error
+
+    return IngestedRepositoryResponse.model_validate(repository)
+
+
+@router.post(
+    "/{repository_id}/recovery",
+    response_model=RecoveryResponse,
+    summary="Run architecture recovery over an ingested repository",
+    response_description=(
+        "One summary per recovery stage. A stage that could not run reports "
+        "itself in `<stage>_error` rather than failing the request."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "That repository has not been ingested on this machine."
+        }
+    },
+)
+def recover_repository(
+    repository_id: str,
+    service: RepositoryIngestionService = Depends(get_repository_ingestion_service),
+    inventory_service: RepositoryInventoryService = Depends(
+        get_repository_inventory_service
+    ),
+    analysis_service: ManifestAnalysisService = Depends(
+        get_manifest_analysis_service
+    ),
+    discovery_service: ComponentDiscoveryService = Depends(
+        get_component_discovery_service
+    ),
+    dependency_service: DependencyResolutionService = Depends(
+        get_dependency_resolution_service
+    ),
+    source_analysis_service: SourceCodeAnalysisService = Depends(
+        get_source_code_analysis_service
+    ),
+    graph_service: GraphConstructionService = Depends(get_graph_construction_service),
+) -> RecoveryResponse:
+    """Run every recovery stage over an already-cloned repository.
+
+    Separate from ingestion on purpose: the clone is the expensive, failure
+    prone step a caller may retry alone, and the pipeline needs to run one
+    snapshot at a time in an order it chooses.
+    """
+
+    try:
+        repository = service.get(repository_id)
+    except RepositoryNotFound as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
         ) from error
 
     return _analyse(
@@ -329,6 +415,110 @@ def list_repositories(
         IngestedRepositoryResponse.model_validate(repository)
         for repository in service.list_ingested()
     ]
+
+
+@router.get(
+    "/configurations",
+    response_model=list[RepositoryConfigurationResponse],
+    summary="List the configured snapshots",
+    response_description="Every saved snapshot, in the order it was configured.",
+)
+def list_configurations(
+    store: RepositoryConfigurationStore = Depends(get_configuration_store),
+) -> list[RepositoryConfigurationResponse]:
+    """Return what has been configured. Nothing is cloned by this call."""
+
+    try:
+        records = store.list()
+    except ConfigurationStoreError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error)
+        ) from error
+
+    return [RepositoryConfigurationResponse.from_record(record) for record in records]
+
+
+@router.post(
+    "/configurations",
+    response_model=RepositoryConfigurationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Configure a snapshot without cloning it",
+    response_description=(
+        "The saved snapshot. Nothing has been cloned and nothing has been analysed."
+    ),
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "A field is not a usable repository url, branch or "
+            "orderable release tag."
+        }
+    },
+)
+def save_configuration(
+    request: RepositoryConfigurationRequest,
+    store: RepositoryConfigurationStore = Depends(get_configuration_store),
+) -> RepositoryConfigurationResponse:
+    """Write down one snapshot for a later pipeline run.
+
+    Everything a release needs to be *identified* is checked here, including
+    that its tag can be ordered against other releases. An unorderable tag
+    would let the pipeline recover three snapshots and then refuse to validate
+    all three, which is a failure this call can prevent for free.
+    """
+
+    try:
+        url = validate_url(request.url)
+        branch = validate_branch(request.branch)
+        release_tag = validate_release_tag(request.release_tag)
+        release_sort_key(release_tag)
+    except InvalidRepositorySource as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)
+        ) from error
+    except UnorderableRelease as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)
+        ) from error
+
+    record = RepositoryConfiguration(
+        id=configuration_id_for(url, branch, release_tag),
+        url=url,
+        branch=branch,
+        release_tag=release_tag,
+        created_at=datetime.now(UTC),
+    )
+
+    try:
+        stored = store.save(record)
+    except ConfigurationStoreError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error)
+        ) from error
+
+    return RepositoryConfigurationResponse.from_record(stored)
+
+
+@router.delete(
+    "/configurations/{configuration_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_configuration(
+    configuration_id: str,
+    store: RepositoryConfigurationStore = Depends(get_configuration_store),
+) -> None:
+    """Stop a snapshot being part of the next run. Nothing else is touched."""
+
+    try:
+        removed = store.delete(configuration_id)
+    except ConfigurationStoreError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error)
+        ) from error
+
+    if not removed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No configured snapshot '{configuration_id}'.",
+        )
 
 
 @router.get(
@@ -675,7 +865,7 @@ def _analyse(
     dependency_service: DependencyResolutionService,
     source_analysis_service: SourceCodeAnalysisService,
     graph_service: GraphConstructionService,
-) -> RepositoryIngestionResponse:
+) -> RecoveryResponse:
     """Run every recovery stage over a clone that has already succeeded.
 
     The clone has succeeded, so from here on nothing may report the ingest as
@@ -707,7 +897,7 @@ def _analyse(
         repository, discovery_document, dependency_document, source_report, graph_service
     )
 
-    return RepositoryIngestionResponse(
+    return RecoveryResponse(
         **IngestedRepositoryResponse.model_validate(repository).model_dump(),
         inventory=inventory,
         inventory_error=inventory_error,

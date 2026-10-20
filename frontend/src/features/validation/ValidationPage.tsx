@@ -46,11 +46,12 @@ import { useWorkspace } from '../../workspace/useWorkspace'
 import ModelComparison from './ModelComparison'
 
 export default function ValidationPage() {
-  const { repository, release, run, isRecovered, isRunning } = useWorkspace()
+  const { repository, repositoryKey, release, run, isRecovered, isRunning } =
+    useWorkspace()
 
   const published = useRequest(
-    (options) => readPublishedGraph(repository?.id ?? '', release ?? '', options),
-    [repository?.id, release, run?.run_id],
+    (options) => readPublishedGraph(repositoryKey, release ?? '', options),
+    [repositoryKey, release, run?.run_id],
     Boolean(repository && release),
   )
 

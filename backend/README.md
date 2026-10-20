@@ -39,8 +39,12 @@ Degradation detection (C3): install, one-command demo and CLI are in [`app/compo
 | `GET` | `/` | API root: returns the service message and environment. |
 | `GET` | `/health/postgres` | Checks PostgreSQL connectivity. |
 | `GET` | `/health/neo4j` | Checks Neo4j connectivity. |
-| `POST` | `/repositories` | Clones `{url, branch}`, then inventories, analyzes, discovers components, resolves dependencies, analyzes source code and builds a snapshot in the clone. |
-| `POST` | `/repositories/releases` | Clones one explicit `{url, revision}` (tag or commit SHA) and records it as its own snapshot. |
+| `POST` | `/repositories` | Clones `{url, branch}` - with an optional `revision` to pin a tag - and returns the ingested record. Analysis is a separate call. |
+| `POST` | `/repositories/releases` | Clones one explicit `{url, revision}` (tag or commit SHA) as its own checkout. Analysis is a separate call. |
+| `POST` | `/repositories/{id}/recovery` | Runs architecture recovery over an ingested repository and returns one summary per stage. |
+| `GET` | `/repositories/configurations` | Lists the snapshots configured for a pipeline run. |
+| `POST` | `/repositories/configurations` | Saves `{url, branch, release_tag}`. Clones nothing. |
+| `DELETE` | `/repositories/configurations/{id}` | Removes a configured snapshot. |
 | `GET` | `/repositories` | Lists ingested repositories. |
 | `GET` | `/repositories/{id}/snapshots` | Lists a repository's architecture snapshots, oldest first. |
 | `GET` | `/repositories/{id}/snapshots/{snapshot_id}` | Returns one snapshot with its elements, relationships and evidence. |
@@ -76,10 +80,10 @@ The document holds four collections: `files`, `classifications`, `components`
 - Stages (scanning, classification, manifest inspection, component detection,
   relationship discovery, writing) are separate collaborators, each replaceable.
 
-It runs **automatically after a successful clone**: `POST /repositories` returns
-the clone together with an `inventory` summary, or `inventory_error` when the
-inventory could not be produced. A failed inventory never fails or rolls back
-the clone, because cloning is the primary operation.
+It runs as the first stage of recovery: `POST /repositories/{id}/recovery`
+returns the clone together with an `inventory` summary, or `inventory_error`
+when the inventory could not be produced. A failed inventory never fails or
+rolls back the clone, because cloning is a separate, earlier operation.
 
 To run it directly, for example after changing the classification rules:
 
@@ -112,7 +116,7 @@ Limits and extra exclusions are configured through the `[inventory]` and
 The `manifest_analysis` subcomponent parses the manifests the inventory found and
 writes `manifest_analysis.json` beside `repository_inventory.json`. It runs
 automatically after a successful inventory and its summary is included in the
-`POST /repositories` response.
+`POST /repositories/{id}/recovery` response.
 
 | Format | Analyzer | Extracted |
 | ------ | -------- | --------- |
@@ -215,7 +219,7 @@ The `dependency_resolution` subcomponent correlates configured endpoints,
 deployment declarations and Kubernetes resource mappings with the components and
 artifacts established upstream. It writes `dependency_resolution.json` beside the
 other artifacts and runs automatically after component discovery; its compact
-summary is included in the `POST /repositories` response.
+summary is included in the `POST /repositories/{id}/recovery` response.
 
 | Relationship type | Evidence |
 | ----------------- | -------- |
@@ -248,7 +252,7 @@ See the Online Boutique validation report in
 The `source_code_analysis` subcomponent extracts source-level evidence of
 inter-service calls and writes `source_code_analysis.json` beside the other
 artifacts. It runs automatically after dependency resolution and adds a compact
-summary to the `POST /repositories` response.
+summary to the `POST /repositories/{id}/recovery` response.
 
 | Finding type | Source evidence |
 | ------------ | --------------- |
@@ -296,9 +300,11 @@ summary to the ingest response.
 Release-aware analysis is explicit:
 
 ```http
-POST /repositories/releases
+POST /repositories
 { "url": "https://github.com/GoogleCloudPlatform/microservices-demo.git",
-  "revision": "v0.10.0" }
+  "branch": "main", "revision": "v0.10.0" }
+
+POST /repositories/{id}/recovery
 ```
 
 Each analyzed revision gets its own workspace, so analyzing `v1.2.0` never

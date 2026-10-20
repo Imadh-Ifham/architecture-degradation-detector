@@ -48,8 +48,8 @@ export default function FindingsPage() {
   const [selected, setSelected] = useState<string | null>(null)
 
   const graph = useRequest(
-    (options) => readPublishedGraph(repository?.id ?? '', release ?? '', options),
-    [repository?.id, release, run?.run_id],
+    (options) => readPublishedGraph(repositoryKey, release ?? '', options),
+    [repositoryKey, release, run?.run_id],
     Boolean(repository && release),
   )
 

@@ -15,9 +15,18 @@ Description:
     a bug. It raises, naming what is missing, because an empty read would look
     exactly like a repository that genuinely declares nothing - and validation
     would then report a clean architecture instead of an unavailable one.
+
+    **Which checkout.** Recovery keys a checkout by revision, so the directory
+    name is not the repository's identity and the path cannot be concatenated.
+    The tree is resolved through the metadata ingestion wrote - see
+    `WorkspaceCheckouts` - using both the repository and the release, because
+    reading a release's configuration out of another release's tree would
+    quote a line that is not in the file being judged.
 """
 
 from pathlib import Path
+
+from app.infrastructure.workspace.checkouts import WorkspaceCheckouts
 
 
 class ArtifactUnavailableError(RuntimeError):
@@ -38,19 +47,16 @@ class WorkspaceArtifactReader:
         """
 
         self._root = Path(workspace_root)
-        self._checkout_subdirectory = checkout_subdirectory
+        self._checkouts = WorkspaceCheckouts(self._root, checkout_subdirectory)
 
     def read_text(self, repository_id: str, release_id: str, path: str) -> str:
-        """Return the file's contents.
+        """Return the file's contents as the named release left it.
 
-        `release_id` is accepted and not used to locate the file: the workspace
-        holds one checkout per repository, and which release that checkout
-        represents is the caller's knowledge. It stays in the signature because
-        the port is written for a reader that can serve several releases, and a
-        later implementation reading from git history will need it.
+        `repository_id` may be the clone's id or the repository's own key;
+        `release_id` selects which of the repository's checkouts to read.
         """
 
-        target = self._resolve(repository_id, path)
+        target = self._resolve(repository_id, release_id, path)
         try:
             return target.read_text(encoding="utf-8")
         except FileNotFoundError as error:
@@ -66,22 +72,23 @@ class WorkspaceArtifactReader:
     def list_paths(self, repository_id: str, release_id: str, pattern: str) -> list[str]:
         """Return every repository-relative path matching `pattern`, sorted."""
 
-        root = self._repository_root(repository_id)
+        root = self._repository_root(repository_id, release_id)
         return sorted(
             str(match.relative_to(root)).replace("\\", "/")
             for match in root.glob(pattern)
             if match.is_file()
         )
 
-    def _repository_root(self, repository_id: str) -> Path:
-        root = self._root / repository_id / self._checkout_subdirectory
-        if not root.is_dir():
+    def _repository_root(self, repository_id: str, release_id: str) -> Path:
+        root = self._checkouts.find(repository_id, release_id)
+        if root is None:
             raise ArtifactUnavailableError(
-                f"No workspace checkout for '{repository_id}'. Ingest it first."
+                f"No workspace checkout for '{repository_id}' at '{release_id}'. "
+                "Ingest it first."
             )
         return root
 
-    def _resolve(self, repository_id: str, path: str) -> Path:
+    def _resolve(self, repository_id: str, release_id: str, path: str) -> Path:
         """Resolve a repository-relative path, refusing to leave the checkout.
 
         A path from an inventory is data, and a manifest path containing '..'
@@ -90,7 +97,7 @@ class WorkspaceArtifactReader:
         handed paths that came from a cloned third-party repository.
         """
 
-        root = self._repository_root(repository_id).resolve()
+        root = self._repository_root(repository_id, release_id).resolve()
         target = (root / path).resolve()
         if root != target and root not in target.parents:
             raise ArtifactUnavailableError(

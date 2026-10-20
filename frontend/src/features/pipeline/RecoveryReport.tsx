@@ -1,22 +1,23 @@
 /**
- * What adding a repository found.
+ * What recovery found for one snapshot.
  *
  * Description:
- *   Cloning runs the whole recovery analysis, and each part of it reports
- *   what it saw. The clone succeeding and the analysis succeeding are
- *   different events: a stage can fail with the clone intact, and the
- *   response says so per stage rather than failing the request.
+ *   Recovery runs six stages, and each reports what it saw. The clone
+ *   succeeding and the analysis succeeding are different events: a stage can
+ *   fail with the clone intact, and the response says so per stage rather
+ *   than failing the request.
  *
  *   So every stage is shown either way - its counts, or the reason it could
  *   not run. A stage that quietly reported nothing would be indistinguishable
- *   from a repository that genuinely has nothing in it.
+ *   from a repository that genuinely has nothing in it, and the last stage is
+ *   the one that decides whether validation has anything to read.
  */
 
 import { Card, Pill } from '../../components/ui'
-import type { IngestResult, StageSummary } from '../../lib/api'
+import type { RecoveryResult, StageSummary } from '../../lib/api'
 
-/** The stages of the clone-time analysis, in the order they run. */
-const STAGES: { key: keyof IngestResult; label: string; headline: string[] }[] = [
+/** The stages of recovery, in the order the backend runs them. */
+const STAGES: { key: keyof RecoveryResult; label: string; headline: string[] }[] = [
   {
     key: 'inventory',
     label: 'Inventory',
@@ -42,26 +43,36 @@ const STAGES: { key: keyof IngestResult; label: string; headline: string[] }[] =
     label: 'Source',
     headline: ['finding_count', 'corroborated_count', 'unresolved_count'],
   },
+  {
+    key: 'graph_construction',
+    label: 'Graph',
+    headline: ['element_count', 'relationship_count', 'unresolved_count'],
+  },
 ]
 
-export default function IngestReport({ result }: { result: IngestResult }) {
+export default function RecoveryReport({ recovery }: { recovery: RecoveryResult }) {
   return (
     <Card
-      title="What the analysis found"
+      title="What recovery found"
       action={
         <span className="font-mono text-xs text-ink-4">
-          {result.release_tag ?? result.branch} · {result.commit.slice(0, 7)}
+          {recovery.release_tag ?? recovery.branch} · {recovery.commit.slice(0, 7)}
         </span>
       }
     >
-      <ol className="grid gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-2 lg:grid-cols-5">
+      <ol className="grid gap-px overflow-hidden rounded-card border border-line bg-line sm:grid-cols-2 lg:grid-cols-3">
         {STAGES.map((stage) => (
           <Stage
             key={stage.label}
             label={stage.label}
             headline={stage.headline}
-            summary={result[stage.key] as StageSummary | null | undefined}
-            error={result[`${String(stage.key)}_error` as keyof IngestResult] as string | null}
+            summary={recovery[stage.key] as StageSummary | null | undefined}
+            error={
+              recovery[`${String(stage.key)}_error` as keyof RecoveryResult] as
+                | string
+                | null
+                | undefined
+            }
           />
         ))}
       </ol>
@@ -97,7 +108,8 @@ function Stage({
 
             return (
               <span key={key} className="font-mono text-xs text-ink-2">
-                <span className="text-ink">{value}</span> {key.replace(/_count$/, '').replace(/_/g, ' ')}
+                <span className="text-ink">{value}</span>{' '}
+                {key.replace(/_count$/, '').replace(/_/g, ' ')}
               </span>
             )
           })}

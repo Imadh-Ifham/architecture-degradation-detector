@@ -53,6 +53,7 @@ export default function DecisionsPage() {
   const navigate = useNavigate()
   const {
     repository,
+    repositoryKey,
     release,
     isRecovered,
     hasCheckout,
@@ -66,8 +67,8 @@ export default function DecisionsPage() {
   const [adrRepository, setAdrRepository] = useState('')
 
   const sources = useRequest(
-    (options) => readDecisionSources(repository?.id ?? '', release ?? '', options),
-    [repository?.id, release],
+    (options) => readDecisionSources(repositoryKey, release ?? '', options),
+    [repositoryKey, release],
     Boolean(repository && release),
   )
 

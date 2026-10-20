@@ -24,6 +24,7 @@ export type PhaseState =
   | 'waiting'
   | 'running'
   | 'done'
+  | 'failed'
   | 'reserved'
 
 const NODE_WIDTH = 200
@@ -143,10 +144,14 @@ function Phase({
     waiting: 'fill-panel stroke-line-strong',
     running: 'fill-ai-wash stroke-ai',
     done: 'fill-panel stroke-ok/70',
+    failed: 'fill-bad-wash stroke-bad/70',
     reserved: 'fill-panel stroke-line [stroke-dasharray:4_4]',
   }[state]
 
-  const labelTone = state === 'done' || state === 'running' ? 'fill-ink' : 'fill-ink-2'
+  const labelTone =
+    state === 'done' || state === 'running' || state === 'failed'
+      ? 'fill-ink'
+      : 'fill-ink-2'
 
   return (
     <g className="cursor-pointer" onClick={onSelect} role="button" tabIndex={0}>
@@ -197,6 +202,7 @@ function Phase({
             waiting: 'ready to run',
             running: 'running',
             done: 'complete',
+            failed: 'failed',
             reserved: 'screen not built',
           }[state]
         }
@@ -225,6 +231,17 @@ function StateMark({ x, y, state }: { x: number; y: number; state: PhaseState })
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    )
+  }
+
+  if (state === 'failed') {
+    return (
+      <path
+        d={`M ${x - 5} ${y - 5} l 10 10 M ${x + 5} ${y - 5} l -10 10`}
+        className="fill-none stroke-bad"
+        strokeWidth="2"
+        strokeLinecap="round"
       />
     )
   }

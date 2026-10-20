@@ -38,6 +38,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.domain.validated_architecture import ReleaseDateSource
+from app.infrastructure.workspace.checkouts import WorkspaceCheckouts
 
 TIMEOUT_SECONDS = 15
 """Long enough for a local read, short enough that a wedged git does not hold
@@ -55,8 +56,7 @@ class ReleaseDateReader:
         and that is the caller's knowledge rather than this reader's.
         """
 
-        self._root = Path(workspace_root)
-        self._checkout_subdirectory = checkout_subdirectory
+        self._checkouts = WorkspaceCheckouts(Path(workspace_root), checkout_subdirectory)
 
     def read(
         self, repository_id: str, release_id: str
@@ -69,8 +69,10 @@ class ReleaseDateReader:
         continues without a date rather than failing over one.
         """
 
-        checkout = self._root / repository_id / self._checkout_subdirectory
-        if not (checkout / ".git").exists():
+        # The release's own checkout: a tag date read from another release's
+        # tree would date this one with somebody else's tag.
+        checkout = self._checkouts.find(repository_id, release_id)
+        if checkout is None or not (checkout / ".git").exists():
             return None
 
         tagged = self._tagger_date(checkout, release_id)

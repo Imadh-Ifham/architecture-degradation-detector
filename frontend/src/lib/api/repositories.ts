@@ -1,9 +1,16 @@
 /**
- * Repository and architecture endpoints.
+ * Repository setup, ingestion, recovery, and architecture snapshots.
  *
  * Description:
- *   Ingesting a repository, listing what is ingested, and reading the
- *   architecture snapshots the analysis stored for each release.
+ *   Four different acts, deliberately four different calls.
+ *
+ *   **Saving a snapshot clones nothing.** A configuration is a url, a branch
+ *   and a release tag written down for a later run, which is what makes the
+ *   pipeline's input reviewable before anything expensive happens.
+ *
+ *   **Ingesting clones, and only clones.** Recovery is its own endpoint, so
+ *   the two can fail, retry and be ordered independently - which is what the
+ *   pipeline needs to recover one snapshot before starting the next.
  *
  *   The types mirror the backend's response schemas field for field. Where a
  *   field is optional here it is optional there, and a mismatch is meant to
@@ -15,10 +22,8 @@ import { get, post, remove, type RequestOptions } from './client'
 export interface RepositorySource {
   url: string
   branch: string
-}
-
-export interface ReleaseSource extends RepositorySource {
-  revision: string
+  /** A tag or commit. Present means pin one revision instead of a branch tip. */
+  revision?: string
 }
 
 export interface IngestedRepository {
@@ -33,13 +38,28 @@ export interface IngestedRepository {
   release_date?: string | null
 }
 
+/** One snapshot written down for a later pipeline run. */
+export interface RepositoryConfiguration {
+  id: string
+  url: string
+  branch: string
+  release_tag: string
+  created_at: string
+}
+
+export type RepositoryConfigurationInput = Omit<
+  RepositoryConfiguration,
+  'id' | 'created_at'
+>
+
 /** Counts a stage of the analysis reports about what it found. */
 export interface StageSummary {
   path: string
   [metric: string]: string | number | boolean | Record<string, number>
 }
 
-export interface IngestResult extends IngestedRepository {
+/** An ingested repository plus what each recovery stage found in it. */
+export interface RecoveryResult extends IngestedRepository {
   inventory?: StageSummary | null
   inventory_error?: string | null
   manifest_analysis?: StageSummary | null
@@ -109,23 +129,54 @@ export interface ArchitectureSnapshot {
   notes: string[]
 }
 
+/* Configured snapshots ---------------------------------------------------- */
+
+export function listConfigurations(options?: RequestOptions) {
+  return get<RepositoryConfiguration[]>('/repositories/configurations', options)
+}
+
+/** Write down a snapshot. Nothing is cloned and nothing is analysed. */
+export function saveConfiguration(
+  input: RepositoryConfigurationInput,
+  options?: RequestOptions,
+) {
+  return post<RepositoryConfiguration>('/repositories/configurations', input, options)
+}
+
+export function removeConfiguration(
+  configurationId: string,
+  options?: RequestOptions,
+) {
+  return remove(
+    `/repositories/configurations/${encodeURIComponent(configurationId)}`,
+    options,
+  )
+}
+
+/* Ingestion and recovery -------------------------------------------------- */
+
 export function listRepositories(options?: RequestOptions) {
   return get<IngestedRepository[]>('/repositories', options)
 }
 
+/** Clone a repository. This does not run architecture recovery. */
 export function ingestRepository(source: RepositorySource, options?: RequestOptions) {
-  return post<IngestResult>('/repositories', source, options)
+  return post<IngestedRepository>('/repositories', source, options)
 }
 
 /**
- * Clone one explicit revision and record it as its own release.
+ * Run architecture recovery over a repository that is already cloned.
  *
- * Separate from `ingestRepository` because it is a different act: ingesting a
- * branch follows a moving target, ingesting a revision pins one and leaves the
- * others alone.
+ * The stages report themselves; a stage that could not run leaves its summary
+ * null and says why in `<stage>_error`. A snapshot is only usable by
+ * validation when `graph_construction` came back.
  */
-export function ingestRelease(source: ReleaseSource, options?: RequestOptions) {
-  return post<IngestResult>('/repositories/releases', source, options)
+export function runRecovery(repositoryId: string, options?: RequestOptions) {
+  return post<RecoveryResult>(
+    `/repositories/${encodeURIComponent(repositoryId)}/recovery`,
+    undefined,
+    options,
+  )
 }
 
 export function removeRepository(repositoryId: string, options?: RequestOptions) {

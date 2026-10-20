@@ -2,18 +2,26 @@
  * What the application is looking at, as a type and a context.
  *
  * Description:
- *   One repository, one release, and the run that was last started for it.
+ *   The configured snapshots, the repository and release being looked at, the
+ *   last validation run, and the pipeline run currently in progress.
+ *
  *   Held in one place because every screen needs the same answer: without it
  *   each one grows its own picker, they disagree, and a person has to say
- *   which release they mean three times on three screens.
- *
- *   The last run lives here for the same reason. The pipeline starts it, the
- *   decisions screen supplies what it is judged against, and the findings
- *   screen reads what it produced - three screens, one run.
+ *   which release they mean three times on three screens. The pipeline is
+ *   here for the same reason - it is started on one screen and read on
+ *   several, and leaving it in the page that started it would lose the run
+ *   the moment somebody looked at a result.
  */
 
 import { createContext } from 'react'
-import type { DecisionMode, IngestedRepository, ValidationRun } from '../lib/api'
+import type {
+  DecisionMode,
+  IngestedRepository,
+  RepositoryConfiguration,
+  RepositoryConfigurationInput,
+  ValidationRun,
+} from '../lib/api'
+import type { PipelinePhase, SnapshotRun } from './pipeline'
 
 export interface Workspace {
   repositories: IngestedRepository[]
@@ -37,18 +45,43 @@ export interface Workspace {
   isLoading: boolean
   error: string | null
 
-  /** The run started from the pipeline, once it has finished. */
+  /** The run started from the decisions screen, once it has finished. */
   run: ValidationRun | null
-  /** What the run is judged against, chosen on the decisions screen. */
+  /** What a single-release run is judged against, chosen on that screen. */
   decisionMode: DecisionMode | null
   /** True between pressing run and the backend answering. */
   isRunning: boolean
   runError: string | null
 
+  /* Configured snapshots ------------------------------------------------- */
+
+  /** Every snapshot configured for a pipeline run, in the order it was added. */
+  configurations: RepositoryConfiguration[]
+  configurationsError: string | null
+  isLoadingConfigurations: boolean
+  addConfiguration: (
+    input: RepositoryConfigurationInput,
+  ) => Promise<RepositoryConfiguration>
+  removeConfiguration: (configurationId: string) => Promise<void>
+  reloadConfigurations: () => void
+
+  /* The pipeline --------------------------------------------------------- */
+
+  pipelinePhase: PipelinePhase
+  /** One row per configured snapshot, with what has happened to it so far. */
+  pipelineSnapshots: SnapshotRun[]
+  isPipelineRunning: boolean
+  /** Why validation did not start, when a recovery failure stopped it. */
+  pipelineError: string | null
+  startPipeline: (mode: DecisionMode, adrRepositoryId?: string) => Promise<void>
+  clearPipeline: () => void
+
   select: (repositoryId: string) => void
   selectRelease: (releaseId: string) => void
   chooseDecisionMode: (mode: DecisionMode) => void
   startRun: (mode: DecisionMode, adrRepositoryId?: string) => Promise<boolean>
+  /** Hand a finished run to the screens that read it. */
+  recordRun: (run: ValidationRun) => void
   clearRun: () => void
   reload: () => void
 }
