@@ -232,6 +232,14 @@ export interface ValidatedEdge {
   produced_by: string
   verification_outcome: string | null
   arbiter_agreement: string | null
+  /**
+   * Whether this edge was published or held for a person.
+   *
+   * A second axis from the bucket, not a stronger version of it: the bucket
+   * is what was concluded and this is what happens to the conclusion. Older
+   * documents predate the field and read as an empty string.
+   */
+  route: string
   attributes: Record<string, unknown>
 }
 
@@ -264,6 +272,142 @@ export function readPublishedGraph(
   options?: RequestOptions,
 ) {
   return get<PublishedGraph>('/validations/graph', {
+    ...options,
+    query: { repository_id: repositoryId, release_id: releaseId },
+  })
+}
+
+/** One request to one model, as it was sent and as it was answered. */
+export interface ModelCall {
+  sequence: number
+  task: string
+  requested_model: string
+  answered_model: string
+  prompt: string
+  prompt_version: string
+  schema_mode: string
+  evidence_hash: string
+  /**
+   * `answered` is a model reached on this run and `replayed` is the identical
+   * question answered on an earlier one. The second is still a model's answer
+   * and not the table's, which is why they are two words and not a boolean.
+   */
+  outcome: 'answered' | 'replayed' | 'unavailable' | 'unusable'
+  latency_ms: number
+  response: Record<string, unknown> | null
+  error: string | null
+  prompt_tokens: number
+  completion_tokens: number
+}
+
+export interface TranscriptSummary {
+  calls: number
+  live: number
+  replayed: number
+  unavailable: number
+  unusable: number
+  prompt_tokens: number
+  completion_tokens: number
+}
+
+export interface ModelTranscript {
+  run_id: string
+  repository_id: string
+  release_id: string
+  generated_at: string
+  reasoner_model: string | null
+  verifier_model: string | null
+  schema_mode: string
+  temperature: number
+  base_url: string
+  key_configured: boolean
+  summary: TranscriptSummary
+  calls: ModelCall[]
+}
+
+/**
+ * Every model call the last run of this release made.
+ *
+ * A 404 means no transcript was kept, which is not the same as a run that
+ * called nothing: a release validated before the calls were recorded has a
+ * graph and no transcript.
+ */
+export function readTranscript(
+  repositoryId: string,
+  releaseId: string,
+  options?: RequestOptions,
+) {
+  return get<ModelTranscript>('/validations/transcript', {
+    ...options,
+    query: { repository_id: repositoryId, release_id: releaseId },
+  })
+}
+
+/** One configured model, asked a trivial question just now. */
+export interface ModelProbe {
+  task: string
+  requested_model: string
+  answered_model: string | null
+  reachable: boolean
+  latency_ms: number
+  strict_schema: boolean
+  prompt: string
+  response: Record<string, unknown> | null
+  error: string | null
+}
+
+export interface ModelAccess {
+  base_url: string
+  key_configured: boolean
+  schema_mode: string
+  temperature: number
+  /**
+   * Whether this deployment lets a verdict come from the deterministic table
+   * with no model behind it. It is the setting that makes a keyless run look
+   * like a run with a model, so it is reported beside the probes rather than
+   * left for somebody to find in a file.
+   */
+  arbiter_only_allowed: boolean
+  reachable: number
+  probed: ModelProbe[]
+}
+
+/**
+ * Ask every configured model a trivial question, now.
+ *
+ * A POST because it spends tokens. It goes past the response cache on
+ * purpose: a cached answer would report a reachable model on a machine with
+ * no network, which is the one thing this call exists to rule out.
+ */
+export function checkModelAccess(options?: RequestOptions) {
+  return post<ModelAccess>('/validations/model-access', undefined, options)
+}
+
+/**
+ * A finished run, written out as sentences by a model.
+ *
+ * It is a reading of the result and not part of it. Nothing in it reaches a
+ * verdict, a confidence or the published graph, and `figures` is exactly what
+ * the model was shown so a sentence can be checked against the numbers behind
+ * it rather than against the rest of the screen.
+ */
+export interface RunNarrative {
+  headline: string
+  what_it_read: string
+  what_it_concluded: string
+  what_to_distrust: string
+  model_id: string
+  prompt_version: string
+  cached: boolean
+  figures: Record<string, unknown>
+}
+
+export function narrateRun(
+  repositoryId: string,
+  releaseId: string,
+  options?: RequestOptions,
+) {
+  return post<RunNarrative>('/validations/narrative', undefined, {
     ...options,
     query: { repository_id: repositoryId, release_id: releaseId },
   })

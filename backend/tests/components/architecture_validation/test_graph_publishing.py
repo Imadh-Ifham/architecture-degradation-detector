@@ -218,7 +218,7 @@ class TestTheHandover:
         _, document, _ = published
         graph = document["graph"]
 
-        assert graph["schema_version"] == "1.1.0"
+        assert graph["schema_version"] == "1.2.0"
         assert graph["run"]["mode"] == "reconstruction"
         assert graph["release_order_key"] == [0, 0, 10, 0, 0, 4, 0, 1, 0]
 

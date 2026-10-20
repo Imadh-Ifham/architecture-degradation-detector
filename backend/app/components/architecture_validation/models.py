@@ -645,6 +645,14 @@ class PrimaryVerdict:
     evidence_hash: str
     cached: bool
     retried: bool = False
+    live_calls: int = 0
+    """Answers this verdict cost that came from a provider rather than cache.
+
+    Recorded rather than inferred from `cached` and `retried`. Those two
+    describe the answer that was *kept*, and a fact whose every answer was
+    rejected keeps none - which is exactly the fact that reported two calls it
+    never made.
+    """
 
     provider: str = ""
     schema_mode: str = ""
@@ -810,6 +818,8 @@ class BlindVerdict:
     model_id: str
     prompt_version: str
     cached: bool
+    live_calls: int = 0
+    """Answers this check cost that came from a provider rather than cache."""
     mechanism: str = ""
     provider: str = ""
     schema_mode: str = ""
@@ -857,6 +867,8 @@ class Verification:
     model_id: str
     prompt_version: str
     cached: bool
+    live_calls: int = 0
+    """Answers this check cost that came from a provider rather than cache."""
 
     objections: tuple[Objection, ...] = ()
     """What the verifier found wrong, in the closed four-kind vocabulary.

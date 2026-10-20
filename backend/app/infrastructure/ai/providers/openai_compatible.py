@@ -23,8 +23,13 @@ Description:
 """
 
 import json
+import time
 
 import httpx
+
+MAX_RATE_LIMIT_WAITS = 3
+FALLBACK_WAIT_SECONDS = 20.0
+MAX_WAIT_SECONDS = 60.0
 
 
 class ProviderError(RuntimeError):
@@ -104,17 +109,27 @@ class OpenAICompatibleProvider:
         api_key: str,
         timeout_seconds: float = 60.0,
         client: httpx.Client | None = None,
+        wait_out_rate_limits: bool = True,
+        sleep=time.sleep,
     ) -> None:
         """Bind the adapter to one endpoint.
 
         `client` is injectable so the request can be exercised against a
-        transport stub without a network or a key.
+        transport stub without a network or a key. `sleep` is injectable for
+        the same reason: a test of the waiting path that actually waited
+        would be a test nobody runs twice.
+
+        `wait_out_rate_limits` is on by default and it is the difference
+        between a run that uses the models and a run that quietly stops
+        using them. See `_post`.
         """
 
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout_seconds
         self._client = client
+        self._wait_out_rate_limits = wait_out_rate_limits
+        self._sleep = sleep
 
     def complete(
         self,
@@ -163,9 +178,58 @@ class OpenAICompatibleProvider:
         }
 
     def _post(self, payload: dict) -> dict:
+        """Send the request, waiting out a rate limit rather than giving up.
+
+        **A rate limit is not a model being unavailable, and treating it as
+        one is how a run stops using the models it is configured with.** On a
+        tokens-per-minute free tier a burst of evidence packages hits the cap
+        within seconds. The caller above translates any provider failure into
+        `ModelUnavailable`, so the ladder reads the refusal as an outage,
+        descends to the fallback model - which carries a *lower* limit for the
+        same work - and then to the arbiter. Four of fifteen facts on one
+        recorded run were decided by the deterministic table for no reason
+        other than this, and the run looked like a successful one.
+
+        So the one failure the provider tells us is temporary is waited out
+        here, where the retry-after header is still readable. Bounded, because
+        an unbounded wait is a hung demonstration: three waits, each capped,
+        and then it is reported as a rate limit like before.
+        """
+
+        for attempt in range(MAX_RATE_LIMIT_WAITS + 1):
+            result = self._send(payload)
+
+            if result.status_code != 429:
+                break
+
+            if not self._wait_out_rate_limits or attempt == MAX_RATE_LIMIT_WAITS:
+                raise ProviderRateLimited(
+                    "The provider rate-limited this request and it did not clear "
+                    f"after {attempt} wait(s). On a free tier the limit is tokens "
+                    "per minute, so a burst of large evidence packages is the "
+                    "usual cause."
+                )
+
+            self._sleep(_retry_after(result))
+
+        if result.status_code >= 400:
+            # The body carries which part of the schema was refused, and
+            # without it the error is unactionable.
+            raise ProviderError(
+                f"The provider returned {result.status_code}: {result.text[:500]}"
+            )
+
+        try:
+            return result.json()
+        except ValueError as error:
+            raise ProviderError("The provider's response was not JSON.") from error
+
+    def _send(self, payload: dict) -> httpx.Response:
+        """One HTTP round trip, with transport failures translated."""
+
         client = self._client or httpx.Client(timeout=self._timeout)
         try:
-            result = client.post(
+            return client.post(
                 f"{self._base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
@@ -178,23 +242,6 @@ class OpenAICompatibleProvider:
         finally:
             if self._client is None:
                 client.close()
-
-        if result.status_code == 429:
-            raise ProviderRateLimited(
-                "The provider rate-limited this request. On a free tier the limit is "
-                "tokens per minute, so a large evidence package is the usual cause."
-            )
-        if result.status_code >= 400:
-            # The body carries which part of the schema was refused, and
-            # without it the error is unactionable.
-            raise ProviderError(
-                f"The provider returned {result.status_code}: {result.text[:500]}"
-            )
-
-        try:
-            return result.json()
-        except ValueError as error:
-            raise ProviderError("The provider's response was not JSON.") from error
 
     def _content(self, response: dict, requested_model: str) -> dict:
         """Extract and parse the message content.
@@ -227,3 +274,21 @@ class OpenAICompatibleProvider:
             "model_id": response.get("model", requested_model),
             "usage": response.get("usage", {}),
         }
+
+
+def _retry_after(response: httpx.Response) -> float:
+    """How long the provider asked us to wait, bounded.
+
+    The header is preferred over a fixed delay because the provider knows when
+    the window rolls over and this code does not. It is clamped at both ends:
+    a missing or unparseable value gets a wait long enough for a per-minute
+    window to have moved, and an absurd one cannot stall a run for an hour.
+    """
+
+    raw = response.headers.get("retry-after", "")
+    try:
+        wanted = float(raw)
+    except ValueError:
+        wanted = FALLBACK_WAIT_SECONDS
+
+    return min(max(wanted, 1.0), MAX_WAIT_SECONDS)

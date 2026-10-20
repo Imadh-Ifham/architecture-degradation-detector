@@ -142,6 +142,7 @@ class IndependentVerificationService:
             provider=self._provider,
             schema_mode=result.schema_mode,
             retried=outcome.retried,
+            live_calls=outcome.live_calls,
             guard_failures=outcome.guard_failures,
         )
 
@@ -184,6 +185,7 @@ class IndependentVerificationService:
             provider=self._provider,
             schema_mode="",
             retried=outcome.retried,
+            live_calls=outcome.live_calls,
             guard_failures=outcome.guard_failures,
         )
 
@@ -263,5 +265,6 @@ class IndependentVerificationService:
             provider=self._provider,
             schema_mode=result.schema_mode,
             retried=outcome.retried,
+            live_calls=outcome.live_calls,
             guard_failures=outcome.guard_failures,
         )

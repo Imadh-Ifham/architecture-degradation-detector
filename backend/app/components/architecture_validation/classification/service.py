@@ -16,6 +16,7 @@ from ..models import (
     PrimaryVerdict,
     Resolution,
     ScoreTrace,
+    Verdict,
     VerdictSource,
     Verification,
     VerificationMode,
@@ -78,17 +79,29 @@ class ClassificationService:
                     else None
                 ),
                 produced_without_a_model=verdict.produced_by is VerdictSource.ARBITER,
+                # A model answered and every answer was thrown out, so
+                # nothing was concluded. The retry succeeding is the case
+                # this must not catch, which is why the verdict has to be
+                # the inconclusive one as well as the guards having fired.
+                every_answer_rejected=(
+                    bool(verdict.guard_failures)
+                    and verdict.verdict is Verdict.INSUFFICIENT_EVIDENCE
+                ),
             )
         )
 
-        terms = rules.terms_for(decision.source_strength, outcome)
+        proposed_bucket = rules.bucket_for(verdict.verdict)
+        terms = rules.terms_for(
+            decision.source_strength,
+            outcome,
+            asserts=rules.asserts_something(proposed_bucket),
+        )
         cap = rules.binding(caps)
         score = rules.capped_confidence(terms, cap)
-        bucket = rules.capped_bucket(rules.bucket_for(verdict.verdict), cap)
+        bucket = rules.capped_bucket(proposed_bucket, cap)
         held_back = (
             cap
-            if score < rules.proposed(terms)
-            or bucket is not rules.bucket_for(verdict.verdict)
+            if score < rules.proposed(terms) or bucket is not proposed_bucket
             else None
         )
 
@@ -171,23 +184,22 @@ def _topology(fact: ObservedFact) -> dict:
 
 def _model_calls(verdict: PrimaryVerdict,
                  verification: Verification | None) -> int:
-    """How many times a model was actually called for this fact.
+    """How many times a model was actually reached for this fact.
 
-    Counted here rather than carried down from each stage because this is the
-    first place that holds both answers, and the number is published per edge
-    so that a reader can see which verdicts cost a call and which were settled
-    by code.
+    Added up from what the two stages counted rather than re-derived from
+    `cached` and `retried` here. That derivation was wrong in the one case
+    that matters: `cached` describes the answer that was *kept*, a fact whose
+    every answer was rejected keeps none, and the field defaults to false - so
+    a fact answered twice from the cache and rejected twice reported two live
+    calls it never made, and the number is published to the next component.
 
-    A cached answer is not a call, and a retry is two. Both matter: the first
-    is what makes a second run of the same release nearly free, and the second
-    is the cost of a guard rejecting an answer.
+    A replayed answer is not a call. It is still a model's answer, which is a
+    different statement and is carried by `produced_by`.
     """
 
-    calls = 0
-    if verdict.produced_by is VerdictSource.MODEL and not verdict.cached:
-        calls += 2 if verdict.retried else 1
-    if verification is not None and not verification.cached:
-        calls += 2 if verification.retried else 1
+    calls = verdict.live_calls
+    if verification is not None:
+        calls += verification.live_calls
     return calls
 
 

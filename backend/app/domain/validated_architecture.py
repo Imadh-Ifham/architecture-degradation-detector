@@ -35,6 +35,13 @@ Description:
     depend on dates at all, a reference to the model this was computed from,
     and per-element size. Every one is additive; the single removal is
     `validation_confidence`'s default, which is explained on the field.
+
+    Schema 1.2.0 adds `route` to each edge: whether the finding was published
+    or held for an architect. Additive, and a consumer that ignores it reads
+    exactly what it read before. It is here because it was not derivable from
+    anything already published - the bucket says what was concluded, not what
+    happens to the conclusion - and a screen counting held-back facts off the
+    bucket reported none, for every run.
 """
 
 from dataclasses import dataclass, field
@@ -42,7 +49,7 @@ from datetime import datetime
 from enum import StrEnum
 
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 GENERATOR_NAME = "architecture_validation"
 GENERATOR_VERSION = "0.1.0"
 
@@ -190,6 +197,12 @@ class ValidatedEdge:
     audited are both capped before they reach a consumer, so one that ignores
     them is not wrong - but a degradation study that averages a rule-only
     verdict with a three-judge one is averaging two different things.
+
+    `route` is whether this edge was published or held for a person, and it
+    is here because it could not be worked out from anything else that is.
+    The bucket is what was concluded and the route is what happens to the
+    conclusion; they are two axes, and a reader with only the first of them
+    counted the facts awaiting an architect as zero.
     """
 
     fact_id: str
@@ -205,6 +218,7 @@ class ValidatedEdge:
     produced_by: str = ""
     verification_outcome: str | None = None
     arbiter_agreement: str | None = None
+    route: str = ""
     attributes: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -222,6 +236,7 @@ class ValidatedEdge:
             "produced_by": self.produced_by,
             "verification_outcome": self.verification_outcome,
             "arbiter_agreement": self.arbiter_agreement,
+            "route": self.route,
             "attributes": dict(self.attributes),
         }
 

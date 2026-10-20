@@ -28,11 +28,18 @@ Description:
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.domain.model_access import ModelResponseUnusable, ModelUnavailable
 
+from .call_log import (
+    OUTCOME_ANSWERED,
+    OUTCOME_REPLAYED,
+    OUTCOME_UNAVAILABLE,
+    OUTCOME_UNUSABLE,
+)
 from .model_configuration import (
     SCHEMA_MODE_STRICT,
     TASK_PRIMARY_VERDICT_LOCAL,
@@ -156,13 +163,22 @@ class ConfiguredAIClient:
         settings: AISettings | None = None,
         cache: VerdictCache | None = None,
         local_provider=None,
+        call_log=None,
     ) -> None:
+        """`call_log` is optional because nothing in a run depends on it.
+
+        It is written to on every path through `complete` and read by nothing
+        here, which is the property that lets it be left out of a test without
+        changing what the test is measuring.
+        """
+
         self._provider = provider
         self._settings = settings or ai_settings
         self._cache = cache or VerdictCache(
             self._settings.ai_cache_directory, self._settings.ai_cache_enabled
         )
         self._local_provider = local_provider
+        self._call_log = call_log
 
     def _provider_for(self, task: str):
         """Return the adapter that reaches `task`'s endpoint.
@@ -210,8 +226,21 @@ class ConfiguredAIClient:
             raise StrictSchemaUnsupportedError(model_id)
 
         key = VerdictCache.key(task, prompt_version, model_id, schema_mode, evidence_hash)
+        started = time.perf_counter()
         cached = self._cache.get(key)
         if cached is not None:
+            self._log(
+                task,
+                model_id,
+                cached["model_id"],
+                prompt,
+                prompt_version,
+                schema_mode,
+                evidence_hash,
+                OUTCOME_REPLAYED,
+                started,
+                response=cached["content"],
+            )
             return AIResult(
                 content=cached["content"],
                 model_id=cached["model_id"],
@@ -235,9 +264,50 @@ class ConfiguredAIClient:
             # provider raised and the first place whose errors a component is
             # allowed to catch. The two are kept apart all the way through:
             # one is a reason to try another model and the other is not.
+            self._log(
+                task,
+                model_id,
+                model_id,
+                prompt,
+                prompt_version,
+                schema_mode,
+                evidence_hash,
+                OUTCOME_UNUSABLE,
+                started,
+                error=str(error),
+            )
             raise ModelResponseUnusable(str(error)) from error
         except ProviderError as error:
+            # Logged before it is translated, because the sentence the
+            # provider gave is the only thing that says *why* a rung went
+            # unanswered, and the ladder above keeps the rung and discards it.
+            self._log(
+                task,
+                model_id,
+                model_id,
+                prompt,
+                prompt_version,
+                schema_mode,
+                evidence_hash,
+                OUTCOME_UNAVAILABLE,
+                started,
+                error=str(error),
+            )
             raise ModelUnavailable(str(error)) from error
+
+        self._log(
+            task,
+            model_id,
+            response["model_id"],
+            prompt,
+            prompt_version,
+            schema_mode,
+            evidence_hash,
+            OUTCOME_ANSWERED,
+            started,
+            response=response["content"],
+            usage=response.get("usage"),
+        )
 
         self._cache.put(
             key,
@@ -258,4 +328,45 @@ class ConfiguredAIClient:
             schema_mode=schema_mode,
             cached=False,
             task=task,
+        )
+
+    def _log(
+        self,
+        task: str,
+        requested_model: str,
+        answered_model: str,
+        prompt: str,
+        prompt_version: str,
+        schema_mode: str,
+        evidence_hash: str,
+        outcome: str,
+        started: float,
+        response: dict | None = None,
+        error: str | None = None,
+        usage: dict | None = None,
+    ) -> None:
+        """Record one call, when something is capturing.
+
+        Deliberately the last statement on every path rather than a decorator
+        or a wrapper: a failed call and a replayed one carry different fields,
+        and a wrapper that could see only the return value would record the
+        two cases it exists to tell apart as one.
+        """
+
+        if self._call_log is None:
+            return
+
+        self._call_log.record(
+            task=task,
+            requested_model=requested_model,
+            answered_model=answered_model,
+            prompt=prompt,
+            prompt_version=prompt_version,
+            schema_mode=schema_mode,
+            evidence_hash=evidence_hash,
+            outcome=outcome,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            response=response,
+            error=error,
+            usage=usage,
         )
