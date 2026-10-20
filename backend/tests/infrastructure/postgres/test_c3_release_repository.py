@@ -159,3 +159,18 @@ def test_same_release_twice_is_refused_by_the_key(repo: Any) -> None:
 
     with pytest.raises(IntegrityError):
         repo.add(release(), {}, INGESTED_AT)
+
+
+def test_replace_overwrites_the_release_and_its_children(repo: Any) -> None:
+    repo.add(release(), {"v": 1}, INGESTED_AT)
+    newer = release(validation_confidence=0.55, package_hash="sha256:" + "cd" * 32, intent=())
+
+    repo.replace(newer, {"v": 2}, INGESTED_AT)
+
+    assert repo.list_releases("tiny") == (newer,)
+
+
+def test_replace_of_a_release_never_stored_is_refused(repo: Any) -> None:
+    with pytest.raises(LookupError):
+        repo.replace(release(), {}, INGESTED_AT)
+    assert repo.list_releases("tiny") == ()
