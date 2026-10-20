@@ -36,6 +36,40 @@ export interface ModeAvailability {
   records: number
   reason: string | null
   by_source: Record<string, number>
+  /**
+   * What each source said for itself.
+   *
+   * A zero beside a source is not self-explanatory: it can mean the repository
+   * holds no written decisions, or that it holds many and none of them states
+   * a checkable constraint. `reason` cannot carry that - it is empty whenever
+   * another source supplied something, which is the mode where it matters.
+   */
+  source_notes: Record<string, string>
+}
+
+/** One rule a mode supplies, with the line it was read from. */
+export interface DecisionRecord {
+  decision_id: string
+  subject: string
+  constraint: string
+  object: string
+  valid_from: string
+  valid_to: string | null
+  source: string
+  source_tier: string
+  source_strength: string
+  extraction_method: string
+  source_ref: string
+  start_line: number | null
+  end_line: number | null
+  rationale: string | null
+}
+
+export interface DecisionRecords {
+  repository_id: string
+  release_id: string
+  mode: DecisionMode
+  records: DecisionRecord[]
 }
 
 export interface DecisionSources {
@@ -110,6 +144,19 @@ export function readDecisionSources(
   return get<DecisionSources>('/validations/decision-sources', {
     ...options,
     query: { repository_id: repositoryId, release_id: releaseId },
+  })
+}
+
+/** The rules behind a mode's count, each naming the line it came from. */
+export function readDecisionRecords(
+  repositoryId: string,
+  releaseId: string,
+  mode: DecisionMode,
+  options?: RequestOptions,
+) {
+  return get<DecisionRecords>('/validations/decision-records', {
+    ...options,
+    query: { repository_id: repositoryId, release_id: releaseId, mode },
   })
 }
 

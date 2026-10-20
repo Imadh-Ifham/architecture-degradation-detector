@@ -725,6 +725,21 @@ class ModeAvailabilityResponse(BaseModel):
         description="The same number broken down by the source that found it.",
         examples=[{"config_scan": 25}],
     )
+    source_notes: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "What a source said for itself, for the sources that said "
+            "anything. A zero beside a source is not self-explanatory: it can "
+            "mean the repository holds no written decisions, or that it holds "
+            "many and none of them states a checkable constraint."
+        ),
+        examples=[
+            {
+                "repo_adr": "138 decision document(s) found in this "
+                "repository; none declares a machine-readable constraint"
+            }
+        ],
+    )
 
 
 class DecisionSourcesResponse(BaseModel):
@@ -818,6 +833,132 @@ def describe_decision_sources(
         modes=[
             ModeAvailabilityResponse(**found.to_dict())
             for found in sorted(available.values(), key=lambda found: found.mode)
+        ],
+    )
+
+
+class DecisionRecordResponse(BaseModel):
+    """One rule a mode would supply, with where it was read from."""
+
+    decision_id: str
+    subject: str
+    constraint: str = Field(
+        description="What the rule requires, from a closed four-value vocabulary."
+    )
+    object: str = Field(description="The other end of the rule; '*' means every element.")
+    valid_from: str
+    valid_to: str | None = Field(
+        default=None, description="Null means the rule is still in force."
+    )
+    source: str = Field(description="The adapter that produced it.")
+    source_tier: str = Field(description="How strong the kind of evidence is.")
+    source_strength: str
+    extraction_method: str = Field(
+        description="Whether a person declared it or it was reconstructed."
+    )
+    source_ref: str = Field(description="The file it was read from.")
+    start_line: int | None = Field(
+        default=None, description="The first line it was read from, when it has one."
+    )
+    end_line: int | None = None
+    rationale: str | None = None
+
+
+class DecisionRecordsResponse(BaseModel):
+    """Every rule one mode would supply, so a count can be checked."""
+
+    repository_id: str
+    release_id: str
+    mode: str
+    records: list[DecisionRecordResponse]
+
+
+@router.get(
+    "/decision-records",
+    response_model=DecisionRecordsResponse,
+    summary="The rules one decision mode would supply",
+    response_description=(
+        "One row per rule, each naming the file and the lines it was read "
+        "from. Nothing is run and nothing is written."
+    ),
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "The repository has not been ingested, or the "
+            "recovered architecture for that release cannot be read."
+        }
+    },
+)
+def list_decision_records(
+    repository_id: str,
+    release_id: str,
+    mode: str = DEFAULT_MODE,
+    service: ArchitectureValidationService = Depends(get_validation_service),
+    reader=Depends(get_architecture_reader),
+):
+    """List the rules behind a mode's count.
+
+    The count on its own invites one question - *and what are they?* - and a
+    rule reconstructed from configuration has to answer it, because its whole
+    claim is that it was read from a line somebody can open. This route is
+    that answer, and it is read-only for the same reason the picker is.
+    """
+
+    try:
+        architecture = reader.read(repository_id, release_id)
+    except (
+        ArtifactUnavailableError,
+        DecisionSourceError,
+        GraphContractError,
+        InventoryContractError,
+        SnapshotContractError,
+        IncoherentArchitecture,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
+
+    try:
+        records = service.decision_records(
+            SourceRequest(
+                code_repository_id=repository_id,
+                release_id=release_id,
+                extracted_at=datetime.now(UTC),
+                manifest_paths=architecture.manifest_paths,
+            ),
+            mode,
+        )
+    except ValueError as error:
+        # An unknown mode names itself in the message, so it is the answer.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)
+        ) from error
+    except (ArtifactUnavailableError, DecisionSourceError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
+
+    return DecisionRecordsResponse(
+        repository_id=repository_id,
+        release_id=release_id,
+        mode=mode,
+        records=[
+            DecisionRecordResponse(
+                decision_id=record.decision_id,
+                subject=record.subject,
+                constraint=str(record.constraint),
+                object=record.object,
+                valid_from=record.valid_from,
+                valid_to=record.valid_to,
+                source=record.source,
+                source_tier=str(record.source_tier),
+                source_strength=str(record.source_strength),
+                extraction_method=str(record.extraction_method),
+                source_ref=record.source_ref,
+                start_line=record.source_span.start_line if record.source_span else None,
+                end_line=record.source_span.end_line if record.source_span else None,
+                rationale=record.rationale,
+            )
+            for record in records
         ],
     )
 

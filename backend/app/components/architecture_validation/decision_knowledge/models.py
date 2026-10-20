@@ -60,6 +60,14 @@ class ModeAvailability:
     `by_source` exists so the number can be traced. "17 rules" invites exactly
     one question, and "16 from the network policies, 1 default-deny" answers
     it without opening anything.
+
+    `source_notes` carries what each source said for itself, and it exists
+    because a count alone misreports the interesting case. A mode showing `0`
+    beside the source that reads written decisions reads as *this repository
+    has none* - when what the source actually found may be a hundred and
+    thirty-eight records it could not turn into a constraint. Those are
+    different facts about a team, and the mode's own `reason` cannot carry the
+    distinction: it is empty whenever any other source supplied something.
     """
 
     mode: str
@@ -67,6 +75,7 @@ class ModeAvailability:
     records: int
     reason: str | None = None
     by_source: dict[str, int] = field(default_factory=dict)
+    source_notes: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -75,6 +84,7 @@ class ModeAvailability:
             "records": self.records,
             "reason": self.reason,
             "by_source": dict(self.by_source),
+            "source_notes": dict(self.source_notes),
         }
 
 

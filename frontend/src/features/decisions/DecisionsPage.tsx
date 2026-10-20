@@ -29,9 +29,16 @@ import {
   Spinner,
   inputClass,
 } from '../../components/ui'
-import { readDecisionSources, type DecisionMode, type ModeAvailability } from '../../lib/api'
+import {
+  listRepositories,
+  readDecisionSources,
+  type DecisionMode,
+  type ModeAvailability,
+} from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
 import { useWorkspace } from '../../workspace/useWorkspace'
+import ProseExtraction from './ProseExtraction'
+import RuleList from './RuleList'
 
 const MODE: Record<DecisionMode, { title: string; detail: string }> = {
   repo_adr: {
@@ -47,6 +54,24 @@ const MODE: Record<DecisionMode, { title: string; detail: string }> = {
     detail:
       'The only option that produces a result on a repository holding no written decisions.',
   },
+}
+
+/**
+ * How many decision documents were found and produced no rule.
+ *
+ * Taken out of the source's own sentence rather than recomputed, because the
+ * backend already published the number and a second derivation here is a
+ * second number that disagrees on exactly the repository somebody is looking
+ * at. Zero when no source reported one, which reads as "not applicable".
+ */
+function documentsFoundButUnused(modes: ModeAvailability[]): number {
+  for (const mode of modes) {
+    for (const note of Object.values(mode.source_notes)) {
+      const found = note.match(/^(\d+) decision document/)
+      if (found) return Number(found[1])
+    }
+  }
+  return 0
 }
 
 export default function DecisionsPage() {
@@ -70,6 +95,13 @@ export default function DecisionsPage() {
     [repository?.id, release],
     Boolean(repository && release),
   )
+
+  // Chosen from what has been ingested rather than typed. The id is assigned by
+  // ingestion and carries a hash, so it is a thing to look up and copy - and the
+  // instrument bar shows `release · revision` right above, which is what gets
+  // pasted instead. An id that has to be transcribed is a field that reports
+  // "ingest it first" about a repository that is sitting in the list.
+  const ingested = useRequest((options) => listRepositories(options), [])
 
   // The backend already knows which source has the most to offer. Starting on
   // its answer means the common case is one button rather than a decision.
@@ -100,7 +132,27 @@ export default function DecisionsPage() {
   }
 
   const chosen = decisionMode ?? recommended
+
+  // Both modes that read a second repository offer the picker. `combined` reads
+  // one too, and offering the choice only on `external_adr` meant the mode
+  // almost everybody picks could never be given one.
+  const readsANamedRepository = chosen === 'external_adr' || chosen === 'combined'
+
+  // Everything ingested except the system under analysis. Naming that here
+  // would read the records beside its code a second time, through a source
+  // whose whole point is that they live somewhere else.
+  const candidates = (ingested.data ?? []).filter(
+    (candidate) => candidate.id !== repository.id,
+  )
+
+  // Only the mode that reads *nothing else* is blocked without one. `combined`
+  // still has configuration to fall back on, so it runs either way.
   const needsRepository = chosen === 'external_adr' && !adrRepository.trim()
+
+  // How many decision documents were found but could not be turned into a
+  // rule. Read off the source's own sentence rather than counted again here:
+  // two places deriving the same number is two numbers.
+  const proseDocuments = documentsFoundButUnused(sources.data?.modes ?? [])
 
   const run = async () => {
     if (!chosen) return
@@ -160,25 +212,61 @@ export default function DecisionsPage() {
             ))}
           </div>
 
-          {chosen === 'external_adr' && (
+          {readsANamedRepository && (
             <Card title="The decision repository">
               <div className="flex flex-col gap-6">
                 <p className="max-w-prose text-sm leading-relaxed text-ink-3">
-                  Add it on the repositories screen first — it is cloned and
-                  scanned like any other — then name it here by the id it was
-                  given.
+                  For teams that keep their decisions in a repository of their
+                  own. Pick one that has been ingested; add it on the
+                  repositories screen first if it is not here yet.
                 </p>
-                <Field label="Repository id">
-                  <input
-                    value={adrRepository}
-                    onChange={(event) => setAdrRepository(event.target.value)}
-                    placeholder="the id shown on the repositories screen"
-                    className={inputClass}
-                  />
-                </Field>
+
+                {candidates.length > 0 ? (
+                  <Field label="Decision repository">
+                    <select
+                      value={adrRepository}
+                      onChange={(event) => setAdrRepository(event.target.value)}
+                      className={inputClass}
+                    >
+                      <option value="">none — do not read a second repository</option>
+                      {candidates.map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.id}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    <Pill tone="warn">nothing else has been ingested</Pill>
+                    <p className="max-w-prose text-sm leading-relaxed text-ink-3">
+                      {/* The system under analysis is excluded on purpose: the
+                          source that reads records beside the code already
+                          covers it, and naming it here would read the same
+                          documents twice. */}
+                      The only repository here is the one being analysed, and
+                      its own records are already read by the source above.
+                    </p>
+                    <div>
+                      <Link to="/repositories">
+                        <Button>Add a decision repository</Button>
+                      </Link>
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
           )}
+
+          {chosen && release && (
+            <RuleList
+              repositoryId={repository.id}
+              release={release}
+              mode={chosen}
+            />
+          )}
+
+          <ProseExtraction documents={proseDocuments} />
 
           {runError && <ErrorState message={runError} />}
 
@@ -265,10 +353,20 @@ function Source({
         </p>
 
         {breakdown.length > 0 && (
-          <ul className="flex flex-col gap-1.5 border-t border-line pt-4">
+          <ul className="flex flex-col gap-3 border-t border-line pt-4">
             {breakdown.map(([source, count]) => (
-              <li key={source} className="font-mono text-xs text-ink-2">
-                <span className="text-ink">{count}</span> {source.replace(/_/g, ' ')}
+              <li key={source} className="flex flex-col gap-1">
+                <span className="font-mono text-xs text-ink-2">
+                  <span className="text-ink">{count}</span> {source.replace(/_/g, ' ')}
+                </span>
+                {/* A zero on its own reads as "this repository has none", which
+                    is the wrong finding when the source read a hundred-odd
+                    documents and could not turn any of them into a rule. */}
+                {mode.source_notes[source] && (
+                  <span className="text-xs leading-relaxed text-ink-4">
+                    {mode.source_notes[source]}
+                  </span>
+                )}
               </li>
             ))}
           </ul>

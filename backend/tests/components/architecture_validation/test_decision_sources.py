@@ -73,6 +73,34 @@ class WorkspaceReader:
         )
 
 
+class TreeReader:
+    """Reads a tree built for one test, globbing exactly as the real reader does.
+
+    `DictReader` cannot stand in here: its `fnmatch` matches across a `/`, so a
+    single-level pattern finds nested files in the fake and not in production.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def read_text(self, repository_id, release_id, path):
+        return (self.root / path).read_text(encoding="utf-8")
+
+    def list_paths(self, repository_id, release_id, pattern):
+        return sorted(
+            str(match.relative_to(self.root)).replace("\\", "/")
+            for match in self.root.glob(pattern)
+            if match.is_file()
+        )
+
+
+def write_tree(root: Path, files: dict[str, str]) -> None:
+    for path, text in files.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+
 class DictReader:
     """A repository that is a dict, for the cases a real tree cannot show."""
 
@@ -103,6 +131,17 @@ def request_for(release: str, **overrides) -> SourceRequest:
         release_id=release,
         extracted_at=EXTRACTED_AT,
         manifest_paths=manifest_paths(release),
+        **overrides,
+    )
+
+
+def declared_request(release: str, **overrides) -> SourceRequest:
+    """A request for the declared sources, which read no manifests."""
+
+    return SourceRequest(
+        code_repository_id="shortlink",
+        release_id=release,
+        extracted_at=EXTRACTED_AT,
         **overrides,
     )
 
@@ -228,6 +267,42 @@ class TestTheConfigurationScan:
 
         assert outcome.records, "the readable policy still produced its rule"
         assert ".deploystack/test" in (outcome.reason or "")
+
+    def test_a_vendored_archive_among_the_manifests_is_never_opened(self):
+        """A Helm chart ships its dependencies as `.tgz` archives, and recovery
+        classifies the directory holding them as manifests. The reader refuses
+        to decode a binary file - correctly - so reading one ends the run on a
+        repository that merely vendored a chart.
+
+        The archive is not in the reader at all, so asking for it raises. That
+        is the assertion: the scan must decide from the path, before the read.
+        """
+
+        policy = yaml.safe_dump(
+            {
+                "kind": "NetworkPolicy",
+                "metadata": {"name": "b"},
+                "spec": {
+                    "podSelector": {"matchLabels": {"app": "b"}},
+                    "ingress": [
+                        {"from": [{"podSelector": {"matchLabels": {"app": "a"}}}]}
+                    ],
+                },
+            }
+        )
+        archive = "ops/Helm/addons/_draft/gitlab-runner/charts/gitlab-runner-0.69.0.tgz"
+        reader = DictReader({"policy.yaml": policy})
+        request = SourceRequest(
+            code_repository_id="shortlink",
+            release_id="v0.19.0",
+            extracted_at=EXTRACTED_AT,
+            manifest_paths=("policy.yaml", archive),
+        )
+
+        outcome = ConfigurationScan(reader).collect(request)
+
+        assert outcome.records, "the readable policy still produced its rule"
+        assert archive in (outcome.reason or ""), "the skip is named, not silent"
 
 
 class TestPermissionDirection:
@@ -411,6 +486,103 @@ class TestDeclaredRecords:
 
         assert RepositoryDecisionRecords(reader).collect(request_for("v0.10.0")).records == ()
 
+    def test_records_nested_in_an_adr_directory_are_found(self, tmp_path):
+        """`adr-tools` files its records in `decisions/` once a template folder
+        sits beside them, and a repository that keeps forty of them will have
+        that layout. The patterns matched one level only and found none of it.
+
+        Written against a real tree rather than `DictReader`, because the
+        dict's `fnmatch` matches across a `/` and `Path.glob` does not - so the
+        fake would pass this whether or not the pattern was recursive.
+        """
+
+        record = (
+            "---\nid: ADR-026\nsubject: linkservice\nconstraint: must_not_call\n"
+            "object: userservice\nvalid_from: v0.19.0\n---\n\n# 26. Database\n"
+        )
+        write_tree(tmp_path, {"docs/ADR/decisions/0026-database.md": record})
+
+        outcome = RepositoryDecisionRecords(TreeReader(tmp_path)).collect(
+            declared_request("v0.19.0")
+        )
+
+        assert [r.decision_id for r in outcome.records] == ["ADR-026"]
+
+    def test_records_each_service_keeps_for_itself_are_found(self, tmp_path):
+        """A monorepository files decisions per bounded context, not centrally.
+
+        The patterns were anchored at the repository root, so the shared set
+        was found and every per-service set was invisible - 37 of 138 on the
+        first repository laid out this way. The prefix has to be recursive too,
+        and this is the only assertion that distinguishes the two.
+        """
+
+        prose = "# 2. Split the gateway per protocol\n\n## Status\n\nAccepted\n"
+        write_tree(
+            tmp_path,
+            {
+                "docs/ADR/decisions/0012-use-monorepository.md": prose,
+                "boundaries/api/api-gateway/docs/ADR/decisions/0002-split.md": prose,
+                "boundaries/auth/auth/docs/ADR/decisions/0002-permissions.md": prose,
+                "ops/docs/ADR/decisions/0001-init.md": prose,
+            },
+        )
+
+        outcome = RepositoryDecisionRecords(TreeReader(tmp_path)).collect(
+            declared_request("v0.19.0")
+        )
+
+        assert "4 decision document(s) found" in (outcome.reason or ""), (
+            "the three per-service sets count, not only the shared one"
+        )
+
+    def test_prose_records_are_counted_rather_than_reported_as_absent(self, tmp_path):
+        """The distinction the research claim rests on.
+
+        A repository keeping decision records in `adr-tools` prose has them -
+        they just carry no machine-readable constraint. Reporting that as "no
+        decision records in this repository" would state the opposite of the
+        truth about a team that documents diligently, and the finding about
+        repositories that keep none would be indistinguishable from it.
+        """
+
+        prose = "# 26. Pattern: database per service\n\nDate: 2023-06-11\n\n## Status\n\nAccepted\n"
+        write_tree(
+            tmp_path,
+            {
+                "docs/ADR/decisions/0001-record.md": prose,
+                "docs/ADR/decisions/0026-database.md": prose,
+                "docs/ADR/README.md": prose,
+                "README.md": prose,
+            },
+        )
+
+        outcome = RepositoryDecisionRecords(TreeReader(tmp_path)).collect(
+            declared_request("v0.19.0")
+        )
+
+        assert outcome.ran is True
+        assert outcome.records == ()
+        assert "3 decision document(s) found" in (outcome.reason or ""), (
+            "the three under docs/ADR are counted and the root README is not"
+        )
+        assert "machine-readable" in (outcome.reason or "")
+
+    def test_one_record_matched_by_two_case_variants_is_counted_once(self, tmp_path):
+        """`Path.glob` is case-insensitive on Windows and case-sensitive
+        elsewhere, so `docs/adr/**` and `docs/ADR/**` both answer there. A
+        count that doubles on one platform is worse than a wrong one: it looks
+        correct wherever somebody checks it."""
+
+        prose = "# 1. Record architecture decisions\n\n## Status\n\nAccepted\n"
+        write_tree(tmp_path, {"docs/ADR/decisions/0001-record.md": prose})
+
+        outcome = RepositoryDecisionRecords(TreeReader(tmp_path)).collect(
+            declared_request("v0.19.0")
+        )
+
+        assert "1 decision document(s) found" in (outcome.reason or "")
+
     def test_a_record_missing_its_interval_raises_rather_than_being_guessed(self):
         reader = DictReader(
             {
@@ -471,7 +643,7 @@ class TestWhatEachModeWouldFind:
         )
 
         assert available["combined"].records == 25
-        assert available["combined"].by_source == {"config_scan": 25}
+        assert available["combined"].by_source == {"repo_adr": 0, "config_scan": 25}
         assert available["combined"].reason is None
 
     def test_a_mode_that_cannot_run_says_so_rather_than_reporting_zero(self):
@@ -492,17 +664,51 @@ class TestWhatEachModeWouldFind:
 
         assert set(available) == set(registered_modes())
 
+    def test_combined_reads_records_kept_beside_the_code(self, tmp_path):
+        """The assertion the subject repository could never make.
+
+        Online Boutique keeps no decision records, so every claim about
+        `combined` holding the in-repository source was unfalsifiable on it -
+        a mode that skipped `repo_adr` produced an identical result. This runs
+        against a tree that does keep one, where the two differ.
+        """
+
+        record = (
+            "---\nid: ADR-026\nsubject: linkservice\nconstraint: must_not_call\n"
+            "object: userservice\nvalid_from: v0.19.0\n---\n\n# 26. Database\n"
+        )
+        write_tree(tmp_path, {"docs/ADR/decisions/0026-database.md": record})
+
+        outcomes = [
+            source.collect(declared_request("v0.19.0"))
+            for source in sources_for("combined", TreeReader(tmp_path))
+        ]
+        found = {
+            outcome.source: [r.decision_id for r in outcome.records]
+            for outcome in outcomes
+        }
+
+        assert found["repo_adr"] == ["ADR-026"], (
+            "combined must open the records kept beside the code"
+        )
+
     def test_an_unknown_mode_is_refused_by_name(self):
         with pytest.raises(ValueError, match="repo_adr"):
             sources_for("whatever_we_can_find", WorkspaceReader())
 
-    def test_combined_reads_the_declared_source_before_the_reconstructed_one(self):
+    def test_combined_reads_every_source_declared_before_reconstructed(self):
         """Where a written decision and a reconstructed rule speak about one
-        relationship, the written one should be the first the log holds."""
+        relationship, the written one should be the first the log holds.
+
+        **Both** declared sources are in it. This assertion read
+        `["external_adr", "config_scan"]` until 2026-10-20 and so codified a
+        mode that silently skipped the records kept beside the code - which
+        nothing could detect while the only subject repository had none.
+        """
 
         order = [source.name for source in sources_for("combined", WorkspaceReader())]
 
-        assert order == ["external_adr", "config_scan"]
+        assert order == ["repo_adr", "external_adr", "config_scan"]
 
 class TestWhereARuleWasRead:
     """A citation has to be showable, which means lines rather than a file.

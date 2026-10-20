@@ -443,6 +443,77 @@ class TestTheDecisionGate:
 class TestTheDecisionSourcesRoute:
     """What each mode would supply, read before anything is chosen."""
 
+    def test_a_zero_beside_a_source_carries_that_source_own_words(self, client):
+        """A count of zero is not self-explanatory.
+
+        Zero beside the source that reads written decisions can mean the
+        repository holds none, or that it holds many and none of them states a
+        checkable constraint. The mode's own `reason` cannot carry that: it is
+        empty whenever another source supplied something, which is exactly the
+        mode where the distinction matters.
+        """
+
+        modes = {
+            row["mode"]: row
+            for row in client.get(
+                "/validations/decision-sources",
+                params={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+            ).json()["modes"]
+        }
+
+        assert modes["combined"]["by_source"]["repo_adr"] == 0
+        assert modes["combined"]["reason"] is None, "another source supplied 25"
+        assert "no decision records" in modes["combined"]["source_notes"]["repo_adr"]
+
+
+class TestTheDecisionRecordsRoute:
+    """The rules behind a count, so the count can be checked."""
+
+    def test_every_rule_names_the_file_it_was_read_from(self, client):
+        """A reconstructed rule's whole claim is that somebody can open the
+        line it came from. A number on a screen is an assertion until then."""
+
+        body = client.get(
+            "/validations/decision-records",
+            params={"repository_id": "online-boutique", "release_id": "v0.10.0"},
+        ).json()
+
+        assert len(body["records"]) == 25
+        assert all(record["source_ref"] for record in body["records"])
+        assert all(
+            record["source"] == "config_scan" for record in body["records"]
+        ), "this repository keeps no written decisions, so all 25 are reconstructed"
+
+    def test_the_rules_match_the_count_the_picker_showed(self, client):
+        """Two answers to one question is how a picker promises records that
+        never arrive. The listing reads the same sources the same way."""
+
+        params = {"repository_id": "online-boutique", "release_id": "v0.10.0"}
+        modes = {
+            row["mode"]: row
+            for row in client.get(
+                "/validations/decision-sources", params=params
+            ).json()["modes"]
+        }
+        listed = client.get(
+            "/validations/decision-records", params={**params, "mode": "combined"}
+        ).json()
+
+        assert len(listed["records"]) == modes["combined"]["records"]
+
+    def test_an_unknown_mode_is_refused_by_name(self, client):
+        response = client.get(
+            "/validations/decision-records",
+            params={
+                "repository_id": "online-boutique",
+                "release_id": "v0.10.0",
+                "mode": "whatever_we_can_find",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "whatever_we_can_find" in response.json()["detail"]
+
     def test_every_mode_is_reported_with_its_yield(self, client):
         body = client.get(
             "/validations/decision-sources",
@@ -452,7 +523,7 @@ class TestTheDecisionSourcesRoute:
 
         assert set(modes) == {"repo_adr", "external_adr", "combined"}
         assert modes["combined"]["records"] == 25
-        assert modes["combined"]["by_source"] == {"config_scan": 25}
+        assert modes["combined"]["by_source"] == {"repo_adr": 0, "config_scan": 25}
 
     def test_the_empty_mode_says_why_it_is_empty(self, client):
         """The research finding, on the screen: this repository keeps no
