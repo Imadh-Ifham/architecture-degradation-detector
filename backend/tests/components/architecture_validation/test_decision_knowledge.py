@@ -202,9 +202,9 @@ class TestSupersessionByAbsence:
         first = scanned("v0.9.0", service)
         second = scanned("v0.10.0", service)
 
-        assert first.recorded == 25 and first.closed == 0
+        assert first.recorded == 26 and first.closed == 0
         assert second.recorded == 1 and second.closed == 1
-        assert second.unchanged == 24
+        assert second.unchanged == 25
 
     def test_a_replacement_is_only_named_when_there_is_exactly_one(self):
         """Two candidates make the link a guess, and a guess written into a
@@ -509,7 +509,7 @@ class TestTheRecordedCorpus:
         ]
         kinds = [event["event"] for event in events]
 
-        assert kinds.count(DECISION_RECORDED) == 26
+        assert kinds.count(DECISION_RECORDED) == 27
         assert kinds.count(DECISION_SUPERSEDED) == 1
         assert kinds.count(RELEASE_SCANNED) == len(RELEASES)
 
@@ -625,7 +625,7 @@ class TestTheGate:
             service_with().establish(request_for("v0.10.0"), "repo_adr")
 
         assert refused.value.yields["repo_adr"] == 0
-        assert refused.value.yields["combined"] == 25
+        assert refused.value.yields["combined"] == 26
 
     def test_the_refusal_names_the_mode_that_would_work(self):
         """A block that does not say what to do instead is a block somebody
@@ -663,9 +663,9 @@ class TestTheGate:
         outcome = service_with().establish(request_for("v0.9.0"), "combined")
 
         assert outcome.mode == "combined"
-        assert outcome.recorded == 25
-        assert outcome.in_force == 25
-        assert outcome.by_source == {"repo_adr": 0, "config_scan": 25}
+        assert outcome.recorded == 26
+        assert outcome.in_force == 26
+        assert outcome.by_source == {"repo_adr": 0, "config_scan": 26}
         assert outcome.releases_in_log == ("v0.9.0",)
 
     def test_the_releases_own_rules_are_in_force_when_its_facts_are_judged(self):
@@ -675,6 +675,82 @@ class TestTheGate:
         outcome = service_with().establish(request_for("v0.10.0"), "combined")
 
         assert outcome.in_force == outcome.records
+
+
+class TestARuleAboutEveryCaller:
+    """A policy that admits anybody sits between a named pair and the deny.
+
+    It is the shape the resolver had no lookup for. A rule is found by
+    subject and object, or by the two wildcards that are the default refusal,
+    and `(*, one element)` matched neither - so a dependency into an element
+    whose policy admits every source fell through to the refusal and was
+    published as a violation of the policy permitting it.
+    """
+
+    def fact_into(self, element: str) -> ObservedFact:
+        return ObservedFact(
+            fact_id="f" * 16,
+            release_id="v0.10.0",
+            release_sort_key=release_sort_key("v0.10.0"),
+            subject=FactEndpoint(id="e1", name="adservice", canonical="adservice"),
+            relationship=RelationshipKind.COMMUNICATES_WITH,
+            object=FactEndpoint(id="e2", name=element, canonical=element),
+            style_resolved="microservices",
+            style_source="c1",
+            quality="confirmed",
+        )
+
+    def established(self) -> DecisionKnowledgeService:
+        service = service_with()
+        for release in RELEASES:
+            scanned(release, service)
+        return service
+
+    def test_a_caller_nobody_named_is_permitted_by_the_open_policy(self):
+        """`loadgenerator` admits every source, and `adservice` is not named
+        anywhere near it. The permission still governs."""
+
+        resolution = self.established().resolve(
+            self.fact_into("loadgenerator"), REPOSITORY
+        )
+
+        assert not resolution.uncovered
+        assert resolution.governing.decision_id == "rule-any-loadgenerator"
+        assert resolution.governing.constraint is ConstraintKind.MAY_CALL
+
+    def test_an_element_with_no_open_policy_still_falls_to_the_refusal(self):
+        """The half that must not move. An open policy on one element is not
+        an open policy on the next, and a lookup that leaked across them
+        would confirm every dependency in the system."""
+
+        resolution = self.established().resolve(
+            self.fact_into("paymentservice"), REPOSITORY
+        )
+
+        assert resolution.governing.decision_id == "np-deny-all"
+        assert resolution.governing.constraint is ConstraintKind.MUST_NOT_CALL
+
+    def test_a_named_pair_still_beats_the_open_policy(self):
+        """Specificity order, asserted rather than assumed: the pair, then
+        the element, then the refusal."""
+
+        named = ObservedFact(
+            fact_id="f" * 16,
+            release_id="v0.10.0",
+            release_sort_key=release_sort_key("v0.10.0"),
+            subject=FactEndpoint(id="e1", name="frontend", canonical="frontend"),
+            relationship=RelationshipKind.COMMUNICATES_WITH,
+            object=FactEndpoint(
+                id="e2", name="cartservice", canonical="cartservice"
+            ),
+            style_resolved="microservices",
+            style_source="c1",
+            quality="confirmed",
+        )
+
+        resolution = self.established().resolve(named, REPOSITORY)
+
+        assert resolution.governing.decision_id == "rule-frontend-cartservice"
 
 
 class TestWhenTwoSourcesDisagree:

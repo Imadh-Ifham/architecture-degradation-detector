@@ -995,7 +995,7 @@ class TestTheM2Gate:
         for record in records:
             kinds[record.constraint] = kinds.get(record.constraint, 0) + 1
 
-        assert kinds[ConstraintKind.MAY_CALL] == 16
+        assert kinds[ConstraintKind.MAY_CALL] == 17
         assert kinds[ConstraintKind.MUST_NOT_CALL] == 1
         assert kinds[ConstraintKind.DECLARED_RPC] == 7
 
@@ -1133,7 +1133,7 @@ class TestTheM2Gate:
         assert refused.value.yields == {
             "repo_adr": 0,
             "external_adr": 0,
-            "combined": 25,
+            "combined": 26,
         }
 
     def test_a_chosen_mode_that_yields_nothing_scans_nothing(self, tmp_path):
@@ -1168,8 +1168,8 @@ class TestTheM2Gate:
         outcome = service.establish(self.request_for(release), "combined")
 
         assert outcome.declared == 0
-        assert outcome.reconstructed == 25
-        assert outcome.in_force == 25
+        assert outcome.reconstructed == 26
+        assert outcome.in_force == 26
 
     def test_running_against_the_recorded_corpus_writes_nothing(self):
         """Both releases are already in it, so the pipeline re-reading them is

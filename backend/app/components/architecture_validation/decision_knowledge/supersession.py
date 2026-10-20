@@ -142,6 +142,17 @@ def resolve_fact(index, fact: ObservedFact) -> Resolution:
     if direct:
         return _decide(index, direct)
 
+    # Between the named pair and the blanket refusal sits a rule about one
+    # element and every possible peer - a policy that admits any caller. It
+    # is more specific than the default deny and less specific than a pair,
+    # so it is asked second, and a run without this step published a
+    # permitted dependency as a violation of the policy permitting it.
+    admitted = _covering(
+        index, WILDCARD, constraints, fact.object.canonical, fact.release_id
+    )
+    if admitted:
+        return _decide(index, admitted)
+
     general = _covering(index, WILDCARD, constraints, WILDCARD, fact.release_id)
     if general:
         return _decide(index, general, permitted=_permitted_for(index, fact))

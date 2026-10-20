@@ -76,6 +76,28 @@ class ModeAvailability:
     reason: str | None = None
     by_source: dict[str, int] = field(default_factory=dict)
     source_notes: dict[str, str] = field(default_factory=dict)
+    by_constraint: dict[str, int] = field(default_factory=dict)
+    """How many records of each kind, which is what the total does not say.
+
+    `by_source` answers *where did these come from*; this answers *what are
+    they*, and the two are not interchangeable. Eighty-four rules from the
+    configuration sounds like eighty-four rules about dependencies. Sixty-six
+    of them declare an operation a service exposes, and no observed fact
+    carries an operation - so they govern nothing, and the number that
+    actually bears on the architecture is the remaining eighteen.
+
+    A reader shown only the total cannot find that out without opening the
+    records, and a reader who does not find it out will defend the wrong
+    figure.
+    """
+
+    governing: int = 0
+    """Records of a kind that can govern an observed dependency.
+
+    Derived from the same table the resolver uses rather than from a list
+    written here, so a constraint that gains or loses a relationship cannot
+    leave this number describing the old behaviour.
+    """
 
     def to_dict(self) -> dict:
         return {
@@ -85,6 +107,8 @@ class ModeAvailability:
             "reason": self.reason,
             "by_source": dict(self.by_source),
             "source_notes": dict(self.source_notes),
+            "by_constraint": dict(self.by_constraint),
+            "governing": self.governing,
         }
 
 

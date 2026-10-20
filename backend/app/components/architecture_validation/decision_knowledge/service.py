@@ -392,6 +392,14 @@ class DecisionKnowledgeService:
         outcomes = [collected[name] for name in MODES[mode]]
         records = sum(len(outcome.records) for outcome in outcomes)
 
+        extracted = [
+            record for outcome in outcomes if outcome.ran for record in outcome.records
+        ]
+        by_constraint: dict[str, int] = {}
+        for record in extracted:
+            kind = str(record.constraint)
+            by_constraint[kind] = by_constraint.get(kind, 0) + 1
+
         return ModeAvailability(
             mode=mode,
             ran=any(outcome.ran for outcome in outcomes),
@@ -415,4 +423,16 @@ class DecisionKnowledgeService:
                 for outcome in outcomes
                 if outcome.ran and outcome.reason
             },
+            by_constraint=dict(sorted(by_constraint.items())),
+            # Asked of the resolver's own table rather than listed here. A
+            # constraint that stops governing a relationship has to stop
+            # being counted here on the same day, and a second list is a
+            # second thing to forget.
+            governing=len(
+                [
+                    record
+                    for record in extracted
+                    if CONSTRAINT_RELATIONSHIP.get(record.constraint) is not None
+                ]
+            ),
         )

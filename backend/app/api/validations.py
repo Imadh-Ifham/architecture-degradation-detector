@@ -792,6 +792,27 @@ class ModeAvailabilityResponse(BaseModel):
             }
         ],
     )
+    by_constraint: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "How many records of each kind. The total does not say what the "
+            "records are, and the difference matters: most of what a "
+            "configuration scan reconstructs declares the operations a "
+            "service exposes, and an observed dependency carries no "
+            "operation - so those records govern nothing today."
+        ),
+        examples=[{"may_call": 16, "must_not_call": 1, "declared_rpc": 66}],
+    )
+    governing: int = Field(
+        default=0,
+        description=(
+            "How many of the records can govern an observed dependency at "
+            "all, asked of the same table the resolver uses. Read it beside "
+            "the total rather than instead of it: the total is what was "
+            "extracted and this is what can be judged against."
+        ),
+        examples=[18],
+    )
 
 
 class DecisionSourcesResponse(BaseModel):

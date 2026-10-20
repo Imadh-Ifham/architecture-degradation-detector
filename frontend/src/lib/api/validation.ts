@@ -45,6 +45,17 @@ export interface ModeAvailability {
    * another source supplied something, which is the mode where it matters.
    */
   source_notes: Record<string, string>
+  /**
+   * How many records of each constraint kind.
+   *
+   * The total does not say what the records are, and the difference is large:
+   * most of what a configuration scan reconstructs declares the operations a
+   * service exposes, and an observed dependency carries no operation — so
+   * those records are extracted, held and reported, and govern nothing.
+   */
+  by_constraint: Record<string, number>
+  /** How many of them can govern an observed dependency at all. */
+  governing: number
 }
 
 /** One rule a mode supplies, with the line it was read from. */
