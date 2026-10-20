@@ -74,6 +74,23 @@ class ValidatedGraphFileStore:
             return None
         return json.loads(latest.read_text(encoding="utf-8"))
 
+    def releases(self, repository_id: str) -> list[str]:
+        """Every release of one repository with a published document, by name.
+
+        Read by degradation detection, which takes every validated release of a
+        system at once. Sorted by name only so the answer is stable; the order
+        that means something is the consumer's to decide.
+        """
+
+        repository = self._root / repository_id
+        if not repository.is_dir():
+            return []
+        return sorted(
+            release.name
+            for release in repository.iterdir()
+            if (release / LATEST_FILENAME).is_file()
+        )
+
     def _refuse_a_mixed_series(self, document: ValidatedArchitectureGraph) -> None:
         """Stop a release whose size unit disagrees with an earlier release.
 

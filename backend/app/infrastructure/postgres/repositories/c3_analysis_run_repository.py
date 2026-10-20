@@ -226,6 +226,20 @@ class PostgresAnalysisRunRepository:
             ).all()
         return {row.name: row.payload for row in rows}
 
+    def latest_run_id(self, system_id: str) -> str | None:
+        query = (
+            select(c3_analysis_run.c.run_id)
+            .where(
+                c3_analysis_run.c.system_id == system_id,
+                c3_analysis_run.c.status == RunStatus.COMPLETED.value,
+            )
+            .order_by(c3_analysis_run.c.started_at.desc(), c3_analysis_run.c.run_id.desc())
+            .limit(1)
+        )
+        with self._sessions() as session:
+            found: str | None = session.execute(query).scalar_one_or_none()
+        return found
+
     def _finish(self, session: Session, run: AnalysisRun) -> None:
         """Move a RUNNING run to its final state; only a RUNNING run may move."""
         if run.status is RunStatus.RUNNING:

@@ -4,6 +4,7 @@ Every test runs inside one outer transaction that is rolled back, tables include
 development database is left as it was. Skips when PostgreSQL is not reachable.
 """
 
+import datetime as dt
 from collections.abc import Iterator
 from typing import Any
 
@@ -16,6 +17,7 @@ from app.domain.analysis_run import RunOutputs, StoredRun
 from tests.components.degradation_detection.run_records import (
     ARTIFACTS,
     RUN_ID,
+    STARTED,
     completed_run,
     failed_run,
     outputs,
@@ -123,3 +125,17 @@ def test_only_a_running_run_can_finish(repo: Any) -> None:
     repo.fail(failed_run())
     with pytest.raises(LookupError):
         repo.complete(completed_run(), outputs(), ARTIFACTS)
+
+
+def test_latest_run_id_is_the_newest_completed_run_of_the_system(repo: Any) -> None:
+    assert repo.latest_run_id(completed_run().system_id) is None
+
+    repo.start(started_run())
+    repo.complete(completed_run(), outputs(), ARTIFACTS)
+    later = "RUN-later"
+    repo.start(started_run(later).model_copy(update={"started_at": STARTED + dt.timedelta(1)}))
+    repo.fail(failed_run(later).model_copy(update={"started_at": STARTED + dt.timedelta(1)}))
+
+    # The later run failed, so the completed one is still the latest.
+    assert repo.latest_run_id(completed_run().system_id) == RUN_ID
+    assert repo.latest_run_id("nobody") is None

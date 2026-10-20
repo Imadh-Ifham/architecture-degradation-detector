@@ -16,6 +16,12 @@
  *   projector, a printed appendix and a colour-blind reader all have to work,
  *   and at least two of those happen.
  *
+ *   **Positions can come from a larger graph than the one drawn.** A screen
+ *   stepping through releases passes the union of every release as `layout`,
+ *   so an element sits in the same place in each and the step reads as the
+ *   system changing rather than the picture being redrawn. Without it, the
+ *   layout is the drawn graph's own, as before.
+ *
  *   Hovering a node dims everything it does not touch. With fifteen edges
  *   that is a convenience; at fifty it is the only way the picture is
  *   readable, and it costs one class.
@@ -40,6 +46,8 @@ export interface GraphNode {
   /** A short figure drawn at the right of the box, such as a rollup. */
   badge?: string
   tone?: GraphTone
+  /** Drawn faint and dashed: present elsewhere, not in this graph. */
+  ghost?: boolean
 }
 
 export interface GraphEdge {
@@ -89,9 +97,12 @@ export default function GraphCanvas({
   onSelectEdge,
   legend,
   footer,
+  layout,
 }: {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  /** The graph positions are computed from, when it is larger than the drawn one. */
+  layout?: { ids: string[]; edges: { source: string; target: string }[] }
   selected?: string | null
   onSelect?: (id: string | null) => void
   selectedEdge?: string | null
@@ -105,10 +116,21 @@ export default function GraphCanvas({
   const viewport = useRef<HTMLDivElement>(null)
   const { view, controls, onPointerDown, isPanning } = usePanZoom(viewport)
 
-  const { nodes: placed, isolated, width, height } = layeredLayout(
-    nodes.map((node) => node.id),
-    edges.map((edge) => ({ source_id: edge.source, target_id: edge.target })),
+  const { nodes: placed, isolated: unplaced, width, height } = layeredLayout(
+    layout?.ids ?? nodes.map((node) => node.id),
+    (layout?.edges ?? edges).map((edge) => ({
+      source_id: edge.source,
+      target_id: edge.target,
+    })),
   )
+
+  // Isolated in the drawn graph, not in the layout: the note below is about
+  // what this picture shows, and a ghost is not an element of it.
+  const drawnIds = new Set(nodes.filter((node) => !node.ghost).map((node) => node.id))
+  const linked = new Set(edges.flatMap((edge) => [edge.source, edge.target]))
+  const isolated = layout
+    ? [...drawnIds].filter((id) => !linked.has(id)).sort()
+    : unplaced
 
   const byId = new Map(nodes.map((node) => [node.id, node]))
 
@@ -228,7 +250,9 @@ export default function GraphCanvas({
             return (
               <g
                 key={node.id}
-                className={`cursor-pointer ${touched ? '' : 'opacity-25'}`}
+                className={`cursor-pointer ${touched ? '' : 'opacity-25'} ${
+                  node.ghost ? 'opacity-40' : ''
+                }`}
                 onMouseEnter={() => setHovered(node.id)}
                 onMouseLeave={() => setHovered(null)}
                 onClick={() => onSelect?.(isSelected ? null : node.id)}
@@ -241,6 +265,7 @@ export default function GraphCanvas({
                   rx={8}
                   className={isSelected ? 'fill-raised stroke-ink' : BOX[node.tone ?? 'neutral']}
                   strokeWidth={isSelected ? 2 : 1.2}
+                  strokeDasharray={node.ghost ? '4 4' : undefined}
                 />
                 <text x={at.x + 16} y={at.y + 24} className="fill-ink font-mono text-[12.5px]">
                   {clip(node.title, 22)}

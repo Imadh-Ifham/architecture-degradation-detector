@@ -92,7 +92,7 @@ export const PAGES: readonly PageDefinition[] = [
     label: 'Drift',
     group: 'results',
     summary: 'What changed between releases, and how far',
-    state: 'reserved',
+    state: 'ready',
   },
   {
     path: '/priorities',
@@ -155,11 +155,11 @@ export const PHASES: readonly PhaseDefinition[] = [
   {
     id: 'detect',
     label: 'Detect',
-    input: 'two or more validated releases',
+    input: 'every validated release',
     output: 'what degraded, and when it started',
     page: '/drift',
-    requires: 'two releases have been validated',
-    state: 'reserved',
+    requires: 'a release has been validated',
+    state: 'ready',
   },
   {
     id: 'prioritise',

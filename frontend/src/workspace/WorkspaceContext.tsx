@@ -24,13 +24,18 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import {
+  ApiError,
   listConfigurations,
   listRepositories,
   listSnapshots,
   messageOf,
+  readLatestDegradation,
   removeConfiguration as deleteConfiguration,
+  runDegradation,
   runValidation,
   saveConfiguration,
+  type DegradationReport,
+  type IngestOutcome,
   type RepositoryConfigurationInput,
   type SnapshotSummary,
   type ValidationRun,
@@ -58,6 +63,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   >({})
   const [validatingRelease, setValidatingRelease] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [isDetecting, setIsDetecting] = useState(false)
+  const [isDetectionStale, setIsDetectionStale] = useState(false)
+  const [detectionError, setDetectionError] = useState<string | null>(null)
+  // Keyed by the repository it was for, so switching repository does not show
+  // one system's intake under another's run.
+  const [lastIngest, setLastIngest] = useState<{ key: string; outcomes: IngestOutcome[] }>({
+    key: '',
+    outcomes: [],
+  })
 
   const repositoriesRequest = useRequest((options) => listRepositories(options), [])
   const configurationsRequest = useRequest(
@@ -116,6 +130,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [snapshots],
   )
 
+  // A 404 is "detection has not run here", a state with its own screen, and
+  // is returned as null so no screen reports it as a failure.
+  const degradationRequest = useRequest<DegradationReport | null>(
+    (options) =>
+      readLatestDegradation(repositoryKey, options).catch((cause: unknown) => {
+        if (cause instanceof ApiError && cause.status === 404) return null
+        throw cause
+      }),
+    [repositoryKey],
+    Boolean(repositoryKey),
+  )
+
+  const degradationIngest = useMemo(
+    () => (lastIngest.key === repositoryKey ? lastIngest.outcomes : []),
+    [lastIngest, repositoryKey],
+  )
+
   const reloadRepositories = repositoriesRequest.reload
   const reloadSnapshots = snapshotsRequest.reload
   const reloadConfigurations = configurationsRequest.reload
@@ -126,6 +157,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       [runKey(run.repository_id, run.release_id)]: run,
     }))
     setFocusedRelease(run.release_id)
+    // A newly validated release is one the stored detection run did not read.
+    setIsDetectionStale(true)
   }, [])
 
   const focusRelease = useCallback((releaseId: string) => {
@@ -289,6 +322,35 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [configurations, isPipelineRunning, reloadRepositories, reloadSnapshots])
 
+  /**
+   * Detect over every validated release of the selected repository.
+   *
+   * The backend reads the published graphs itself, so this sends only which
+   * repository; the run it stores is then read back like any other, which is
+   * what keeps the pipeline and the drift screen on one answer.
+   */
+  const reloadDegradation = degradationRequest.reload
+
+  const detectDegradation = useCallback(async () => {
+    if (isDetecting || !repositoryKey) return false
+
+    setIsDetecting(true)
+    setDetectionError(null)
+
+    try {
+      const run = await runDegradation(repositoryKey)
+      setLastIngest({ key: repositoryKey, outcomes: run.ingest })
+      setIsDetectionStale(false)
+      reloadDegradation()
+      return true
+    } catch (cause) {
+      setDetectionError(messageOf(cause))
+      return false
+    } finally {
+      setIsDetecting(false)
+    }
+  }, [isDetecting, reloadDegradation, repositoryKey])
+
   const addConfiguration = useCallback(
     async (input: RepositoryConfigurationInput) => {
       const saved = await saveConfiguration(input)
@@ -352,6 +414,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       validateRelease,
       validateAllReleases,
       validationError,
+      degradation: degradationRequest.data ?? null,
+      degradationIngest,
+      isLoadingDegradation: degradationRequest.isLoading,
+      isDetecting,
+      isDetectionStale,
+      detectionError: detectionError ?? degradationRequest.error,
+      detectDegradation,
       selectRepository: setSelectedKey,
       reload,
     }),
@@ -387,6 +456,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       validateRelease,
       validateAllReleases,
       validationError,
+      degradationRequest.data,
+      degradationRequest.isLoading,
+      degradationRequest.error,
+      degradationIngest,
+      isDetecting,
+      isDetectionStale,
+      detectionError,
+      detectDegradation,
       reload,
     ],
   )

@@ -20,10 +20,11 @@ so any number in a report can be traced back to the run that produced it.
 """
 
 import importlib.metadata
+import json
 import platform
 import time
 import uuid
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -35,6 +36,16 @@ from app.components.degradation_detection.config import C3Config
 from app.components.degradation_detection.detection import DetectionService
 from app.components.degradation_detection.events import EventService
 from app.components.degradation_detection.ingestion import IngestService
+from app.components.degradation_detection.ingestion.from_validated import (
+    UnconvertibleGraph,
+    package_from_validated,
+)
+from app.components.degradation_detection.ingestion.models import (
+    IngestOutcome,
+    IngestReport,
+    IngestStatus,
+    RawPackage,
+)
 from app.components.degradation_detection.models import (
     DetectionCatalog,
     MetricLevel,
@@ -47,6 +58,7 @@ from app.components.degradation_detection.ports import (
     ReleaseRepository,
 )
 from app.components.degradation_detection.report import ReportService
+from app.components.degradation_detection.report.view import run_view
 from app.components.degradation_detection.tracking import TrackingService
 from app.components.degradation_detection.tracking.series_csv import series_csv
 from app.components.degradation_detection.trends import TrendService
@@ -189,6 +201,54 @@ class DegradationDetectionService:
         if stored is None:
             raise LookupError(f"no analysis run {run_id!r}")
         return ReportService().render(stored)
+
+    def ingest_validated(self, documents: Sequence[Mapping[str, Any]]) -> IngestReport:
+        """Ingest C2's published graphs, one per release, replacing releases C2 validated again.
+
+        A graph that cannot become a package (no release date, not a node-link document) is
+        reported REJECTED with its reason, like a package ingestion refuses; the others go on.
+        """
+        outcomes: list[IngestOutcome] = []
+        packages: list[RawPackage] = []
+        for document in documents:
+            graph = document.get("graph")
+            release_id = graph.get("release_id") if isinstance(graph, Mapping) else None
+            source = f"published graph {release_id or '<unknown>'}"
+            try:
+                payload = package_from_validated(document)
+            except UnconvertibleGraph as refused:
+                outcomes.append(
+                    IngestOutcome(
+                        source=source,
+                        status=IngestStatus.REJECTED,
+                        system_id=graph.get("repository_id")
+                        if isinstance(graph, Mapping)
+                        else None,
+                        release_id=release_id,
+                        reason=refused.reason,
+                        detail=refused.detail,
+                    )
+                )
+                continue
+            packages.append(RawPackage(source=source, data=json.dumps(payload).encode("utf-8")))
+
+        ingest = IngestService(self._releases, self._clock, self._cfg)
+        report = ingest.ingest(packages, replace_changed=True)
+        return IngestReport(outcomes=(*outcomes, *report.outcomes))
+
+    def latest_run_id(self, system_id: str) -> str | None:
+        """The most recent completed run of one system, or None if it has none."""
+        return self._runs.latest_run_id(system_id)
+
+    def view(self, run_id: str) -> dict[str, Any]:
+        """A stored run as one JSON-ready document for a screen (``report/view.py``).
+
+        Raises ``LookupError`` if the run was never stored."""
+        stored = self._runs.load(run_id)
+        if stored is None:
+            raise LookupError(f"no analysis run {run_id!r}")
+        artifacts = self._runs.load_artifacts(run_id) or {}
+        return run_view(stored, artifacts, self._releases.list_releases(stored.run.system_id))
 
     def _analyse(
         self,

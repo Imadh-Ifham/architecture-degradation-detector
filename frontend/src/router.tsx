@@ -22,7 +22,8 @@ import DecisionsPage from './features/decisions/DecisionsPage'
 import PipelinePage from './features/pipeline/PipelinePage'
 import RepositoriesPage from './features/repositories/RepositoriesPage'
 import NotFound from './pages/NotFound'
-import { DriftPage, PrioritiesPage } from './features/reserved/reservedPages'
+import DriftPage from './features/drift/DriftPage'
+import { PrioritiesPage } from './features/reserved/reservedPages'
 
 export const router = createBrowserRouter([
   {

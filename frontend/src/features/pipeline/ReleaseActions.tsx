@@ -2,7 +2,7 @@
  * What an architect does with one release.
  *
  * Description:
- *   Validate it, and then go and read any of the four results **for that
+ *   Validate it, and then go and read any of the results **for that
  *   release**.
  *
  *   **Per release, not per run.** A stack of fifty releases is minutes of
@@ -37,6 +37,7 @@ const RESULTS: readonly { to: string; label: string; needsRun: boolean }[] = [
   { to: '/validation', label: 'Validation', needsRun: true },
   { to: '/findings', label: 'Findings', needsRun: true },
   { to: '/canvas', label: 'Canvas', needsRun: true },
+  { to: '/drift', label: 'Drift', needsRun: true },
 ]
 
 export default function ReleaseActions({

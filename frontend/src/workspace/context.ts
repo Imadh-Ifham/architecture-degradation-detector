@@ -22,6 +22,8 @@
 import { createContext } from 'react'
 import type {
   DecisionMode,
+  DegradationReport,
+  IngestOutcome,
   IngestedRepository,
   RepositoryConfiguration,
   RepositoryConfigurationInput,
@@ -137,6 +139,34 @@ export interface Workspace {
   validateAllReleases: () => Promise<void>
   /** Why the last validation failed, named with the release it was for. */
   validationError: string | null
+
+  /* Degradation detection over the validated releases ------------------ */
+
+  /**
+   * The latest completed detection run for the selected repository, or null
+   * when detection has not run for it.
+   *
+   * Read from the backend rather than remembered here, because a run is
+   * stored: a refresh, or another screen, sees the same run.
+   */
+  degradation: DegradationReport | null
+  /** What happened to each published graph the last run read; empty after a refresh. */
+  degradationIngest: IngestOutcome[]
+  isLoadingDegradation: boolean
+  isDetecting: boolean
+  /**
+   * Whether a release has been validated since the stored run was made, so
+   * the run no longer describes the stack. A stored run from an earlier
+   * session is not stale by this measure; the pipeline treats it as not yet
+   * run for this stack until something is validated and detected here.
+   */
+  isDetectionStale: boolean
+  detectionError: string | null
+  /**
+   * Run detection over every release of the repository that has been
+   * validated. Resolves to whether a run was stored.
+   */
+  detectDegradation: () => Promise<boolean>
 
   selectRepository: (repositoryKey: string) => void
   reload: () => void

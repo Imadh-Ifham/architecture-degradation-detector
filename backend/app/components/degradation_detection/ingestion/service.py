@@ -23,6 +23,7 @@ from app.components.degradation_detection.ingestion.models import (
     INPUT_SCHEMA_INVALID,
     PACKAGE_TOO_LARGE,
     RELEASE_CONFLICT,
+    RELEASE_REPLACED,
     RELEASE_STORED,
     RELEASE_UNCHANGED,
     IngestOutcome,
@@ -95,15 +96,26 @@ class IngestService:
         self._clock = clock
         self._cfg = cfg
 
-    def ingest(self, packages: Iterable[RawPackage]) -> IngestReport:
-        """Ingest each package independently; one rejection never stops the others."""
-        return IngestReport(outcomes=tuple(self._ingest_one(raw) for raw in packages))
+    def ingest(
+        self, packages: Iterable[RawPackage], *, replace_changed: bool = False
+    ) -> IngestReport:
+        """Ingest each package independently; one rejection never stops the others.
+
+        A release already stored with different content is rejected (``RELEASE_CONFLICT``)
+        unless ``replace_changed`` is set. The API sets it: there the packages are built from
+        C2's latest published graphs, and a release validated again is meant to replace the
+        old one. The CLI keeps the strict default, so a file edited by hand cannot overwrite a
+        release silently.
+        """
+        return IngestReport(
+            outcomes=tuple(self._ingest_one(raw, replace_changed) for raw in packages)
+        )
 
     def timeline(self, system_id: str) -> Timeline:
         """The ordered, gated main-line releases of one system, as of now."""
         return timeline(system_id, self._repo.list_releases(system_id), self._cfg.ingest)
 
-    def _ingest_one(self, raw: RawPackage) -> IngestOutcome:
+    def _ingest_one(self, raw: RawPackage, replace_changed: bool) -> IngestOutcome:
         payload: dict[str, Any] = {}
         try:
             payload = _parse(raw, self._cfg.ingest.max_package_bytes)
@@ -120,6 +132,20 @@ class IngestService:
             log.info(RELEASE_UNCHANGED, reason=RELEASE_UNCHANGED, source=raw.source, **ids)
             return IngestOutcome(
                 source=raw.source, status=IngestStatus.UNCHANGED, gate_status=status, **ids
+            )
+        if stored_hash is not None and replace_changed:
+            release = normalise(package, gate_status=status, package_hash=digest)
+            self._repo.replace(release, payload, self._clock.now())
+            log.info(
+                RELEASE_REPLACED,
+                reason=RELEASE_REPLACED,
+                source=raw.source,
+                gate_status=status.value,
+                previous_hash=stored_hash,
+                **ids,
+            )
+            return IngestOutcome(
+                source=raw.source, status=IngestStatus.REPLACED, gate_status=status, **ids
             )
         if stored_hash is not None:
             detail = f"stored {stored_hash}, received {digest}; re-ingest is not supported yet"

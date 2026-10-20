@@ -35,6 +35,18 @@ class InMemoryReleaseRepository:
         self.raw[key] = copy.deepcopy(dict(raw_payload))
         self.ingested_at[key] = ingested_at
 
+    def replace(
+        self,
+        release: CanonicalRelease,
+        raw_payload: Mapping[str, Any],
+        ingested_at: dt.datetime,
+    ) -> None:
+        key = (release.system_id, release.release_id)
+        if key not in self.releases:
+            raise LookupError(f"release {key} not stored")
+        del self.releases[key]
+        self.add(release, raw_payload, ingested_at)
+
     def list_releases(self, system_id: str) -> tuple[CanonicalRelease, ...]:
         # Insertion order on purpose: the timeline must not rely on the store to sort.
         return tuple(r for (system, _), r in self.releases.items() if system == system_id)
@@ -73,6 +85,16 @@ class InMemoryAnalysisRunRepository:
         if run_id not in self.runs:
             return None
         return dict(self.artifacts.get(run_id, {}))
+
+    def latest_run_id(self, system_id: str) -> str | None:
+        completed = [
+            run
+            for run in self.runs.values()
+            if run.system_id == system_id and run.status is RunStatus.COMPLETED
+        ]
+        if not completed:
+            return None
+        return max(completed, key=lambda run: (run.started_at, run.run_id)).run_id
 
     def _finish(self, run: AnalysisRun, status: RunStatus) -> None:
         stored = self.runs.get(run.run_id)
