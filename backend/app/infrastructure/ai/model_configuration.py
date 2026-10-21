@@ -22,6 +22,7 @@ Description:
     rule that no component depends on a specific provider or model.
 """
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 TASK_PRIMARY_VERDICT = "primary_verdict"
@@ -50,6 +51,24 @@ the larger model costs almost nothing and reads better.
 
 SCHEMA_MODE_STRICT = "strict"
 SCHEMA_MODE_BEST_EFFORT = "best_effort"
+SCHEMA_MODE_JSON_OBJECT = "json_object"
+"""The only shape some providers serve, and a different guarantee entirely.
+
+`strict` and `best_effort` both send `response_format: {"type": "json_schema"}`
+and differ only in whether the schema is tightened first. A provider that does
+not serve `json_schema` at all refuses both, so neither mode is a fallback for
+the other - which is why there is a third rather than a looser second.
+
+**What it gives up is the guarantee, and it is written down here so nobody has
+to infer it from behaviour.** The schema is carried in the prompt instead of in
+the decoder, so the model is asked rather than constrained, and the answer is
+checked against the schema's required fields after it arrives. A missing field
+becomes a content error, which the ladder already treats as a retryable answer
+and then as `insufficient_evidence`. It never becomes a silently incomplete
+verdict.
+"""
+
+SCHEMA_MODES = (SCHEMA_MODE_STRICT, SCHEMA_MODE_BEST_EFFORT, SCHEMA_MODE_JSON_OBJECT)
 
 
 class AISettings(BaseSettings):
@@ -133,6 +152,13 @@ class AISettings(BaseSettings):
     """
 
     ai_schema_mode: str = SCHEMA_MODE_STRICT
+    """How the answer is constrained to the schema. One of `SCHEMA_MODES`.
+
+    Validated rather than trusted. A typo here used to mean *not strict*, which
+    is a quieter failure than it sounds: every call would still be made, every
+    answer would still parse, and the one guarantee the design rests on would
+    be absent from a run nobody could tell apart from a good one.
+    """
     ai_temperature: float = 0.0
     ai_seed: int = 42
     ai_timeout_seconds: float = 60.0
@@ -168,6 +194,18 @@ class AISettings(BaseSettings):
         if task not in mapping:
             raise UnknownTaskError(task, tuple(mapping))
         return mapping[task]
+
+    @field_validator("ai_schema_mode")
+    @classmethod
+    def _known_schema_mode(cls, value: str) -> str:
+        """Refuse a schema mode nothing implements, by name."""
+
+        if value not in SCHEMA_MODES:
+            raise ValueError(
+                f"AI_SCHEMA_MODE is '{value}', which is not one of "
+                f"{', '.join(SCHEMA_MODES)}."
+            )
+        return value
 
     def base_url_for(self, task: str) -> str:
         """Return the endpoint that answers `task`.

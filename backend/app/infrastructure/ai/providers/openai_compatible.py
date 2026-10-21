@@ -29,6 +29,11 @@ from dataclasses import dataclass
 
 import httpx
 
+from ..model_configuration import (
+    SCHEMA_MODE_JSON_OBJECT,
+    SCHEMA_MODE_STRICT,
+)
+
 MAX_RATE_LIMIT_WAITS = 3
 FALLBACK_WAIT_SECONDS = 20.0
 MAX_WAIT_SECONDS = 60.0
@@ -169,7 +174,7 @@ class OpenAICompatibleProvider:
         model_id: str,
         prompt: str,
         schema: dict,
-        strict: bool = True,
+        schema_mode: str = SCHEMA_MODE_STRICT,
         temperature: float = 0.0,
         seed: int | None = 42,
         reasoning_effort: str = "",
@@ -191,9 +196,11 @@ class OpenAICompatibleProvider:
 
         payload = {
             "model": model_id,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {"role": "user", "content": _with_schema(prompt, schema, schema_mode)}
+            ],
             "temperature": temperature,
-            "response_format": self._response_format(schema, strict),
+            "response_format": self._response_format(schema, schema_mode),
         }
         if seed is not None:
             payload["seed"] = seed
@@ -206,9 +213,21 @@ class OpenAICompatibleProvider:
             payload["reasoning_effort"] = reasoning_effort
 
         response = self._post(payload)
-        return self._content(response, model_id)
+        return self._content(response, model_id, schema, schema_mode)
 
-    def _response_format(self, schema: dict, strict: bool) -> dict:
+    def _response_format(self, schema: dict, schema_mode: str) -> dict:
+        """The constraint to ask the provider for, in its own vocabulary.
+
+        **`json_object` is a third shape, not a looser second one.** A provider
+        that serves it and not `json_schema` refuses the other two modes
+        outright, so falling back from `strict` to `best_effort` on such a
+        provider changes nothing: both send `json_schema`.
+        """
+
+        if schema_mode == SCHEMA_MODE_JSON_OBJECT:
+            return {"type": "json_object"}
+
+        strict = schema_mode == SCHEMA_MODE_STRICT
         return {
             "type": "json_schema",
             "json_schema": {
@@ -358,7 +377,13 @@ class OpenAICompatibleProvider:
             if self._client is None:
                 client.close()
 
-    def _content(self, response: dict, requested_model: str) -> dict:
+    def _content(
+        self,
+        response: dict,
+        requested_model: str,
+        schema: dict | None = None,
+        schema_mode: str = SCHEMA_MODE_STRICT,
+    ) -> dict:
         """Extract and parse the message content.
 
         The model the provider reports is returned alongside the content, not
@@ -383,6 +408,19 @@ class OpenAICompatibleProvider:
             raise ProviderContentError(
                 f"The provider returned content that is not valid JSON: {message[:300]}"
             ) from error
+
+        if schema_mode == SCHEMA_MODE_JSON_OBJECT and schema:
+            # Nothing constrained the decoder, so the shape is checked here or
+            # it is not checked at all. A missing field surfaces as a content
+            # error - which the caller already retries once and then degrades
+            # to `insufficient_evidence` - rather than as a verdict with a
+            # hole in it that reads exactly like a complete one.
+            missing = _missing_fields(parsed, schema)
+            if missing:
+                raise ProviderContentError(
+                    "The provider returned JSON without the required field(s) "
+                    f"{', '.join(missing)}: {message[:300]}"
+                )
 
         return {
             "content": parsed,
@@ -459,3 +497,47 @@ def _whole(raw: str | None) -> int | None:
         return int(raw) if raw is not None else None
     except ValueError:
         return None
+
+
+def _with_schema(prompt: str, schema: dict, schema_mode: str) -> str:
+    """Carry the schema in the prompt when the decoder will not carry it.
+
+    Two reasons this is here and not in the prompt files. The schema already
+    travels with the call, so writing it into the templates would put the same
+    thing in two places and let them disagree. And it is a property of the
+    provider's JSON mode rather than of the question: providers serving
+    `json_object` document that the word *json* and an example of the shape
+    must appear in the prompt, and a prompt that reads correctly without them
+    returns prose.
+    """
+
+    if schema_mode != SCHEMA_MODE_JSON_OBJECT:
+        return prompt
+
+    return (
+        f"{prompt}\n\n"
+        "Reply with json only - no prose, no code fence - matching this JSON "
+        "schema exactly:\n"
+        f"{json.dumps(schema, indent=2, sort_keys=True)}"
+    )
+
+
+def _missing_fields(parsed: object, schema: dict) -> list[str]:
+    """Which of the schema's required top-level fields are absent.
+
+    Top level only, and deliberately. This is the guard for a mode with no
+    guarantee behind it, not a second implementation of JSON Schema - a
+    validator here would be a dependency and a second opinion about what the
+    schema means. Every task's schema names its answer's fields at the top, so
+    a missing one is the failure worth catching, and the component's own
+    evidence guards read the nested content afterwards either way.
+    """
+
+    if not isinstance(parsed, dict):
+        return ["<the response is not a JSON object>"]
+
+    required = schema.get("required")
+    if not isinstance(required, list):
+        return []
+
+    return [str(field) for field in required if field not in parsed]

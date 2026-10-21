@@ -83,6 +83,50 @@ _KNOWN = (
         free_tier=True,
         notes="No strict schema. Recorded so it is not chosen by mistake.",
     ),
+    # DeepSeek, reached through the same OpenAI-compatible adapter at
+    # https://api.deepseek.com/v1. Registered so the provider can be swapped in
+    # .env, and registered with `supports_strict_schema=False` because that is
+    # what its API documents: `response_format` takes `json_object`, and
+    # `json_schema` is not among its values. Strict schema enforcement exists
+    # there only for tool-call arguments, on a separate beta endpoint, which is
+    # a different request shape and not what any task here sends.
+    #
+    # So these models run under `AI_SCHEMA_MODE=json_object` and under nothing
+    # else - and the alternative to recording that here is finding it out from
+    # a 400 in the middle of a demonstration.
+    ModelCapabilities(
+        model_id="deepseek-chat",
+        supports_strict_schema=False,
+        context_tokens=65_536,
+        free_tier=False,
+        notes=(
+            "DeepSeek's general model. JSON object mode only. Context recorded "
+            "conservatively: the evidence budget is bounded by it, so a figure "
+            "that is too small costs a little evidence and one that is too "
+            "large costs the call."
+        ),
+    ),
+    ModelCapabilities(
+        model_id="deepseek-reasoner",
+        supports_strict_schema=False,
+        context_tokens=65_536,
+        free_tier=False,
+        notes=(
+            "DeepSeek's reasoning model. JSON object mode only. It emits its "
+            "own reasoning before the answer, so it is the expensive one on a "
+            "per-token price list - not a free second opinion."
+        ),
+    ),
+    ModelCapabilities(
+        model_id="deepseek-flash",
+        supports_strict_schema=False,
+        context_tokens=65_536,
+        free_tier=False,
+        notes=(
+            "The model named in DeepSeek's own JSON-output example. JSON object "
+            "mode only."
+        ),
+    ),
     ModelCapabilities(
         model_id="llama3.2:3b",
         supports_strict_schema=True,

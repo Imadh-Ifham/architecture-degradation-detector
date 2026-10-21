@@ -1474,7 +1474,7 @@ class ModelCallResponse(BaseModel):
     )
     prompt: str = Field(description="The request text, in full, as it was sent.")
     prompt_version: str = Field(description="The prompt file and its version.")
-    schema_mode: str = Field(description="strict or best_effort.")
+    schema_mode: str = Field(description="strict, best_effort or json_object.")
     evidence_hash: str = Field(description="The sealed evidence this answered about.")
     outcome: str = Field(
         description=(
@@ -1601,6 +1601,13 @@ class ModelProbeResponse(BaseModel):
         "model that cannot be relied on for that is a different design here, "
         "not a slower one."
     )
+    schema_mode: str = Field(
+        default=SCHEMA_MODE_STRICT,
+        description="Which of strict, best_effort or json_object was asked "
+        "for. The flag above cannot tell the last two apart, and they are not "
+        "the same request: one sends a schema the provider enforces, the "
+        "other sends a schema in the prompt and checks the answer here.",
+    )
     prompt: str = Field(description="Exactly what was sent.")
     response: dict | None = Field(default=None, description="Exactly what came back.")
     error: str | None = Field(default=None)
@@ -1702,7 +1709,8 @@ def _probe(task: str) -> ModelProbeResponse:
     """
 
     model_id = ai_settings.model_for(task)
-    strict = ai_settings.ai_schema_mode == SCHEMA_MODE_STRICT
+    schema_mode = ai_settings.ai_schema_mode
+    strict = schema_mode == SCHEMA_MODE_STRICT
     provider = OpenAICompatibleProvider(
         base_url=ai_settings.base_url_for(task),
         api_key=ai_settings.ai_api_key,
@@ -1715,7 +1723,7 @@ def _probe(task: str) -> ModelProbeResponse:
             model_id=model_id,
             prompt=PROBE_PROMPT,
             schema=PROBE_SCHEMA,
-            strict=strict,
+            schema_mode=schema_mode,
             temperature=ai_settings.ai_temperature,
             seed=ai_settings.ai_seed,
         )
@@ -1726,6 +1734,7 @@ def _probe(task: str) -> ModelProbeResponse:
             reachable=False,
             latency_ms=int((time.perf_counter() - started) * 1000),
             strict_schema=strict,
+            schema_mode=schema_mode,
             prompt=PROBE_PROMPT,
             error=str(error),
         )
@@ -1737,6 +1746,7 @@ def _probe(task: str) -> ModelProbeResponse:
         reachable=True,
         latency_ms=int((time.perf_counter() - started) * 1000),
         strict_schema=strict,
+        schema_mode=schema_mode,
         prompt=PROBE_PROMPT,
         response=answer["content"],
     )

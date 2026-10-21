@@ -22,6 +22,7 @@ Description:
 
 import json
 
+from ..model_configuration import SCHEMA_MODE_STRICT
 from .openai_compatible import (
     ProviderContentError,
     ProviderError,
@@ -71,7 +72,7 @@ class FakeProvider:
         model_id: str,
         prompt: str,
         schema: dict,
-        strict: bool = True,
+        schema_mode: str = SCHEMA_MODE_STRICT,
         temperature: float = 0.0,
         seed: int | None = 42,
         reasoning_effort: str = "",
@@ -83,7 +84,7 @@ class FakeProvider:
                 "model_id": model_id,
                 "prompt": prompt,
                 "schema": schema,
-                "strict": strict,
+                "schema_mode": schema_mode,
                 "temperature": temperature,
                 "seed": seed,
                 "reasoning_effort": reasoning_effort,
@@ -128,7 +129,14 @@ class FakeProvider:
     def schemas_were_strict(self) -> bool:
         """Whether every call asked for strict schema output."""
 
-        return bool(self.calls) and all(call["strict"] for call in self.calls)
+        return bool(self.calls) and all(
+            call["schema_mode"] == SCHEMA_MODE_STRICT for call in self.calls
+        )
+
+    def schema_modes(self) -> list[str]:
+        """The mode each call asked for, in order."""
+
+        return [call["schema_mode"] for call in self.calls]
 
     def as_json(self) -> str:
         """The recorded calls, for a test that needs to inspect them."""

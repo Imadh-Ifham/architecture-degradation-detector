@@ -15,6 +15,7 @@ import json
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from app.domain.model_access import ModelUnavailable
 from app.infrastructure.ai.interface import (
@@ -24,7 +25,9 @@ from app.infrastructure.ai.interface import (
 )
 from app.infrastructure.ai.model_configuration import (
     SCHEMA_MODE_BEST_EFFORT,
+    SCHEMA_MODE_JSON_OBJECT,
     SCHEMA_MODE_STRICT,
+    SCHEMA_MODES,
     TASK_PRIMARY_VERDICT,
     TASK_PRIMARY_VERDICT_LOCAL,
     TASK_VERIFICATION,
@@ -42,6 +45,7 @@ from app.infrastructure.ai.providers.openai_compatible import (
     MAX_RATE_LIMIT_WAITS,
     MAX_WAIT_SECONDS,
     OpenAICompatibleProvider,
+    ProviderContentError,
     ProviderError,
     ProviderRateLimited,
     strictify,
@@ -895,3 +899,187 @@ class TestFakeProvider:
         that should have scripted an answer."""
 
         assert FakeProvider().complete("m", "p", {})["content"] == {}
+
+
+class TestJsonObjectMode:
+    """The third schema mode, for a provider that serves no `json_schema`.
+
+    It exists because `strict` and `best_effort` are not two points on a
+    scale: both send `response_format: {"type": "json_schema"}`, so a provider
+    that does not serve that shape refuses them equally, and loosening one into
+    the other changes nothing. What this mode gives up is the guarantee, and
+    these tests are mostly about what replaces it.
+    """
+
+    SCHEMA = {
+        "type": "object",
+        "required": ["verdict", "cited_evidence_refs"],
+        "properties": {
+            "verdict": {"type": "string"},
+            "cited_evidence_refs": {"type": "array"},
+        },
+    }
+
+    def transport(self, handler) -> httpx.Client:
+        return httpx.Client(transport=httpx.MockTransport(handler))
+
+    def answering(self, content: dict):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "model": "deepseek-chat",
+                    "choices": [{"message": {"content": json.dumps(content)}}],
+                    "usage": {"total_tokens": 11},
+                },
+            )
+
+        return handler
+
+    def captured_request(self, schema_mode: str) -> dict:
+        captured: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.update(json.loads(request.content))
+            return self.answering(VERDICT)(request)
+
+        OpenAICompatibleProvider(
+            "https://example.test/v1", "k", client=self.transport(handler)
+        ).complete("deepseek-chat", "Judge this.", self.SCHEMA, schema_mode)
+        return captured
+
+    def test_the_request_asks_for_a_json_object_and_names_no_schema(self):
+        """The whole point: a provider that rejects `json_schema` is sent a
+        shape it serves, rather than a tightened version of one it does not."""
+
+        captured = self.captured_request(SCHEMA_MODE_JSON_OBJECT)
+
+        assert captured["response_format"] == {"type": "json_object"}
+
+    def test_the_schema_travels_in_the_prompt_instead(self):
+        """Carried there because nothing else carries it. The word *json* is
+        in the instruction too - providers serving this mode document that it
+        has to be, and a prompt without it returns prose."""
+
+        prompt = self.captured_request(SCHEMA_MODE_JSON_OBJECT)["messages"][0]["content"]
+
+        assert prompt.startswith("Judge this.")
+        assert "json" in prompt
+        assert "cited_evidence_refs" in prompt
+
+    def test_the_prompt_is_untouched_in_every_other_mode(self):
+        """A schema appended to a prompt that already constrains the decoder
+        is tokens spent saying the same thing twice."""
+
+        for mode in (SCHEMA_MODE_STRICT, SCHEMA_MODE_BEST_EFFORT):
+            prompt = self.captured_request(mode)["messages"][0]["content"]
+            assert prompt == "Judge this."
+
+    def test_an_answer_missing_a_required_field_is_a_content_error(self):
+        """Nothing constrained the decoder, so this is the only check there
+        is - and it has to fail loudly, because a verdict with its citation
+        missing reads exactly like a verdict that cited nothing deliberately."""
+
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1",
+            "k",
+            client=self.transport(self.answering({"verdict": "confirms"})),
+        )
+
+        with pytest.raises(ProviderContentError) as refused:
+            provider.complete("deepseek-chat", "p", self.SCHEMA, SCHEMA_MODE_JSON_OBJECT)
+
+        assert "cited_evidence_refs" in str(refused.value)
+
+    def test_a_complete_answer_is_returned_unchanged(self):
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1",
+            "k",
+            client=self.transport(self.answering(VERDICT)),
+        )
+
+        result = provider.complete(
+            "deepseek-chat", "p", self.SCHEMA, SCHEMA_MODE_JSON_OBJECT
+        )
+
+        assert result["content"] == VERDICT
+        assert result["model_id"] == "deepseek-chat"
+
+    def test_the_shape_check_does_not_run_in_the_constrained_modes(self):
+        """There it would be a second opinion about a guarantee the decoder
+        has already given, and the first disagreement would be unexplainable."""
+
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1",
+            "k",
+            client=self.transport(self.answering({"verdict": "confirms"})),
+        )
+
+        result = provider.complete("deepseek-chat", "p", self.SCHEMA, SCHEMA_MODE_STRICT)
+
+        assert result["content"] == {"verdict": "confirms"}
+
+    def test_the_mode_separates_cached_answers(self):
+        """An answer a decoder guaranteed and an answer a prompt asked for are
+        not the same answer, so one must never be replayed as the other."""
+
+        constrained = VerdictCache.key(
+            TASK_PRIMARY_VERDICT, "v1", "deepseek-chat", SCHEMA_MODE_STRICT, "e", ""
+        )
+        asked = VerdictCache.key(
+            TASK_PRIMARY_VERDICT, "v1", "deepseek-chat", SCHEMA_MODE_JSON_OBJECT, "e", ""
+        )
+
+        assert constrained != asked
+
+    def test_a_run_in_this_mode_records_it(self, tmp_path):
+        result = client(
+            tmp_path,
+            ai_reasoner_model="deepseek-chat",
+            ai_schema_mode=SCHEMA_MODE_JSON_OBJECT,
+        ).complete(task=TASK_PRIMARY_VERDICT, prompt="p", schema=self.SCHEMA)
+
+        assert result.schema_mode == SCHEMA_MODE_JSON_OBJECT
+
+
+class TestTheDeepSeekModels:
+    """Registered so the provider is a configuration change, not a code one."""
+
+    def test_they_are_registered_and_declare_no_strict_schema_support(self):
+        """Their API documents `json_object` and does not list `json_schema`.
+        Recorded here so it is read off the registry rather than found out
+        from a 400 in the middle of a demonstration."""
+
+        for model_id in ("deepseek-chat", "deepseek-reasoner", "deepseek-flash"):
+            assert capabilities_for(model_id).supports_strict_schema is False
+            assert model_id not in strict_schema_models()
+
+    def test_strict_mode_on_one_of_them_is_refused_by_name(self, tmp_path):
+        """Before the request, and naming the model. The alternative is a
+        provider error about a field, which reads like a prompt problem."""
+
+        with pytest.raises(StrictSchemaUnsupportedError):
+            client(tmp_path, ai_reasoner_model="deepseek-chat").complete(
+                task=TASK_PRIMARY_VERDICT, prompt="p", schema={"type": "object"}
+            )
+
+    def test_they_are_not_recorded_as_a_free_tier(self):
+        """The throughput plan turns on which models cost nothing, and this
+        provider is cheap rather than free."""
+
+        assert capabilities_for("deepseek-chat").free_tier is False
+
+
+class TestTheSchemaModeIsValidated:
+    """A typo used to mean *not strict*, which is the quietest way there is to
+    lose the one guarantee the design rests on."""
+
+    def test_an_unknown_mode_is_refused_with_the_known_ones_named(self, tmp_path):
+        with pytest.raises(ValidationError) as refused:
+            settings(tmp_path, ai_schema_mode="json-object")
+
+        assert "json_object" in str(refused.value)
+
+    def test_each_known_mode_is_accepted(self, tmp_path):
+        for mode in SCHEMA_MODES:
+            assert settings(tmp_path, ai_schema_mode=mode).ai_schema_mode == mode
