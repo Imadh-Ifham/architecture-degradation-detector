@@ -1,0 +1,216 @@
+{
+  "run_id": "t21-ob-av-off",
+  "system_id": "online-boutique",
+  "release_id": "v0.10.7",
+  "data_provenance": "fixture-events+live-history",
+  "report_schema_version": "1.2.0",
+  "code_commit": "2dd2641e3363114ba265cd9dfa1356f28ab50f64-dirty",
+  "inputs": {
+    "events_hash": "sha256:42f417c7014c47e973e62feccf997c60f336027ebdc14cc8c382cee2b22aa305",
+    "graph_hash": "sha256:594fffcc03559e08c718819f1d9333082f4f7cfdabf058e8d310141f2e13087d",
+    "adr_index_hash": null,
+    "source_paths_hash": "sha256:d3974d33ea6405cd25d5cec49c0d1125dc46e35c70dd6f1abf8f3275da0588ca",
+    "path_mapping": "manual-mapping",
+    "repo_path": "C:/repos/add-repositories/c4-history/microservices-demo"
+  },
+  "counts": {
+    "payloads": 6,
+    "ranked": 6,
+    "skipped": 0,
+    "quarantined": 0,
+    "skipped_by_reason": {},
+    "quarantined_by_reason": {}
+  },
+  "resolution_rate": 1.0,
+  "active_dimensions": [
+    "blast_radius",
+    "hotspot",
+    "persistence"
+  ],
+  "weights": {
+    "version": "ahp_v1",
+    "provenance": "provisional-author-elicited",
+    "elicited_by": "Dahami",
+    "ahp_cr": 0.011475369739961907,
+    "ahp_ci": 0.010327832765965717,
+    "ahp_lambda_max": 4.030983498297897,
+    "elicited": {
+      "blast_radius": 0.4672959827809369,
+      "hotspot": 0.27718059061097955,
+      "adr_violation": 0.16008847502437432,
+      "persistence": 0.0954349515837092
+    },
+    "used": {
+      "blast_radius": 0.5563633417156622,
+      "hotspot": 0.3300116528571546,
+      "adr_violation": 0.0,
+      "persistence": 0.1136250054271832
+    }
+  },
+  "normalization": {
+    "mode": "minmax_small_n",
+    "frozen": false,
+    "lower_percentile": 5.0,
+    "upper_percentile": 95.0,
+    "bounds": {
+      "br_fan_in_ratio": {
+        "lower": 0.0,
+        "upper": 0.3333333333333333,
+        "fallback": null
+      },
+      "br_pagerank": {
+        "lower": 0.07839184724957103,
+        "upper": 0.1882757526470828,
+        "fallback": null
+      },
+      "br_betweenness": {
+        "lower": 0.0,
+        "upper": 0.027777777777777776,
+        "fallback": null
+      },
+      "br_depth": {
+        "lower": 0.0,
+        "upper": 2.0,
+        "fallback": null
+      },
+      "eh_churn_decayed": {
+        "lower": 0.0,
+        "upper": 18.347253045001906,
+        "fallback": null
+      },
+      "eh_authors": {
+        "lower": 0.0,
+        "upper": 2.0,
+        "fallback": null
+      },
+      "eh_coupling": {
+        "lower": 0.0,
+        "upper": 0.0,
+        "fallback": "zero_range"
+      },
+      "eh_bugfix_ratio": {
+        "lower": 0.0,
+        "upper": 1.0,
+        "fallback": null
+      },
+      "ps_consecutive_releases": {
+        "lower": 2.0,
+        "upper": 7.0,
+        "fallback": null
+      },
+      "ps_growth_slope": {
+        "lower": 0.07142857142857142,
+        "upper": 0.6666666666666666,
+        "fallback": null
+      }
+    }
+  },
+  "topsis_mode": "fixed_reference",
+  "hotspot": {
+    "active": true,
+    "inactive_reason": null,
+    "half_life_days": 228.37326388888889,
+    "decay_rate": 0.0030351503006813625,
+    "cochange_threshold": 5,
+    "max_files_per_commit": 50,
+    "unmapped_line_share": 0.008658008658008658,
+    "include_globs": "*.py,*.java,*.go,*.js,*.ts,*.cs,*.kt,*.rb,*.php,*.cpp,*.c,*.h",
+    "exclude_globs": "**/vendor/**,**/node_modules/**,**/generated/**,**/*_pb2.py,**/*.pb.go,**/test*/fixtures/**,*.min.js,**/target/**,**/build/**,**/dist/**,**/bin/**,**/obj/**"
+  },
+  "adr": {
+    "active": false,
+    "inactive_reason": "no_adr_index",
+    "status_weights": {
+      "accepted": 1.0,
+      "proposed": 0.5,
+      "deprecated": 0.2,
+      "superseded": 0.2,
+      "rejected": 0.0,
+      "unknown": 0.0
+    },
+    "scope_weights": {
+      "system": 1.0,
+      "component": 0.7,
+      "module": 0.7,
+      "local": 0.4,
+      "unspecified": 0.4
+    },
+    "explicitness": 1.0
+  },
+  "stand_ins": {
+    "prefix_fallback_events": 0,
+    "first_seen_fallback_events": 6,
+    "presence_fallback_events": 6
+  },
+  "explanation": {
+    "run": false,
+    "llm_model_id": null,
+    "prompt_hashes": {}
+  },
+  "seeds": {
+    "seed": 42
+  },
+  "settings": {
+    "outputs_root": "C:\\projects\\architecture-degradation-detector\\backend\\artifacts\\scoring",
+    "seed": 42,
+    "rank_only_confirmed": false,
+    "graph_reverse_edges": false,
+    "resolution_prefix_confidence": 0.7,
+    "br_weight_fan_in_ratio": 0.25,
+    "br_weight_pagerank": 0.25,
+    "br_weight_betweenness": 0.25,
+    "br_weight_depth": 0.25,
+    "pagerank_alpha": 0.85,
+    "betweenness_exact_max_nodes": 5000,
+    "betweenness_sample_k": 500,
+    "hotspot_half_life_releases": 2.0,
+    "cochange_threshold": 5,
+    "max_files_per_commit": 50,
+    "eh_weight_churn_decayed": 0.25,
+    "eh_weight_authors": 0.25,
+    "eh_weight_coupling": 0.25,
+    "eh_weight_bugfix_ratio": 0.25,
+    "history_include_globs": "*.py,*.java,*.go,*.js,*.ts,*.cs,*.kt,*.rb,*.php,*.cpp,*.c,*.h",
+    "history_exclude_globs": "**/vendor/**,**/node_modules/**,**/generated/**,**/*_pb2.py,**/*.pb.go,**/test*/fixtures/**,*.min.js,**/target/**,**/build/**,**/dist/**,**/bin/**,**/obj/**",
+    "ps_weight_consecutive_releases": 0.7,
+    "ps_weight_growth_slope": 0.3,
+    "adr_semantic_fallback_enabled": false,
+    "adr_semantic_similarity_threshold": 0.6,
+    "winsor_lower_percentile": 5.0,
+    "winsor_upper_percentile": 95.0,
+    "small_n_threshold": 10,
+    "ahp_max_consistency_ratio": 0.1,
+    "weights_version": "ahp_v1",
+    "method": "topsis",
+    "topsis_mode": "fixed_reference",
+    "explain_top_n": 10,
+    "retriever_top_k": 8,
+    "explanation_max_words": 120,
+    "llm_temperature": 0.0,
+    "nli_entailment_threshold": 0.5,
+    "nli_contradiction_threshold": 0.5,
+    "ground_truth_horizon_releases": 2,
+    "ground_truth_min_ops": 2,
+    "bootstrap_resamples": 1000,
+    "bootstrap_confidence": 0.95,
+    "random_baseline_permutations": 100
+  },
+  "created_at": "2026-10-20T15:59:58.423514+00:00",
+  "python": "3.13.2",
+  "packages": {
+    "jinja2": "3.1.6",
+    "networkx": "3.7",
+    "numpy": "2.5.4",
+    "pathspec": "1.1.1",
+    "pydantic": "2.13.5",
+    "pydriller": "2.12",
+    "pymcdm": "1.4.0",
+    "scipy": "1.18.1",
+    "structlog": "26.1.0"
+  },
+  "outputs": {
+    "c4_quarantine.json": "sha256:f5a8ba493c0466f24c177ed3a737d067cb679986909e8177872ab81f054edf16",
+    "c4_report.html": "sha256:7d8534ee23cf42f72b12413fd2da4aee0664892efa5d7e7245b07e9743be46a0",
+    "c4_report.json": "sha256:84bb38d1e456932eaa36814fefe69523379a13eb061d4f01ae389ebd94b550b9"
+  }
+}

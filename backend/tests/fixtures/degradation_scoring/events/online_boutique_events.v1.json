@@ -1,0 +1,461 @@
+[
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4OB-T21-0001",
+    "event_key": "sha256:918671565796e34165533397c06012e7af4a6607d0e21b892bef41cc7412825d",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4OB-T21",
+    "system_id": "online-boutique",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "HubLikeElement",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "productcatalogservice",
+    "lineage_id": "LIN-C4OB-0001",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v0.10.4",
+      "end_release": "v0.10.7",
+      "n_releases": 4,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "fan_in",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 4,
+        "s": 4,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v0.10.4",
+            "value": 2
+          },
+          {
+            "release_id": "v0.10.5",
+            "value": 2
+          },
+          {
+            "release_id": "v0.10.6",
+            "value": 3
+          },
+          {
+            "release_id": "v0.10.7",
+            "value": 3
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "manual-fixture://online-boutique/v0.10.7"
+      ],
+      "c2_validation_refs": [],
+      "release_package_hashes": [],
+      "config_hash": "sha256:69fd83935f85be8984d5ec6791d29951521602f78dc432cd909f299e2b29d753"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4OB-T21-0002",
+    "event_key": "sha256:b199d4bf3754d32d1d98a718717bd6c45bb82d0e0495bff7a8fb47aa8f915b70",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4OB-T21",
+    "system_id": "online-boutique",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "UnstableDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "checkoutservice",
+    "lineage_id": "LIN-C4OB-0002",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v0.10.1",
+      "end_release": "v0.10.7",
+      "n_releases": 7,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "efferent_coupling",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 7,
+        "s": 7,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v0.10.1",
+            "value": 4
+          },
+          {
+            "release_id": "v0.10.2",
+            "value": 4
+          },
+          {
+            "release_id": "v0.10.3",
+            "value": 5
+          },
+          {
+            "release_id": "v0.10.4",
+            "value": 5
+          },
+          {
+            "release_id": "v0.10.5",
+            "value": 5
+          },
+          {
+            "release_id": "v0.10.6",
+            "value": 6
+          },
+          {
+            "release_id": "v0.10.7",
+            "value": 6
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "manual-fixture://online-boutique/v0.10.7"
+      ],
+      "c2_validation_refs": [],
+      "release_package_hashes": [],
+      "config_hash": "sha256:69fd83935f85be8984d5ec6791d29951521602f78dc432cd909f299e2b29d753"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4OB-T21-0003",
+    "event_key": "sha256:98b1b3b4dbc96a6dccc3ef2d7baabd7ca36657215ab3d8d62f84939e9b62628e",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4OB-T21",
+    "system_id": "online-boutique",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "OversizedElement",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "frontend",
+    "lineage_id": "LIN-C4OB-0003",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v0.10.2",
+      "end_release": "v0.10.7",
+      "n_releases": 6,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "fan_out",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 6,
+        "s": 6,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v0.10.2",
+            "value": 5
+          },
+          {
+            "release_id": "v0.10.3",
+            "value": 5
+          },
+          {
+            "release_id": "v0.10.4",
+            "value": 6
+          },
+          {
+            "release_id": "v0.10.5",
+            "value": 6
+          },
+          {
+            "release_id": "v0.10.6",
+            "value": 7
+          },
+          {
+            "release_id": "v0.10.7",
+            "value": 7
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "manual-fixture://online-boutique/v0.10.7"
+      ],
+      "c2_validation_refs": [],
+      "release_package_hashes": [],
+      "config_hash": "sha256:69fd83935f85be8984d5ec6791d29951521602f78dc432cd909f299e2b29d753"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4OB-T21-0004",
+    "event_key": "sha256:31cfa4fde72a41e9224244420fcb9d1f47fb3b596fa9ac635bb596179ee2e724",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4OB-T21",
+    "system_id": "online-boutique",
+    "scope": "INSTANCE",
+    "anti_pattern_type": "InappropriateIntimacy",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": "AP-C4OB-0004",
+    "members": [
+      "checkoutservice",
+      "cartservice"
+    ],
+    "element_id": null,
+    "lineage_id": null,
+    "lifecycle": "growing",
+    "window": {
+      "start_release": "v0.10.5",
+      "end_release": "v0.10.7",
+      "n_releases": 3,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "shared_calls",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 3,
+        "s": 3,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v0.10.5",
+            "value": 1
+          },
+          {
+            "release_id": "v0.10.6",
+            "value": 2
+          },
+          {
+            "release_id": "v0.10.7",
+            "value": 3
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "manual-fixture://online-boutique/v0.10.7"
+      ],
+      "c2_validation_refs": [],
+      "release_package_hashes": [],
+      "config_hash": "sha256:69fd83935f85be8984d5ec6791d29951521602f78dc432cd909f299e2b29d753"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4OB-T21-0005",
+    "event_key": "sha256:9bd382dd140bd899cffe0da23ead1192127386c381a5bdf9135898a0a9b134a0",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4OB-T21",
+    "system_id": "online-boutique",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "MetricDrift",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "cartservice",
+    "lineage_id": "LIN-C4OB-0005",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v0.10.3",
+      "end_release": "v0.10.7",
+      "n_releases": 5,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "afferent_coupling",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 5,
+        "s": 5,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v0.10.3",
+            "value": 1
+          },
+          {
+            "release_id": "v0.10.4",
+            "value": null
+          },
+          {
+            "release_id": "v0.10.5",
+            "value": 2
+          },
+          {
+            "release_id": "v0.10.6",
+            "value": 2
+          },
+          {
+            "release_id": "v0.10.7",
+            "value": 2
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "UNCERTAIN",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "manual-fixture://online-boutique/v0.10.7"
+      ],
+      "c2_validation_refs": [],
+      "release_package_hashes": [],
+      "config_hash": "sha256:69fd83935f85be8984d5ec6791d29951521602f78dc432cd909f299e2b29d753"
+    }
+  },
+  {
+    "schema_version": "2.0.0",
+    "event_id": "DEG-C4OB-T21-0006",
+    "event_key": "sha256:304bb32f0f74a8137f9fddebd1edd808e979e834afbc83d6522635663915aa5e",
+    "supersedes_event_id": null,
+    "run_id": "RUN-C4OB-T21",
+    "system_id": "online-boutique",
+    "scope": "ELEMENT",
+    "anti_pattern_type": "UnstableDependency",
+    "catalog": "universal",
+    "architecture_style": "microservices",
+    "instance_id": null,
+    "members": [],
+    "element_id": "emailservice",
+    "lineage_id": "LIN-C4OB-0006",
+    "lifecycle": null,
+    "window": {
+      "start_release": "v0.10.6",
+      "end_release": "v0.10.7",
+      "n_releases": 2,
+      "low_confidence_releases": []
+    },
+    "affected_metrics": [
+      {
+        "metric": "afferent_coupling",
+        "unit": "count",
+        "worsening": "INCREASE",
+        "n": 2,
+        "s": 2,
+        "tau": 0.8,
+        "p_value": 0.01,
+        "q_value": 0.03,
+        "test_method": "EXACT",
+        "sen_slope": 0.5,
+        "time_axis": "ordinal",
+        "series": [
+          {
+            "release_id": "v0.10.6",
+            "value": 1
+          },
+          {
+            "release_id": "v0.10.7",
+            "value": 2
+          }
+        ]
+      }
+    ],
+    "trend_strength": 0.8,
+    "context": {
+      "tag": "GENUINE",
+      "stage": "DISABLED",
+      "rule_id": "R0_CONTEXT_DISABLED",
+      "justification": null,
+      "retrieved": [],
+      "cited": []
+    },
+    "review_status": "PENDING",
+    "provenance": {
+      "c1_model_refs": [
+        "manual-fixture://online-boutique/v0.10.7"
+      ],
+      "c2_validation_refs": [],
+      "release_package_hashes": [],
+      "config_hash": "sha256:69fd83935f85be8984d5ec6791d29951521602f78dc432cd909f299e2b29d753"
+    }
+  }
+]

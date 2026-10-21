@@ -1,5 +1,5 @@
 # Tests for the normaliser: hand-computed bounds and values,
-# small-n and sparse fallbacks, calibration freeze and its save/load.
+# small-n, sparse and zero-range fallbacks, calibration freeze and its save/load.
 
 from collections.abc import Sequence
 from pathlib import Path
@@ -156,17 +156,52 @@ def test_mode_switches_to_robust_at_the_threshold() -> None:
     assert robust.calibration.bounds["br_depth"].upper == pytest.approx(8.55)
 
 
-def test_zero_range_gives_one_half_and_a_warning() -> None:
+def test_zero_range_feature_is_left_out_of_the_mean_and_logged() -> None:
+    # pagerank, betweenness, depth constant: BR = fan alone, A 0, B 1
+    # (0.375 / 0.625 when constants counted as 0.5)
+    # PS: releases 1 vs 3 -> 0 / 1, slope constant -> PS = releases alone
     with capture_logs() as logs:
-        result = norm([event("A", depth=3), event("B", depth=3, fan=1.0)])
-    assert [e.features["br_depth"] for e in result.events] == [0.5, 0.5]
-    warned = {log["feature"] for log in logs if log.get("reason") == "zero_range"}
-    assert "br_depth" in warned
-    assert "br_fan_in_ratio" not in warned
+        result = norm(
+            [
+                event("A", fan=0.0, pagerank=0.1, depth=3, releases=1, slope=0.2),
+                event("B", fan=1.0, pagerank=0.1, depth=3, releases=3, slope=0.2),
+            ]
+        )
+    a, b = result.events
+    assert (a.criteria[BR], b.criteria[BR]) == (0.0, 1.0)
+    assert (a.criteria[PS], b.criteria[PS]) == (0.0, 1.0)
+    assert set(a.features) == {"br_fan_in_ratio", "ps_consecutive_releases"}
+    depth = result.calibration.bounds["br_depth"]
+    assert (depth.lower, depth.upper, depth.fallback) == (3.0, 3.0, "zero_range")
+    assert result.calibration.bounds["br_fan_in_ratio"].fallback is None
+    warned = [log["feature"] for log in logs if log.get("reason") == "zero_range"]
+    assert warned == ["br_pagerank", "br_betweenness", "br_depth", "ps_growth_slope"]
+    assert all(log["action"] == "left_out" for log in logs if log.get("reason") == "zero_range")
+
+
+def test_criterion_with_only_constant_features_is_zero() -> None:
+    # every PS feature equal -> PS 0 for all; BR still scaled from fan
+    with capture_logs() as logs:
+        result = norm([event("A", fan=0.0, releases=2), event("B", fan=0.5, releases=2)])
+    assert [e.criteria[PS] for e in result.events] == [0.0, 0.0]
+    assert [e.criteria[BR] for e in result.events] == [0.0, 1.0]
+    constant = [log for log in logs if log["event"] == "normalisation_constant_criterion"]
+    assert [(log["criterion"], log["value"]) for log in constant] == [(PS, 0.0)]
+
+
+def test_frozen_zero_range_bounds_without_the_mark_are_left_out_too() -> None:
+    # a calibration saved before C4-ADR-015 has lower = upper but no fallback
+    fitted = norm(spread(3)).calibration
+    bounds = dict(fitted.bounds) | {"br_depth": FeatureBounds(lower=1.0, upper=1.0)}
+    old = fitted.model_copy(update={"bounds": bounds})
+    result = norm(spread(3), calibration=old)
+    assert all("br_depth" not in e.features for e in result.events)
+    # E02: fan 2/3, pagerank 0.02, betweenness 0.01 all at their upper bound -> BR 1
+    assert result.events[2].criteria[BR] == pytest.approx(1.0)
 
 
 def test_sparse_feature_falls_back_to_min_max_and_keeps_its_signal() -> None:
-    # 25 events, one with coupling 3: P5 = P95 = 0, so §5.5 alone would give all 0.5
+    # 25 events, one with coupling 3: P5 = P95 = 0, so §5.5 alone would treat it as constant
     events = spread(25, coupling=0)
     events[7] = event("E07", fan=0.3, depth=7, releases=7, coupling=3)
     with capture_logs() as logs:
@@ -177,7 +212,9 @@ def test_sparse_feature_falls_back_to_min_max_and_keeps_its_signal() -> None:
     coupling = [e.features["eh_coupling"] for e in result.events]
     assert coupling[7] == 1.0
     assert sum(coupling) == 1.0
-    assert result.calibration.bounds["eh_authors"].fallback is None  # really constant
+    # churn, authors, bugfix constant -> EH = coupling alone
+    assert [e.criteria[EH] for e in result.events] == coupling
+    assert result.calibration.bounds["eh_authors"].fallback == "zero_range"  # really constant
     assert any(log.get("reason") == "sparse_minmax" for log in logs)
 
 
@@ -269,3 +306,15 @@ def test_criterion_value_is_a_weighted_mean() -> None:
     assert criterion_value({"a": 1.0, "b": 0.0}, {"a": 2.0, "b": 2.0}) == pytest.approx(0.5)
     with pytest.raises(ValueError, match="more than 0"):
         criterion_value({"a": 1.0}, {"a": 0.0})
+
+
+def test_criterion_value_skips_absent_features() -> None:
+    # "b" left out (zero range): mean over "a" alone; nothing left -> 0
+    assert criterion_value({"a": 0.4}, {"a": 0.7, "b": 0.3}) == pytest.approx(0.4)
+    assert criterion_value({}, {"a": 0.7, "b": 0.3}) == 0.0
+    assert criterion_value({"b": 1.0}, {"a": 1.0, "b": 0.0}) == 0.0
+
+
+def test_scale_refuses_a_zero_range() -> None:
+    with pytest.raises(ValueError, match="zero range"):
+        scale(1.0, FeatureBounds(lower=1.0, upper=1.0))

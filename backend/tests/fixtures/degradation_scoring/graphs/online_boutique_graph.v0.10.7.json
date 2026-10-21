@@ -1,0 +1,230 @@
+{
+  "data_provenance": "fixture",
+  "note": "Hand-made graph of Online Boutique's complete service call graph at v0.10.7 (manual fixture, not C1/C2 output, no extraction code): every *_SERVICE_ADDR call in kubernetes-manifests/, without loadgenerator (load tool) and the optional shoppingassistantservice (kustomize component). A -> B = A depends on B (C4-ADR-003). source_paths come from mappings/online_boutique.source_paths.v1.json.",
+  "schema_version": "1.1.0",
+  "system_id": "online-boutique",
+  "release_id": "v0.10.7",
+  "released_at": "2026-09-18T03:53:57Z",
+  "architecture_style": "microservices",
+  "granularity": "service",
+  "elements": [
+    {
+      "id": "frontend",
+      "name": "frontend",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "checkoutservice",
+      "name": "checkoutservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "cartservice",
+      "name": "cartservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "productcatalogservice",
+      "name": "productcatalogservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "currencyservice",
+      "name": "currencyservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "recommendationservice",
+      "name": "recommendationservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "shippingservice",
+      "name": "shippingservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "adservice",
+      "name": "adservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "paymentservice",
+      "name": "paymentservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    },
+    {
+      "id": "emailservice",
+      "name": "emailservice",
+      "kind": "service",
+      "aliases": [],
+      "layer": null,
+      "metrics": {},
+      "extra": {}
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "frontend",
+      "to": "checkoutservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "frontend",
+      "to": "cartservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "frontend",
+      "to": "productcatalogservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "frontend",
+      "to": "currencyservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "frontend",
+      "to": "recommendationservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "frontend",
+      "to": "shippingservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "frontend",
+      "to": "adservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "checkoutservice",
+      "to": "paymentservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "checkoutservice",
+      "to": "emailservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "checkoutservice",
+      "to": "shippingservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "checkoutservice",
+      "to": "currencyservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "checkoutservice",
+      "to": "cartservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "checkoutservice",
+      "to": "productcatalogservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    },
+    {
+      "from": "recommendationservice",
+      "to": "productcatalogservice",
+      "types": [
+        "grpc"
+      ],
+      "count": 1
+    }
+  ],
+  "datastore_access": [
+    {
+      "element": "cartservice",
+      "datastore": "redis-cart",
+      "mode": "readwrite"
+    }
+  ],
+  "delegation": null,
+  "intent": [],
+  "validation_confidence": 1.0,
+  "provenance": {
+    "c1_model_ref": "manual-fixture://online-boutique/v0.10.7",
+    "c2_validation_ref": null
+  }
+}

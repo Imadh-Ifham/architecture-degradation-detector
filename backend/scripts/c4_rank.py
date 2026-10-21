@@ -2,7 +2,8 @@
 # under <SCORING_OUTPUTS_ROOT>/<system>/<run_id>/. Usage, from backend/:
 #     uv run python -m scripts.c4_rank --events <events.json> --graph <graph.json> \
 #         [--adr-index <dir|file>] [--no-adr] [--topsis-mode classic] [--repo <clone>] \
-#         [--source-paths <mapping.json>] [--data-provenance fixture] [--run-id <id>]
+#         [--source-paths <mapping.json>] [--data-provenance fixture] [--run-id <id>] \
+#         [--save-db]   (also save the run's rows to Postgres, for DBeaver: demo-queries.sql)
 
 import argparse
 import datetime as dt
@@ -43,6 +44,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=DataProvenance.FIXTURE.value,
     )
     parser.add_argument("--run-id", help="default: run-<UTC timestamp>")
+    parser.add_argument("--save-db", action="store_true", help="save the run rows to Postgres")
     parser.add_argument("--outputs-root", type=Path, help="default: settings.scoring_outputs_root")
     return parser.parse_args(argv)
 
@@ -77,12 +79,23 @@ def code_commit() -> str | None:
 
 
 def history_ports(args: argparse.Namespace) -> dict[str, Any]:
-    # the git history source (and optionally the Postgres cache) only when a repo is given
+    # the git history source (and optionally the Postgres cache) only when a repo is given;
+    # the Postgres run repository when the run is to be saved
+    ports: dict[str, Any] = {}
+    if args.save_db:
+        from sqlalchemy.orm import sessionmaker
+
+        from app.infrastructure.postgres.database import engine
+        from app.infrastructure.postgres.repositories.scoring_run_repository import (
+            PostgresScoringRunRepository,
+        )
+
+        ports["run_repository"] = PostgresScoringRunRepository(sessionmaker(bind=engine))
     if args.repo is None:
-        return {}
+        return ports
     from app.infrastructure.git.history import PyDrillerHistorySource
 
-    ports: dict[str, Any] = {"history_source": PyDrillerHistorySource()}
+    ports["history_source"] = PyDrillerHistorySource()
     if args.db_cache:
         from sqlalchemy.orm import sessionmaker
 

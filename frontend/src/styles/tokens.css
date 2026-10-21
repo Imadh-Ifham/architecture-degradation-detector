@@ -36,6 +36,13 @@
   --color-bad-wash: #f851491f;
   --color-ai-wash: #a371f722;
 
+  /* The four parts of a severity score. Categories, not states: deliberately
+     none of the signal hues above, so a part never reads as good or bad. */
+  --color-dim-reach: #58a6ff;
+  --color-dim-churn: #3dc9b3;
+  --color-dim-decision: #f0a6ca;
+  --color-dim-age: #c7b07a;
+
   /* Type. One engineering superfamily: sans for prose, mono for data. */
   --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", monospace;

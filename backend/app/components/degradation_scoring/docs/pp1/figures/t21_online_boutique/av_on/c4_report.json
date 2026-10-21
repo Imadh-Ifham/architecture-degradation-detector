@@ -1,0 +1,491 @@
+{
+  "schema_version": "1.2.0",
+  "run_id": "t21-ob-av-on",
+  "system_id": "online-boutique",
+  "release_id": "v0.10.7",
+  "data_provenance": "fixture-events+live-history",
+  "active_dimensions": [
+    "blast_radius",
+    "hotspot",
+    "adr_violation",
+    "persistence"
+  ],
+  "weights_version": "ahp_v1",
+  "weights_provenance": "provisional-author-elicited",
+  "ahp_cr": 0.011475369739961907,
+  "normalization": "minmax_small_n",
+  "normalization_bounds": {
+    "br_fan_in_ratio": {
+      "lower": 0.0,
+      "upper": 0.3333333333333333
+    },
+    "br_pagerank": {
+      "lower": 0.07839184724957103,
+      "upper": 0.1882757526470828
+    },
+    "br_betweenness": {
+      "lower": 0.0,
+      "upper": 0.027777777777777776
+    },
+    "br_depth": {
+      "lower": 0.0,
+      "upper": 2.0
+    },
+    "eh_churn_decayed": {
+      "lower": 0.0,
+      "upper": 18.347253045001906
+    },
+    "eh_authors": {
+      "lower": 0.0,
+      "upper": 2.0
+    },
+    "eh_coupling": {
+      "lower": 0.0,
+      "upper": 0.0
+    },
+    "eh_bugfix_ratio": {
+      "lower": 0.0,
+      "upper": 1.0
+    },
+    "ps_consecutive_releases": {
+      "lower": 2.0,
+      "upper": 7.0
+    },
+    "ps_growth_slope": {
+      "lower": 0.07142857142857142,
+      "upper": 0.6666666666666666
+    }
+  },
+  "resolution_rate": 1.0,
+  "records": [
+    {
+      "event_id": "DEG-C4OB-T21-0001",
+      "anti_pattern_type": "HubLikeElement",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 1,
+      "severity": 0.594068726761419,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.5949987261067531,
+          "normalized": 0.5949987261067531,
+          "weight": 0.4672959827809369,
+          "features": {
+            "fan_in_ratio": 0.3333333333333333,
+            "pagerank": 0.17508912407792127,
+            "betweenness": 0.0,
+            "depth": 1.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.9096649918882674,
+          "normalized": 0.9096649918882674,
+          "weight": 0.27718059061097955,
+          "features": {
+            "churn_decayed": 13.375055287057133,
+            "authors": 2.0,
+            "coupling": 0.0,
+            "bugfix_ratio": 1.0,
+            "commits": 2.0
+          },
+          "active": true
+        },
+        "adr_violation": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.16008847502437432,
+          "features": {
+            "av": 0.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.32464,
+          "normalized": 0.32464,
+          "weight": 0.0954349515837092,
+          "features": {
+            "consecutive_releases": 4.0,
+            "growth_slope": 0.16
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.5450196027949952,
+        "hotspot": 0.44821310498231487,
+        "adr_violation": 0.0,
+        "persistence": 0.006767292222689789
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "elements": [
+        "productcatalogservice"
+      ],
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4OB-T21-0004",
+      "anti_pattern_type": "InappropriateIntimacy",
+      "scope": "INSTANCE",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 2,
+      "severity": 0.5291385442357139,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.71875,
+          "normalized": 0.71875,
+          "weight": 0.4672959827809369,
+          "features": {
+            "fan_in_ratio": 0.125,
+            "pagerank": 0.1882757526470828,
+            "betweenness": 0.027777777777777776,
+            "depth": 1.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.27718059061097955,
+          "features": {
+            "churn_decayed": 0.0,
+            "authors": 0.0,
+            "coupling": 0.0,
+            "bugfix_ratio": 0.0,
+            "commits": 0.0
+          },
+          "active": true
+        },
+        "adr_violation": {
+          "raw": 0.7,
+          "normalized": 0.7,
+          "weight": 0.16008847502437432,
+          "features": {
+            "av": 0.7
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.356,
+          "normalized": 0.356,
+          "weight": 0.0954349515837092,
+          "features": {
+            "consecutive_releases": 3.0,
+            "growth_slope": 0.5
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.8916206836309273,
+        "hotspot": 0.0,
+        "adr_violation": 0.09925594748232659,
+        "persistence": 0.00912336888674604
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "elements": [
+        "cartservice",
+        "checkoutservice"
+      ],
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4OB-T21-0002",
+      "anti_pattern_type": "UnstableDependency",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 3,
+      "severity": 0.48550162449675976,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.4799903038912725,
+          "normalized": 0.4799903038912725,
+          "weight": 0.4672959827809369,
+          "features": {
+            "fan_in_ratio": 0.1111111111111111,
+            "pagerank": 0.08791085726551218,
+            "betweenness": 0.027777777777777776,
+            "depth": 1.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.6315659094810545,
+          "normalized": 0.6315659094810545,
+          "weight": 0.27718059061097955,
+          "features": {
+            "churn_decayed": 7.241619100034168,
+            "authors": 2.0,
+            "coupling": 0.0,
+            "bugfix_ratio": 0.5,
+            "commits": 2.0
+          },
+          "active": true
+        },
+        "adr_violation": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.16008847502437432,
+          "features": {
+            "av": 0.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.7,
+          "normalized": 0.7,
+          "weight": 0.0954349515837092,
+          "features": {
+            "consecutive_releases": 7.0,
+            "growth_slope": 0.07142857142857142
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.5889824660264131,
+        "hotspot": 0.3587701756275218,
+        "adr_violation": 0.0,
+        "persistence": 0.05224735834606517
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "elements": [
+        "checkoutservice"
+      ],
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4OB-T21-0005",
+      "anti_pattern_type": "MetricDrift",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "UNCERTAIN",
+      "rank": 4,
+      "severity": 0.4827822284541705,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.34165817373157925,
+          "normalized": 0.34165817373157925,
+          "weight": 0.4672959827809369,
+          "features": {
+            "fan_in_ratio": 0.2222222222222222,
+            "pagerank": 0.10036489538157062,
+            "betweenness": 0.0,
+            "depth": 1.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.8333333333333334,
+          "normalized": 0.8333333333333334,
+          "weight": 0.27718059061097955,
+          "features": {
+            "churn_decayed": 18.347253045001906,
+            "authors": 1.0,
+            "coupling": 0.0,
+            "bugfix_ratio": 1.0,
+            "commits": 1.0
+          },
+          "active": true
+        },
+        "adr_violation": {
+          "raw": 0.7,
+          "normalized": 0.7,
+          "weight": 0.16008847502437432,
+          "features": {
+            "av": 0.7
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.17805714285714283,
+          "normalized": 0.17805714285714283,
+          "weight": 0.0954349515837092,
+          "features": {
+            "consecutive_releases": 3.0,
+            "growth_slope": 0.14693877551020407
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.2780004962162734,
+        "hotspot": 0.5818901227570987,
+        "adr_violation": 0.136960098950212,
+        "persistence": 0.0031492820764159333
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "elements": [
+        "cartservice"
+      ],
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4OB-T21-0006",
+      "anti_pattern_type": "UnstableDependency",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 5,
+      "severity": 0.40650222533197333,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.44500120317364006,
+          "normalized": 0.44500120317364006,
+          "weight": 0.4672959827809369,
+          "features": {
+            "fan_in_ratio": 0.2222222222222222,
+            "pagerank": 0.09084588536562947,
+            "betweenness": 0.0,
+            "depth": 2.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.27718059061097955,
+          "features": {
+            "churn_decayed": 0.0,
+            "authors": 0.0,
+            "coupling": 0.0,
+            "bugfix_ratio": 0.0,
+            "commits": 0.0
+          },
+          "active": true
+        },
+        "adr_violation": {
+          "raw": 1.0,
+          "normalized": 1.0,
+          "weight": 0.16008847502437432,
+          "features": {
+            "av": 1.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.3,
+          "normalized": 0.3,
+          "weight": 0.0954349515837092,
+          "features": {
+            "consecutive_releases": 2.0,
+            "growth_slope": 0.6666666666666666
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.6204909020550435,
+        "hotspot": 0.0,
+        "adr_violation": 0.36774695705906596,
+        "persistence": 0.011762140885890558
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "elements": [
+        "emailservice"
+      ],
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    },
+    {
+      "event_id": "DEG-C4OB-T21-0003",
+      "anti_pattern_type": "OversizedElement",
+      "scope": "ELEMENT",
+      "review_status": "PENDING",
+      "context_tag": "GENUINE",
+      "rank": 6,
+      "severity": 0.32193391568304003,
+      "dimensions": {
+        "blast_radius": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.4672959827809369,
+          "features": {
+            "fan_in_ratio": 0.0,
+            "pagerank": 0.07839184724957103,
+            "betweenness": 0.0,
+            "depth": 0.0
+          },
+          "active": true
+        },
+        "hotspot": {
+          "raw": 0.8306448943397177,
+          "normalized": 0.8306448943397177,
+          "weight": 0.27718059061097955,
+          "features": {
+            "churn_decayed": 18.199276633466155,
+            "authors": 1.0,
+            "coupling": 0.0,
+            "bugfix_ratio": 1.0,
+            "commits": 1.0
+          },
+          "active": true
+        },
+        "adr_violation": {
+          "raw": 0.0,
+          "normalized": 0.0,
+          "weight": 0.16008847502437432,
+          "features": {
+            "av": 0.0
+          },
+          "active": true
+        },
+        "persistence": {
+          "raw": 0.5623999999999999,
+          "normalized": 0.5623999999999999,
+          "weight": 0.0954349515837092,
+          "features": {
+            "consecutive_releases": 6.0,
+            "growth_slope": 0.07619047619047618
+          },
+          "active": true
+        }
+      },
+      "contributions": {
+        "blast_radius": 0.0,
+        "hotspot": 0.9484573308192091,
+        "adr_violation": 0.0,
+        "persistence": 0.05154266918079082
+      },
+      "resolution": {
+        "status": "exact",
+        "confidence": 1.0
+      },
+      "elements": [
+        "frontend"
+      ],
+      "explanation": null,
+      "audit": null,
+      "evidence": []
+    }
+  ],
+  "quarantined": [],
+  "skipped": []
+}

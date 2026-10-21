@@ -43,12 +43,17 @@ $extraSources = @("app/domain/severity_report.py", "scripts/scoring_export_schem
                   "alembic/versions/0003_c4_scoring_run.py",
                   "alembic/versions/0006_c4_event_scores.py",
                   "scripts/c4_run_features.py",
-                  "scripts/c4_rank.py")
+                  "scripts/c4_rank.py",
+                  "app/infrastructure/scoring_reports",
+                  "app/api/degradation_scoring.py",
+                  "app/api/schemas/degradation_scoring.py")
 $extraTests = @("tests/domain/test_severity_report.py", "tests/scripts/test_scoring_export_schemas.py",
                 "tests/infrastructure/git/test_history.py",
                 "tests/infrastructure/postgres/test_mining_cache_repository.py",
                 "tests/infrastructure/postgres/test_scoring_run_repository.py",
-                "tests/scripts/test_scoring_rank.py")
+                "tests/scripts/test_scoring_rank.py",
+                "tests/infrastructure/scoring_reports",
+                "tests/api/test_degradation_scoring.py")
 $allPaths = @($sourcePath, $testPath) + $extraSources + $extraTests
 # Stricter lint rules for C4 only; pyproject.toml keeps ruff's defaults for
 # everyone else. I = import order, UP = modern syntax, B = likely bugs,
@@ -75,6 +80,9 @@ $gates = @(
                                             "--cov=app.infrastructure.git.history",
                                             "--cov=app.infrastructure.postgres.repositories.mining_cache_repository",
                                             "--cov=app.infrastructure.postgres.repositories.scoring_run_repository",
+                                            "--cov=app.infrastructure.scoring_reports",
+                                            "--cov=app.api.degradation_scoring",
+                                            "--cov=app.api.schemas.degradation_scoring",
                                             "--cov-report=term-missing",
                                             "--cov-fail-under=$minimumCoverage") }
 )

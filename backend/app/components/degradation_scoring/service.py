@@ -1,30 +1,40 @@
 # Degradation scoring service: the only way into C4; orchestrates the subcomponents in order
 # (ingestion -> features -> scoring -> explanation -> reporting). rank() runs layers 1-3 and
-# writes the report and manifest (T20); explanation comes in Phase 4.
+# writes the report and manifest (T20); explanation comes in Phase 4. runs() and report() are
+# read-side query methods over saved reports, for the read API.
 
 import datetime as dt
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+import structlog
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.components.degradation_scoring.config import C4Config
+from app.components.degradation_scoring.errors import (
+    AmbiguousRunError,
+    HandoverNotFoundError,
+    SavedReportError,
+)
 from app.components.degradation_scoring.features import FeatureExtractionService
 from app.components.degradation_scoring.features.models import EventFeatures, FeatureSet
 from app.components.degradation_scoring.ingestion import IngestionService
 from app.components.degradation_scoring.ingestion.graph import build_graph
 from app.components.degradation_scoring.ingestion.models import IngestionResult
-from app.components.degradation_scoring.models import ResolvedEvent
+from app.components.degradation_scoring.models import ResolvedEvent, SavedRun
 from app.components.degradation_scoring.ports import (
     CommitHistorySource,
+    DetectionHandoverSource,
     MiningCache,
+    SavedReportSource,
     ScoringRunRepository,
 )
 from app.components.degradation_scoring.reporting import ReportingService
 from app.components.degradation_scoring.reporting.models import EventNotes, ReportView, RunOutputs
 from app.components.degradation_scoring.scoring_engine import ScoringService
 from app.components.degradation_scoring.scoring_engine.models import RawEvent, ScoringResult
+from app.core.config import Settings
 from app.domain.degradation_event import ContextTag
 from app.domain.severity_report import (
     SCHEMA_VERSION,
@@ -38,6 +48,19 @@ from app.domain.severity_report import (
 )
 from app.shared.canonical_json import content_hash
 
+log = structlog.get_logger(__name__)
+
+__all__ = [
+    "AmbiguousRunError",
+    "DegradationScoringService",
+    "HandoverNotFoundError",
+    "RankRun",
+    "SavedReportError",
+    "SavedRun",
+    "ScoringRun",
+    "service_from_settings",
+]
+
 
 class ScoringRun(BaseModel):
     # the result of layers 1-3 for one (system, release)
@@ -50,6 +73,8 @@ class ScoringRun(BaseModel):
     ingestion: IngestionResult
     features: FeatureSet
     scoring: ScoringResult
+    # graph node id -> its readable name (C2 ids can be hashes: component:31a85d9abab5)
+    node_names: dict[str, str] = {}
 
 
 class RankRun(BaseModel):
@@ -72,6 +97,8 @@ class DegradationScoringService:
         history_source: CommitHistorySource | None = None,
         mining_cache: MiningCache | None = None,
         run_repository: ScoringRunRepository | None = None,
+        saved_reports: SavedReportSource | None = None,
+        detection_handover: DetectionHandoverSource | None = None,
     ) -> None:
         self._config = config
         self._ingestion = IngestionService(config)
@@ -79,6 +106,8 @@ class DegradationScoringService:
         self._scoring = ScoringService(config)
         self._reporting = ReportingService()
         self._runs = run_repository
+        self._saved = saved_reports
+        self._handover = detection_handover
 
     def rank(
         self,
@@ -145,8 +174,8 @@ class DegradationScoringService:
         # layers 1-3: ingest + resolve, features, then normalise + weights + TOPSIS;
         # stored for inspection (C4-T16b, C4-T19)
         graph = build_graph(graph_document, reverse=self._config.graph_reverse_edges)
-        for node, paths in sorted((source_paths or {}).items()):
-            if node in graph:
+        for name, paths in sorted((source_paths or {}).items()):
+            for node in mapped_nodes(name, graph):
                 graph.nodes[node]["source_paths"] = list(paths)
         ingestion = self._ingestion.ingest(list(payloads), graph, adr_document)
         features = self._features.extract(ingestion.resolved, graph, repo_path, ingestion.adr_index)
@@ -165,6 +194,7 @@ class DegradationScoringService:
             scoring=self._scoring.rank(
                 raw_events, active, system_id=system_id, release_id=release_id
             ),
+            node_names={str(node): str(name) for node, name in graph.nodes(data="name") if name},
         )
         if self._runs is not None:
             self._runs.save(
@@ -174,6 +204,97 @@ class DegradationScoringService:
                 score_rows(run),
             )
         return run
+
+    def score_detection(
+        self,
+        system_id: str,
+        detection_run_id: str,
+        *,
+        repo_path: Path | None = None,
+        code_commit: str | None = None,
+        source_paths: Mapping[str, Sequence[str]] | None = None,
+        path_mapping: str | None = None,
+    ) -> SavedRun:
+        # rank one detection run's hand-over as run "score-<detection run>", once: the same
+        # detection run is never scored twice, so a repeat returns the saved run
+        run_id = f"score-{detection_run_id}"
+        saved = self._saved_run(system_id, run_id)
+        if saved is not None:
+            return saved
+        handover = self._handover.read(system_id, detection_run_id) if self._handover else None
+        if handover is None:
+            raise HandoverNotFoundError(
+                f"detection run {detection_run_id!r} of {system_id!r} left no events.json "
+                "and release package"
+            )
+        self.rank(
+            handover["events"],
+            handover["package"],
+            run_id=run_id,
+            data_provenance=DataProvenance.LIVE,
+            repo_path=repo_path,
+            code_commit=code_commit,
+            source_paths=source_paths,
+            path_mapping=path_mapping,
+        )
+        saved = self._saved_run(system_id, run_id)
+        if saved is None:
+            raise SavedReportError(f"run {run_id!r} was written but cannot be read back")
+        return saved
+
+    def _saved_run(self, system_id: str, run_id: str) -> SavedRun | None:
+        return next(
+            (run for run in self.runs() if run.run_id == run_id and run.system_id == system_id),
+            None,
+        )
+
+    def runs(self) -> list[SavedRun]:
+        # read-side query: every saved run, newest first; a manifest that does not fit is
+        # logged and left out
+        runs = []
+        for document in self._saved_source().runs():
+            try:
+                runs.append(SavedRun.model_validate(document))
+            except ValidationError as error:
+                log.warning("saved_run_skipped", run_id=document.get("run_id"), error=str(error))
+        return sorted(runs, key=lambda run: (run.created_at, run.run_id), reverse=True)
+
+    def report(self, run_id: str) -> SeverityReportV1 | None:
+        # read-side query: the saved report of one run, checked against the contract;
+        # None when no run has that id
+        documents = self._saved_source().reports(run_id)
+        if len(documents) > 1:
+            systems = sorted(str(document.get("system_id")) for document in documents)
+            raise AmbiguousRunError(f"run {run_id!r} exists for several systems: {systems}")
+        if not documents:
+            return None
+        try:
+            return SeverityReportV1.model_validate(documents[0])
+        except ValidationError as error:
+            raise SavedReportError(f"saved report {run_id!r} breaks SeverityReportV1") from error
+
+    def _saved_source(self) -> SavedReportSource:
+        if self._saved is None:
+            raise SavedReportError("no saved report source configured")
+        return self._saved
+
+
+def service_from_settings(settings: Settings, **ports: Any) -> DegradationScoringService:
+    # the service with C4Config from the app settings, for entry points (API); ports by name
+    return DegradationScoringService(C4Config.from_settings(settings), **ports)
+
+
+def mapped_nodes(name: str, graph: Any) -> list[str]:
+    # a mapping key names a node by its id, by the id without a kind prefix
+    # ("checkoutservice" for "svc:checkoutservice") or by the node's name (C2 ids can be
+    # hashes: "component:31a85d9abab5" named "currencyservice")
+    if name in graph:
+        return [name]
+    return [
+        node
+        for node, label in graph.nodes(data="name")
+        if str(node).partition(":")[2] == name or label == name
+    ]
 
 
 # Scoring input: features -> the scoring engine's plain rows (subcomponents never import
@@ -401,6 +522,7 @@ def _records(run: ScoringRun) -> list[SeverityRecord]:
                 dimensions=dimensions,
                 contributions={d: ranked.contributions[d] for d in Dimension},
                 resolution=item.resolution,
+                elements=[run.node_names.get(node, node) for node in item.nodes],
             )
         )
     return records

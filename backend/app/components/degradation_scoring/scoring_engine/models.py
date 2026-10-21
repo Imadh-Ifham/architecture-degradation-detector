@@ -20,7 +20,8 @@ class RawEvent(BaseModel):
 
 class FeatureBounds(BaseModel):
     # the [lower, upper] scale of one feature; fallback says why plain min-max was used
-    # (sparse_minmax: P5 = P95 although the values differ, C4-ADR-013)
+    # (sparse_minmax: P5 = P95 although the values differ, C4-ADR-013) or that every value
+    # is equal (zero_range: left out of its criterion's mean, C4-ADR-015)
 
     model_config = ConfigDict(frozen=True)
 
@@ -44,7 +45,8 @@ class Calibration(BaseModel):
 
 
 class NormalisedEvent(BaseModel):
-    # one event's features on [0, 1] and one value per active criterion
+    # one event's features on [0, 1] (zero-range features left out) and one value per
+    # active criterion
 
     model_config = ConfigDict(frozen=True)
 

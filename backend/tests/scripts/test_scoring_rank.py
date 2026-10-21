@@ -119,6 +119,15 @@ def test_history_source_only_with_a_repository(tmp_path: Path) -> None:
     assert isinstance(c4_rank.history_ports(with_repo)["history_source"], PyDrillerHistorySource)
 
 
+def test_save_db_adds_the_postgres_run_repository() -> None:
+    saved = c4_rank.parse_args(["--events", "e", "--graph", "g", "--save-db"])
+
+    assert list(c4_rank.history_ports(saved)) == ["run_repository"]
+    assert type(c4_rank.history_ports(saved)["run_repository"]).__name__ == (
+        "PostgresScoringRunRepository"
+    )
+
+
 def test_code_commit_names_the_checkout() -> None:
     commit = c4_rank.code_commit()
 

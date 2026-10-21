@@ -108,7 +108,7 @@ def without_adr(payload: Payload) -> Payload:
 def test_example_report_parses_and_round_trips() -> None:
     parsed = SeverityReportV1.model_validate(report())
 
-    assert parsed.schema_version == "1.1.0"
+    assert parsed.schema_version == "1.2.0"
     assert parsed.data_provenance is DataProvenance.FIXTURE
     assert parsed.weights_provenance is WeightsProvenance.PROVISIONAL_AUTHOR_ELICITED
     assert [r.rank for r in parsed.records] == [1, 2]
@@ -117,6 +117,17 @@ def test_example_report_parses_and_round_trips() -> None:
     assert parsed.skipped[0].reason is SkipReason.SYSTEM_SCOPE_NOT_RANKABLE
     dumped = parsed.model_dump(mode="json")
     assert SeverityReportV1.model_validate(dumped) == parsed
+
+
+def test_elements_are_kept_and_default_to_empty_for_older_reports() -> None:
+    payload = report()
+    payload["records"][0]["elements"] = ["order-service", "payment-service"]
+    payload["schema_version"] = "1.1.0"  # written before records carried elements
+
+    parsed = SeverityReportV1.model_validate(payload)
+
+    assert parsed.records[0].elements == ["order-service", "payment-service"]
+    assert parsed.records[1].elements == []
 
 
 def test_feature_values_keep_their_type() -> None:

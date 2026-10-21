@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "run_id": "golden",
   "system_id": "c4-fixture-shop",
   "release_id": "v1.5.0",
@@ -99,6 +99,12 @@
         "status": "exact",
         "confidence": 1.0
       },
+      "elements": [
+        "inventory-service",
+        "order-service",
+        "payment-service",
+        "shipping-service"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []
@@ -161,6 +167,9 @@
         "status": "exact",
         "confidence": 1.0
       },
+      "elements": [
+        "common-lib"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []
@@ -223,6 +232,10 @@
         "status": "exact",
         "confidence": 1.0
       },
+      "elements": [
+        "inventory-service",
+        "order-service"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []
@@ -285,6 +298,10 @@
         "status": "exact",
         "confidence": 1.0
       },
+      "elements": [
+        "order-service",
+        "reporting-service"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []
@@ -347,6 +364,9 @@
         "status": "exact",
         "confidence": 1.0
       },
+      "elements": [
+        "order-service"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []
@@ -409,6 +429,9 @@
         "status": "prefix_fallback",
         "confidence": 0.7
       },
+      "elements": [
+        "notification-service"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []
@@ -471,6 +494,9 @@
         "status": "exact",
         "confidence": 1.0
       },
+      "elements": [
+        "payment-service"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []
@@ -533,6 +559,9 @@
         "status": "exact",
         "confidence": 1.0
       },
+      "elements": [
+        "shipping-service"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []
@@ -595,6 +624,9 @@
         "status": "exact",
         "confidence": 1.0
       },
+      "elements": [
+        "integration-hub"
+      ],
       "explanation": null,
       "audit": null,
       "evidence": []

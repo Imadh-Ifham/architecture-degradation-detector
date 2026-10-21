@@ -99,7 +99,7 @@ export const PAGES: readonly PageDefinition[] = [
     label: 'Priorities',
     group: 'results',
     summary: 'Findings ranked by how much they matter',
-    state: 'reserved',
+    state: 'ready',
   },
 ]
 
@@ -168,6 +168,6 @@ export const PHASES: readonly PhaseDefinition[] = [
     output: 'a ranked list with reasons',
     page: '/priorities',
     requires: 'degradation has been detected',
-    state: 'reserved',
+    state: 'ready',
   },
 ]

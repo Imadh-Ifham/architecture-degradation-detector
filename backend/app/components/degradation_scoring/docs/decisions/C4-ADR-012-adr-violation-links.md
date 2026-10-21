@@ -43,3 +43,7 @@ ADRs, and its weight table could be read as tunable settings.
 - The mechanism is proven on fixtures: `adr/adr_links.v1.json` (labelled stand-in) gives the
   designed AV 1.0 / 0.14 / 0.2 / 0 (`features/test_adr_weight.py`); parsing is tested in
   `ingestion/test_adr.py`.
+- **T21 addendum (owner, 2026-10-19).** The Online Boutique AV-on run uses a labelled fixture
+  stand-in, `adr/online_boutique/` (two hand-written ADRs + `adr_links.v1.json`,
+  `data_provenance: fixture`), only to show the AV switch on a real repository. It is not C2
+  output and not a finding; real runs without C2 links still have AV inactive.

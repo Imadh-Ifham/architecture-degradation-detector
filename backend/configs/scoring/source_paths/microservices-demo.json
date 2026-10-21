@@ -1,0 +1,44 @@
+{
+  "data_provenance": "manual-mapping",
+  "note": "Hand-made service -> source folder mapping for Online Boutique (C4-ADR-011), used by scoring runs started from the app for the hotspot criterion. Keys are service names; they match C2's node ids or names. To be replaced by C2's source_paths pass-through.",
+  "repository": "https://github.com/GoogleCloudPlatform/microservices-demo",
+  "checked_at_tag": "v0.10.7",
+  "elements": {
+    "adservice": [
+      "src/adservice/**"
+    ],
+    "cartservice": [
+      "src/cartservice/**"
+    ],
+    "checkoutservice": [
+      "src/checkoutservice/**"
+    ],
+    "currencyservice": [
+      "src/currencyservice/**"
+    ],
+    "emailservice": [
+      "src/emailservice/**"
+    ],
+    "frontend": [
+      "src/frontend/**"
+    ],
+    "loadgenerator": [
+      "src/loadgenerator/**"
+    ],
+    "paymentservice": [
+      "src/paymentservice/**"
+    ],
+    "productcatalogservice": [
+      "src/productcatalogservice/**"
+    ],
+    "recommendationservice": [
+      "src/recommendationservice/**"
+    ],
+    "shippingservice": [
+      "src/shippingservice/**"
+    ],
+    "shoppingassistantservice": [
+      "src/shoppingassistantservice/**"
+    ]
+  }
+}
