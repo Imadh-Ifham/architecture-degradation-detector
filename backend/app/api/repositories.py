@@ -61,6 +61,10 @@ from app.components.architecture_recovery.manifest_analysis import (
     ManifestAnalysisSummaryResponse,
     manifest_analysis_service_from_settings,
 )
+from app.components.architecture_recovery.pipeline_state import (
+    PipelineStateService,
+    SnapshotState,
+)
 from app.components.architecture_recovery.repository_ingestion.errors import (
     InvalidRepositorySource,
     RepositoryNotFound,
@@ -174,6 +178,53 @@ class RepositoryConfigurationResponse(BaseModel):
     @classmethod
     def from_record(cls, record: RepositoryConfiguration) -> "RepositoryConfigurationResponse":
         return cls(**record.to_dict())
+
+
+class ConfigurationCloneResponse(BaseModel):
+    """The checkout a configured snapshot already has."""
+
+    id: str
+    commit: str
+    branch: str
+    release_tag: str | None = None
+    ingested_at: str
+
+
+class ConfigurationRecoveryResponse(BaseModel):
+    """What the last completed recovery of that checkout produced."""
+
+    release_id: str
+    commit_sha: str
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    element_count: int | None = None
+    relationship_count: int | None = None
+
+
+class ConfigurationStateResponse(BaseModel):
+    """How far one configured snapshot has got, and what it still needs.
+
+    `stage` is `pending`, `cloned` or `recovered`. The `needs_*` flags say the
+    same thing from the pipeline's side: a run only does the work they name.
+    `repository_id` is the identity the architecture is stored under, which is
+    how a screen finds this snapshot's validation run after skipping a clone.
+    """
+
+    configuration_id: str
+    url: str
+    branch: str
+    release_tag: str
+    workspace_id: str
+    repository_id: str
+    stage: str
+    needs_clone: bool
+    needs_recovery: bool
+    clone: ConfigurationCloneResponse | None = None
+    recovery: ConfigurationRecoveryResponse | None = None
+
+    @classmethod
+    def from_state(cls, state: SnapshotState) -> "ConfigurationStateResponse":
+        return cls(**state.to_dict())
 
 
 @lru_cache
@@ -299,6 +350,18 @@ def get_workspace_checkouts() -> WorkspaceCheckouts:
     """
 
     return WorkspaceCheckouts(settings.repositories_root, SOURCE_DIRECTORY_NAME)
+
+
+def get_pipeline_state_service(
+    ingestion: RepositoryIngestionService = Depends(get_repository_ingestion_service),
+) -> PipelineStateService:
+    """Provide the reader that says what a pipeline run still has to do.
+
+    Built from the ingestion service so the workspace id it derives is the one
+    ingestion would use, rather than a second derivation that could disagree.
+    """
+
+    return PipelineStateService(ingestion)
 
 
 @router.post(
@@ -461,6 +524,41 @@ def list_configurations(
         ) from error
 
     return [RepositoryConfigurationResponse.from_record(record) for record in records]
+
+
+@router.get(
+    "/configurations/state",
+    response_model=list[ConfigurationStateResponse],
+    summary="What the pipeline still has to do for each configured snapshot",
+    response_description=(
+        "One row per configured snapshot: whether its revision is cloned, "
+        "whether a completed recovery left an architecture behind, and "
+        "therefore which half of the work is still outstanding."
+    ),
+)
+def read_configuration_states(
+    store: RepositoryConfigurationStore = Depends(get_configuration_store),
+    states: PipelineStateService = Depends(get_pipeline_state_service),
+) -> list[ConfigurationStateResponse]:
+    """Report what is already on this machine; clone and recover nothing.
+
+    The pipeline asks this before it starts, so that a second press does not
+    re-clone a revision whose checkout exists and does not re-recover one whose
+    architecture is already stored. Re-cloning is not idle: it replaces the
+    checkout's directory, which is where that snapshot's recovery artifacts
+    live.
+    """
+
+    try:
+        records = store.list()
+    except ConfigurationStoreError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(error)
+        ) from error
+
+    return [
+        ConfigurationStateResponse.from_state(state) for state in states.states(records)
+    ]
 
 
 @router.post(

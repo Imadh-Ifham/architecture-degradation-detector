@@ -943,6 +943,140 @@ def test_configuration_can_be_removed(client: TestClient) -> None:
     assert client.delete(f"/repositories/configurations/{saved['id']}").status_code == 404
 
 
+def configure(
+    client: TestClient,
+    *,
+    url: str = "https://example.com/team/repo.git",
+    branch: str = "main",
+    release: str = "v1.0.0",
+) -> dict:
+    """Write down one snapshot without cloning it."""
+
+    saved = client.post(
+        "/repositories/configurations",
+        json={"url": url, "branch": branch, "release_tag": release},
+    )
+
+    assert saved.status_code == 201
+
+    return saved.json()
+
+
+def states(client: TestClient) -> list[dict]:
+    """The pipeline's own question: what is left to do for each snapshot."""
+
+    response = client.get("/repositories/configurations/state")
+
+    assert response.status_code == 200
+
+    return response.json()
+
+
+def test_a_configured_snapshot_reports_that_it_needs_both_halves(
+    client: TestClient,
+) -> None:
+    """Saving a snapshot clones nothing, so nothing is done for it yet."""
+
+    saved = configure(client)
+
+    [state] = states(client)
+
+    assert state["configuration_id"] == saved["id"]
+    assert state["stage"] == "pending"
+    assert state["needs_clone"] is True
+    assert state["needs_recovery"] is True
+    assert state["clone"] is None
+    assert state["recovery"] is None
+
+    # Reading the state is not a side effect.
+    assert client.get("/repositories").json() == []
+
+
+def test_an_ingested_snapshot_reports_that_only_recovery_is_left(
+    client: TestClient,
+) -> None:
+    configure(client)
+
+    created = ingest(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
+        "/repositories/releases",
+    )
+
+    [state] = states(client)
+
+    assert state["stage"] == "cloned"
+    assert state["workspace_id"] == created["id"]
+    assert state["needs_clone"] is False
+    assert state["needs_recovery"] is True
+    assert state["clone"]["commit"] == created["commit"]
+
+
+def test_a_recovered_snapshot_reports_that_nothing_is_left(
+    client: TestClient,
+) -> None:
+    """The second half is done, so a run over this stack clones and recovers nothing."""
+
+    configure(client)
+
+    recovered = ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
+        "/repositories/releases",
+    )
+
+    [state] = states(client)
+
+    assert state["stage"] == "recovered"
+    assert state["needs_clone"] is False
+    assert state["needs_recovery"] is False
+    assert state["recovery"]["release_id"] == "v1.0.0"
+    assert state["recovery"]["element_count"] == recovered["graph_construction"][
+        "element_count"
+    ]
+    assert state["recovery"]["relationship_count"] == recovered["graph_construction"][
+        "relationship_count"
+    ]
+
+
+def test_each_snapshot_of_one_repository_is_reported_separately(
+    client: TestClient,
+) -> None:
+    """Two releases of one url are two rows with their own checkout and state."""
+
+    configure(client, release="v1.0.0")
+    configure(client, release="v2.0.0")
+
+    ingest_and_recover(
+        client,
+        {"url": "https://example.com/team/repo.git", "revision": "v1.0.0"},
+        "/repositories/releases",
+    )
+
+    by_release = {state["release_tag"]: state for state in states(client)}
+
+    assert by_release["v1.0.0"]["stage"] == "recovered"
+    assert by_release["v2.0.0"]["stage"] == "pending"
+    assert by_release["v1.0.0"]["workspace_id"] != by_release["v2.0.0"]["workspace_id"]
+
+
+def test_every_release_reports_the_key_a_validation_run_is_stored_under(
+    client: TestClient,
+) -> None:
+    """The pipeline finds a snapshot's run by this key, including after a skip.
+
+    A validation run is keyed by the repository, so both releases of one url
+    have to report the same `repository_id` even before either is cloned.
+    """
+
+    configure(client, release="v1.0.0")
+    configure(client, release="v2.0.0")
+
+    [key] = {state["repository_id"] for state in states(client)}
+
+    assert key.startswith("repo-")
+
+
 def snapshot_url(client: TestClient, release: str = "v1.0.0") -> tuple[str, str]:
     """Recover one release and return the url that reads its details."""
 

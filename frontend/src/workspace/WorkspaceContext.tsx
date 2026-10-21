@@ -29,11 +29,13 @@ import {
   listRepositories,
   listSnapshots,
   messageOf,
+  readConfigurationStates,
   readLatestDegradation,
   removeConfiguration as deleteConfiguration,
   runDegradation,
   runValidation,
   saveConfiguration,
+  type ConfigurationState,
   type DegradationReport,
   type IngestOutcome,
   type RepositoryConfigurationInput,
@@ -91,6 +93,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const configurations = useMemo(
     () => configurationsRequest.data ?? [],
     [configurationsRequest.data],
+  )
+
+  // What the configured snapshots already have. Re-read whenever the stack
+  // changes, because adding or removing a snapshot changes the answer for the
+  // whole list - and a row that claims work is done when it is not is how a
+  // press of Recover deletes artifacts it meant to reuse.
+  const configurationKey = configurations.map((item) => item.id).join(',')
+
+  const statesRequest = useRequest(
+    (options) => readConfigurationStates(options),
+    [configurationKey],
+  )
+
+  const snapshotStates = useMemo<ReadonlyMap<string, ConfigurationState>>(
+    () =>
+      new Map(
+        (statesRequest.data ?? []).map((state) => [state.configuration_id, state]),
+      ),
+    [statesRequest.data],
   )
 
   // One entry per repository, because a clone per release would offer the same
@@ -154,6 +175,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const reloadRepositories = repositoriesRequest.reload
   const reloadSnapshots = snapshotsRequest.reload
   const reloadConfigurations = configurationsRequest.reload
+  const reloadStates = statesRequest.reload
 
   const rememberRun = useCallback((run: ValidationRun) => {
     setRuns((current) => ({
@@ -333,48 +355,82 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   ])
 
   /**
-   * Recover every configured snapshot.
+   * Do what the configured snapshots still need.
+   *
+   * The backend says which of them are already cloned and already recovered,
+   * and the run performs only the missing half, one snapshot at a time. That
+   * is not an optimisation: re-cloning replaces the checkout directory, and
+   * the snapshot's recovery artifacts live there, so a second press used to
+   * erase the first press's work before redoing it.
    *
    * Returns whether the stack is ready to be judged, so the screen that
    * started it can send somebody to choose what it is judged against. It
    * returns the answer rather than navigating, because a context that routes
    * is a context two screens cannot both use.
    */
-  const startPipeline = useCallback(async () => {
-    if (isPipelineRunning || configurations.length === 0) return false
+  const startPipeline = useCallback(
+    async (force = false) => {
+      if (isPipelineRunning || configurations.length === 0) return false
 
-    setIsPipelineRunning(true)
-    setPipelineError(null)
-    setPipelineSnapshots([])
-    setPipelinePhase('recovering')
-
-    try {
-      const outcome = await runPipeline(configurations, {
-        onPhase: setPipelinePhase,
-        onChange: setPipelineSnapshots,
-      })
-
-      if (outcome.blockedAt === 'recovery') {
-        const failed = outcome.snapshots.filter(
-          (snapshot) => snapshot.phase === 'failed',
-        ).length
-
+      // A run that does not know what is already done would clone every
+      // snapshot, and cloning replaces the checkout directory the recovery
+      // artifacts live in. Refusing is the only safe answer when the state
+      // could not be read; force is the caller saying it knows.
+      if (!force && statesRequest.data === null) {
         setPipelineError(
-          `${failed} of ${outcome.snapshots.length} snapshots did not recover, so the stack cannot be judged. A release validated against a partial stack would read like a clean run.`,
+          statesRequest.error
+            ? `What is already cloned and recovered could not be read (${statesRequest.error}), so nothing was started. A run without it would re-clone every snapshot and delete the architectures already on disk.`
+            : 'What is already cloned and recovered is still being read, so nothing was started. A run without it would re-clone every snapshot and delete the architectures already on disk.',
         )
-
         return false
       }
 
-      return true
-    } finally {
-      setIsPipelineRunning(false)
-      // The clones and their snapshots exist now, so the header's
-      // repository list and the release lists must both see them.
-      reloadRepositories()
-      reloadSnapshots()
-    }
-  }, [configurations, isPipelineRunning, reloadRepositories, reloadSnapshots])
+      setIsPipelineRunning(true)
+      setPipelineError(null)
+      setPipelineSnapshots([])
+
+      try {
+        const outcome = await runPipeline(configurations, {
+          stored: snapshotStates,
+          force,
+          onPhase: setPipelinePhase,
+          onChange: setPipelineSnapshots,
+        })
+
+        if (outcome.blockedAt === 'recovery') {
+          const failed = outcome.snapshots.filter(
+            (snapshot) => snapshot.phase === 'failed',
+          ).length
+
+          setPipelineError(
+            `${failed} of ${outcome.snapshots.length} snapshots did not recover, so the stack cannot be judged. A release validated against a partial stack would read like a clean run.`,
+          )
+
+          return false
+        }
+
+        return true
+      } finally {
+        setIsPipelineRunning(false)
+        // The clones and their snapshots exist now, so the header's
+        // repository list, the release lists and the state this screen just
+        // acted on must all see them.
+        reloadRepositories()
+        reloadSnapshots()
+        reloadStates()
+      }
+    },
+    [
+      configurations,
+      isPipelineRunning,
+      snapshotStates,
+      statesRequest.data,
+      statesRequest.error,
+      reloadRepositories,
+      reloadSnapshots,
+      reloadStates,
+    ],
+  )
 
   /**
    * Detect over every validated release of the selected repository.
@@ -426,7 +482,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     reloadRepositories()
     reloadSnapshots()
     reloadConfigurations()
-  }, [reloadRepositories, reloadSnapshots, reloadConfigurations])
+    reloadStates()
+  }, [reloadRepositories, reloadSnapshots, reloadConfigurations, reloadStates])
 
   const value = useMemo<Workspace>(
     () => ({
@@ -444,6 +501,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       configurations,
       configurationsError: configurationsRequest.error,
       isLoadingConfigurations: configurationsRequest.isLoading,
+      snapshotStates,
+      snapshotStatesError: statesRequest.error,
+      isLoadingSnapshotStates: statesRequest.isLoading,
       addConfiguration,
       removeConfiguration,
       reloadConfigurations,
@@ -499,6 +559,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       addConfiguration,
       removeConfiguration,
       reloadConfigurations,
+      snapshotStates,
+      statesRequest.error,
+      statesRequest.isLoading,
       pipelinePhase,
       pipelineSnapshots,
       isPipelineRunning,

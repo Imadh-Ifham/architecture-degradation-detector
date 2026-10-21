@@ -21,6 +21,7 @@
 
 import { createContext } from 'react'
 import type {
+  ConfigurationState,
   DecisionMode,
   DegradationReport,
   IngestOutcome,
@@ -90,6 +91,14 @@ export interface Workspace {
   configurations: RepositoryConfiguration[]
   configurationsError: string | null
   isLoadingConfigurations: boolean
+  /**
+   * What the backend says each configured snapshot already has, keyed by
+   * configuration id: cloned, recovered, or nothing.
+   */
+  snapshotStates: ReadonlyMap<string, ConfigurationState>
+  snapshotStatesError: string | null
+  /** True until the backend has said what is already done. */
+  isLoadingSnapshotStates: boolean
   addConfiguration: (
     input: RepositoryConfigurationInput,
   ) => Promise<RepositoryConfiguration>
@@ -105,11 +114,17 @@ export interface Workspace {
   /** Why the stack cannot be judged, when a recovery failure stopped it. */
   pipelineError: string | null
   /**
-   * Recover every configured snapshot. Resolves to whether the stack is ready
-   * to be judged, so the caller can send somebody to choose what judges it.
+   * Do what the configured snapshots still need: nothing for one that is
+   * already recovered, only the analysis for one that is already cloned.
+   * Resolves to whether the stack is ready to be judged.
+   *
+   * `force` clones and recovers every snapshot again, which is the only way
+   * to redo work - and it replaces each checkout directory, so that snapshot's
+   * previous recovery artifacts go with it.
+   *
    * It does not validate: nothing may pick that source but a person.
    */
-  startPipeline: () => Promise<boolean>
+  startPipeline: (force?: boolean) => Promise<boolean>
   clearPipeline: () => void
 
   /* Runs this session produced ------------------------------------------- */
