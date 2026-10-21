@@ -389,6 +389,16 @@ export interface ModelProbe {
   reachable: boolean
   latency_ms: number
   strict_schema: boolean
+  /**
+   * Which of strict, best_effort or json_object this call asked for.
+   *
+   * `strict_schema` alone cannot tell the last two apart, and they are not
+   * the same request: one sends a schema the provider enforces, the other
+   * sends the schema in the prompt and checks the answer after it arrives.
+   * A screen that shows nothing for both reports a weaker guarantee as an
+   * absent one.
+   */
+  schema_mode: string
   prompt: string
   response: Record<string, unknown> | null
   error: string | null

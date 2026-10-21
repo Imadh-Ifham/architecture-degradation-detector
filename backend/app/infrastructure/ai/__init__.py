@@ -21,6 +21,7 @@ from .interface import (
 )
 from .model_configuration import (
     SCHEMA_MODE_BEST_EFFORT,
+    SCHEMA_MODE_JSON_OBJECT,
     SCHEMA_MODE_STRICT,
     TASK_NARRATION,
     TASK_PRIMARY_VERDICT,
@@ -55,6 +56,7 @@ __all__ = [
     "PromptFileError",
     "RunNarrator",
     "SCHEMA_MODE_BEST_EFFORT",
+    "SCHEMA_MODE_JSON_OBJECT",
     "SCHEMA_MODE_STRICT",
     "StrictSchemaUnsupportedError",
     "TASK_NARRATION",

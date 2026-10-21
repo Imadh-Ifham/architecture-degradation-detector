@@ -428,7 +428,12 @@ function Probe({ probe }: { probe: ModelProbe }) {
         </span>
 
         <span className="flex shrink-0 items-center gap-3">
-          {probe.strict_schema && <Pill>strict schema</Pill>}
+          {/* The mode, always - not a pill that appears only when the
+              strongest one is in force. "json_object" and "best_effort" are
+              different guarantees from each other and from nothing at all. */}
+          <Pill tone={probe.strict_schema ? 'ok' : 'warn'}>
+            {probe.schema_mode.replace(/_/g, ' ')}
+          </Pill>
           <Pill tone={probe.reachable ? 'ok' : 'bad'}>
             {probe.reachable ? 'answered' : 'did not answer'}
           </Pill>

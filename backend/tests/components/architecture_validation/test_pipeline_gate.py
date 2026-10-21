@@ -1454,7 +1454,7 @@ class CitingProvider(FakeProvider):
         model_id: str,
         prompt: str,
         schema: dict,
-        strict: bool = True,
+        schema_mode: str = "strict",
         temperature: float = 0.0,
         seed: int | None = 42,
         reasoning_effort: str = "",
@@ -1464,7 +1464,9 @@ class CitingProvider(FakeProvider):
             "cited_evidence_refs": [_rule_ref(prompt)],
             "verdict": "confirms",
         }
-        return super().complete(model_id, prompt, schema, strict, temperature, seed)
+        return super().complete(
+            model_id, prompt, schema, schema_mode, temperature, seed
+        )
 
 
 class TestTheM4Gate:
@@ -2531,12 +2533,14 @@ class ArmAwareProvider:
         model_id,
         prompt,
         schema,
-        strict=True,
+        schema_mode="strict",
         temperature=0.0,
         seed=42,
         reasoning_effort="",
     ) -> dict:
-        self.calls.append({"model_id": model_id, "prompt": prompt, "strict": strict})
+        self.calls.append(
+            {"model_id": model_id, "prompt": prompt, "schema_mode": schema_mode}
+        )
 
         shown = self.RULE.search(prompt)
         cited = [shown.group(1)] if shown else []

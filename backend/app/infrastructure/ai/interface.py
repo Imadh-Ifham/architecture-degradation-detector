@@ -315,7 +315,7 @@ class ConfiguredAIClient:
                 model_id=model_id,
                 prompt=prompt,
                 schema=schema,
-                strict=strict,
+                schema_mode=schema_mode,
                 temperature=self._settings.ai_temperature,
                 seed=self._settings.ai_seed,
                 reasoning_effort=effort,
