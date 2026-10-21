@@ -1,0 +1,11 @@
+﻿# Two services whose images differ only in a part substituted at deploy time.
+# Both normalise to ${image_name}, which identifies neither of them.
+services:
+  cart:
+    image: ${IMAGE_NAME}:${DEMO_VERSION}-cart
+  payment:
+    image: ${IMAGE_NAME}:${DEMO_VERSION}-payment
+  cache:
+    image: redis:7
+  cache-replica:
+    image: redis:7

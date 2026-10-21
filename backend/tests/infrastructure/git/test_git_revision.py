@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from app.infrastructure.git.client import GitClient
+from app.infrastructure.git.client import GitClient, GitCommandError
 
 
 def _git(*arguments: str, cwd: Path) -> str:
@@ -140,3 +140,58 @@ def test_commit_date_is_an_aware_author_date(tmp_path: Path, origin: Path) -> No
 
     assert isinstance(date, datetime)
     assert date.tzinfo is not None
+
+
+def test_a_revision_that_is_not_there_says_so_and_suggests_the_near_miss(
+    tmp_path: Path, origin: Path
+) -> None:
+    """The tag is `1.0.0` and the caller typed `v1.0.0`-ish.
+
+    Git reports an unknown revision passed to `checkout --detach` as "does not
+    take a path argument", which is a sentence about checkout's grammar and
+    says nothing about the tag being absent. This is the failure that reached
+    a user as an unreadable message, so it is the one worth pinning.
+    """
+
+    client = GitClient(timeout_seconds=60)
+    destination = tmp_path / "absent"
+
+    with pytest.raises(GitCommandError) as raised:
+        client.clone_at(str(origin), "v9.9.9", destination)
+
+    message = str(raised.value)
+
+    assert "v9.9.9" in message
+    assert "not a tag, branch or commit" in message
+
+    # And nothing was left behind for the next attempt to trip over.
+    assert not destination.exists()
+
+
+def test_a_wrong_prefix_names_the_tag_that_exists(
+    tmp_path: Path, origin: Path
+) -> None:
+    """The near miss is the whole answer: one edit, not a hunt."""
+
+    client = GitClient(timeout_seconds=60)
+    destination = tmp_path / "misprefixed"
+
+    with pytest.raises(GitCommandError) as raised:
+        client.clone_at(str(origin), "1.0.0", destination)
+
+    assert "v1.0.0" in str(raised.value)
+    assert "Did you mean" in str(raised.value)
+
+
+def test_the_absent_revision_is_answered_without_a_full_clone(
+    tmp_path: Path, origin: Path
+) -> None:
+    """A mistyped tag must not cost a whole clone of a large repository."""
+
+    client = GitClient(timeout_seconds=60)
+    destination = tmp_path / "never"
+
+    with pytest.raises(GitCommandError):
+        client.clone_at(str(origin), "nope", destination)
+
+    assert not destination.exists()

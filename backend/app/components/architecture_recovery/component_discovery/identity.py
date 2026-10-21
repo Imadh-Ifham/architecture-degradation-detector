@@ -19,6 +19,15 @@ Description:
       * Base images are not identity evidence, so two unrelated Dockerfiles that
         happen to share a base image stay separate.
 
+    A third guard covers interpolation. A manifest that writes
+    `image: ${IMAGE_NAME}:${VERSION}-cart` and one that writes
+    `image: ${IMAGE_NAME}:${VERSION}-ad` normalise to the same string,
+    `${image_name}`, because the parts that distinguish them are substituted at
+    deployment time. Treating that as "the same application image" merges every
+    service in the file into one component, which is how a twenty-service
+    repository is reported as a single element. An image name containing an
+    unresolved variable therefore identifies nothing.
+
     The result is a partition, not a single component: candidates that no rule
     connects stay separate, which is the desired outcome for unrelated artifacts.
 """
@@ -264,10 +273,14 @@ class IdentityResolver:
         """Merge two deployments that run the same application image.
 
         Only application images count, so two Dockerfiles sharing a base image
-        do not merge.
+        do not merge. An image name that is partly a variable is not an
+        identity at all: `${image_name}` is what several distinctly-named
+        services normalise to, so merging on it would collapse the file.
         """
 
-        shared = left.images & right.images
+        shared = {
+            image for image in left.images & right.images if not _interpolated(image)
+        }
 
         if not shared:
             return None
@@ -363,3 +376,14 @@ class IdentityResolver:
             left_id=left.artifact.id,
             right_id=right.artifact.id,
         )
+
+
+def _interpolated(image: str) -> bool:
+    """Whether an image name contains a variable resolved at deployment time.
+
+    Both the Compose and the Kubernetes syntaxes are covered: `${NAME}`,
+    `$NAME` and `$(NAME)` all mean the name is not final until something
+    outside the repository substitutes it.
+    """
+
+    return "$" in image
