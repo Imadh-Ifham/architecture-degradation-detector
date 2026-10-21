@@ -1083,3 +1083,121 @@ class TestTheSchemaModeIsValidated:
     def test_each_known_mode_is_accepted(self, tmp_path):
         for mode in SCHEMA_MODES:
             assert settings(tmp_path, ai_schema_mode=mode).ai_schema_mode == mode
+
+
+class TestTheVerifierAtItsOwnProvider:
+    """Two judges at two providers, which is what the second opinion needs.
+
+    Two models from one provider share a tokenizer, a serving stack and
+    usually a lineage, so they share blind spots - and the verifier exists to
+    catch the reasoner being confidently wrong. Until this existed, one URL
+    served every task and "a different model" was as far apart as the two
+    judges could be.
+    """
+
+    def test_unset_sends_the_verifier_where_everything_else_goes(self, tmp_path):
+        """The single-provider configuration, and still a correct one."""
+
+        configured = settings(tmp_path)
+
+        assert configured.base_url_for(TASK_VERIFICATION) == configured.ai_base_url
+        assert configured.api_key_for(TASK_VERIFICATION) == configured.ai_api_key
+
+    def test_set_sends_only_the_verifier_elsewhere(self, tmp_path):
+        configured = settings(
+            tmp_path,
+            ai_base_url="https://reasoner.test/v1",
+            ai_verifier_base_url="https://verifier.test/v1",
+            ai_verifier_api_key="verifier-key",
+        )
+
+        assert configured.base_url_for(TASK_PRIMARY_VERDICT) == "https://reasoner.test/v1"
+        assert configured.base_url_for(TASK_VERIFICATION) == "https://verifier.test/v1"
+        assert configured.api_key_for(TASK_PRIMARY_VERDICT) == "test-key"
+        assert configured.api_key_for(TASK_VERIFICATION) == "verifier-key"
+
+    def test_a_second_endpoint_on_the_same_host_inherits_the_key(self, tmp_path):
+        """Two paths at one provider is a real arrangement - a gateway, a
+        second route - and it should not need the key written twice."""
+
+        configured = settings(
+            tmp_path,
+            ai_base_url="https://one.test/v1",
+            ai_verifier_base_url="https://one.test/beta",
+        )
+
+        assert configured.api_key_for(TASK_VERIFICATION) == "test-key"
+
+    def test_a_second_provider_with_no_key_of_its_own_gets_none(self, tmp_path):
+        """Sending one provider's key to another is a 401, which the ladder
+        reads as an outage - so every verdict would publish
+        `unverified_unavailable` and the run would look exactly like one whose
+        verifier was down. Refusing before the request says which setting is
+        missing instead."""
+
+        configured = settings(
+            tmp_path,
+            ai_base_url="https://api.deepseek.com/v1",
+            ai_verifier_base_url="https://api.groq.com/openai/v1",
+        )
+
+        assert configured.api_key_for(TASK_VERIFICATION) == ""
+        assert configured.api_key_for(TASK_PRIMARY_VERDICT) == "test-key"
+
+    def test_the_verification_call_goes_to_the_second_adapter(self, tmp_path):
+        """The point of the whole thing: the verdict and the challenge are
+        answered by two different processes at two different companies."""
+
+        reasoner = FakeProvider(VERDICT)
+        verifier = FakeProvider(VERDICT, model_id="other/verifier-1")
+        configuration = settings(tmp_path)
+        client = ConfiguredAIClient(
+            reasoner,
+            settings=configuration,
+            cache=VerdictCache(configuration.ai_cache_directory, False),
+            verifier_provider=verifier,
+        )
+
+        client.complete(task=TASK_PRIMARY_VERDICT, prompt="p", schema={"type": "object"})
+        client.complete(task=TASK_VERIFICATION, prompt="p", schema={"type": "object"})
+
+        assert reasoner.call_count == 1
+        assert verifier.call_count == 1
+
+    def test_without_a_second_adapter_everything_goes_to_the_first(self, tmp_path):
+        reasoner = FakeProvider(VERDICT)
+        configuration = settings(tmp_path)
+        client = ConfiguredAIClient(
+            reasoner,
+            settings=configuration,
+            cache=VerdictCache(configuration.ai_cache_directory, False),
+        )
+
+        client.complete(task=TASK_PRIMARY_VERDICT, prompt="p", schema={"type": "object"})
+        client.complete(task=TASK_VERIFICATION, prompt="p", schema={"type": "object"})
+
+        assert reasoner.call_count == 2
+
+    def test_the_local_rung_is_still_its_own_adapter(self, tmp_path):
+        """Three endpoints now, and the one added must not have taken the
+        offline rung's place in the lookup."""
+
+        reasoner = FakeProvider(VERDICT)
+        verifier = FakeProvider(VERDICT)
+        local = FakeProvider(VERDICT)
+        configuration = settings(tmp_path, ai_local_base_url="http://localhost:11434/v1")
+        client = ConfiguredAIClient(
+            reasoner,
+            settings=configuration,
+            cache=VerdictCache(configuration.ai_cache_directory, False),
+            local_provider=local,
+            verifier_provider=verifier,
+        )
+
+        client.complete(
+            task=TASK_PRIMARY_VERDICT_LOCAL, prompt="p", schema={"type": "object"}
+        )
+
+        assert local.call_count == 1
+        assert reasoner.call_count == 0
+        assert verifier.call_count == 0

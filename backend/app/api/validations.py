@@ -522,6 +522,18 @@ def get_ai_client() -> ConfiguredAIClient:
             if local
             else None
         ),
+        # Built only when an endpoint of its own is named. Without one the
+        # verifier goes where everything else goes, which is the
+        # single-provider configuration and still correct.
+        verifier_provider=(
+            OpenAICompatibleProvider(
+                base_url=ai_settings.base_url_for(TASK_VERIFICATION),
+                api_key=ai_settings.api_key_for(TASK_VERIFICATION),
+                timeout_seconds=ai_settings.ai_timeout_seconds,
+            )
+            if ai_settings.ai_verifier_base_url
+            else None
+        ),
         call_log=get_call_log(),
     )
 
@@ -1608,6 +1620,13 @@ class ModelProbeResponse(BaseModel):
         "the same request: one sends a schema the provider enforces, the "
         "other sends a schema in the prompt and checks the answer here.",
     )
+    base_url: str = Field(
+        default="",
+        description="The endpoint this task was asked at. Per task, because "
+        "the verifier can live at a different provider from the reasoner - "
+        "and when it does, that two judges really are two is a property of "
+        "this field rather than of the model names.",
+    )
     prompt: str = Field(description="Exactly what was sent.")
     response: dict | None = Field(default=None, description="Exactly what came back.")
     error: str | None = Field(default=None)
@@ -1711,9 +1730,10 @@ def _probe(task: str) -> ModelProbeResponse:
     model_id = ai_settings.model_for(task)
     schema_mode = ai_settings.ai_schema_mode
     strict = schema_mode == SCHEMA_MODE_STRICT
+    base_url = ai_settings.base_url_for(task)
     provider = OpenAICompatibleProvider(
-        base_url=ai_settings.base_url_for(task),
-        api_key=ai_settings.ai_api_key,
+        base_url=base_url,
+        api_key=ai_settings.api_key_for(task),
         timeout_seconds=ai_settings.ai_timeout_seconds,
     )
 
@@ -1735,6 +1755,7 @@ def _probe(task: str) -> ModelProbeResponse:
             latency_ms=int((time.perf_counter() - started) * 1000),
             strict_schema=strict,
             schema_mode=schema_mode,
+            base_url=base_url,
             prompt=PROBE_PROMPT,
             error=str(error),
         )
@@ -1747,6 +1768,7 @@ def _probe(task: str) -> ModelProbeResponse:
         latency_ms=int((time.perf_counter() - started) * 1000),
         strict_schema=strict,
         schema_mode=schema_mode,
+        base_url=base_url,
         prompt=PROBE_PROMPT,
         response=answer["content"],
     )
