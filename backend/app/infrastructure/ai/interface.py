@@ -106,15 +106,24 @@ class VerdictCache:
         model_id: str,
         schema_mode: str,
         evidence_hash: str,
+        reasoning_effort: str = "",
     ) -> str:
         """Build the cache key.
 
         A joined string with an explicit separator, so the key cannot depend on
         dict ordering and so adding a component later is a deliberate change to
         every key rather than an accidental one.
+
+        `reasoning_effort` is in it because it changes the answer. Measured on
+        one verdict, `low` spent 85 completion tokens where the default spent
+        223 - a shorter sentence, reached differently. Leaving it out meant a
+        run configured at one effort could be served an answer produced at
+        another, which is the cache answering a question that was not asked.
         """
 
-        material = "|".join((task, prompt_version, model_id, schema_mode, evidence_hash))
+        material = "|".join(
+            (task, prompt_version, model_id, schema_mode, evidence_hash, reasoning_effort)
+        )
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     def get(self, key: str) -> dict | None:
@@ -221,11 +230,30 @@ class ConfiguredAIClient:
         model_id = self._settings.model_for(task)
         schema_mode = self._settings.ai_schema_mode
         strict = schema_mode == SCHEMA_MODE_STRICT
+        capabilities = capabilities_for(model_id)
 
-        if strict and not capabilities_for(model_id).supports_strict_schema:
+        if strict and not capabilities.supports_strict_schema:
             raise StrictSchemaUnsupportedError(model_id)
 
-        key = VerdictCache.key(task, prompt_version, model_id, schema_mode, evidence_hash)
+        # Asked of the registry rather than sent to everything. The field is
+        # an OpenAI one, and the model that does not take it answered with
+        # twenty times the reasoning when it was sent - so the dial added to
+        # spend fewer tokens was doubling the cost of the most expensive call
+        # in the run.
+        effort = (
+            self._settings.ai_reasoning_effort
+            if capabilities.supports_reasoning_effort
+            else ""
+        )
+
+        key = VerdictCache.key(
+            task,
+            prompt_version,
+            model_id,
+            schema_mode,
+            evidence_hash,
+            effort,
+        )
         started = time.perf_counter()
         cached = self._cache.get(key)
         if cached is not None:
@@ -258,6 +286,7 @@ class ConfiguredAIClient:
                 strict=strict,
                 temperature=self._settings.ai_temperature,
                 seed=self._settings.ai_seed,
+                reasoning_effort=effort,
             )
         except ProviderContentError as error:
             # Translated here, because this is the last place that knows which
@@ -292,6 +321,7 @@ class ConfiguredAIClient:
                 OUTCOME_UNAVAILABLE,
                 started,
                 error=str(error),
+                waited_seconds=getattr(error, "waited_seconds", 0.0),
             )
             raise ModelUnavailable(str(error)) from error
 
@@ -307,6 +337,7 @@ class ConfiguredAIClient:
             started,
             response=response["content"],
             usage=response.get("usage"),
+            waited_seconds=response.get("waited_seconds", 0.0),
         )
 
         self._cache.put(
@@ -344,6 +375,7 @@ class ConfiguredAIClient:
         response: dict | None = None,
         error: str | None = None,
         usage: dict | None = None,
+        waited_seconds: float = 0.0,
     ) -> None:
         """Record one call, when something is capturing.
 
@@ -369,4 +401,5 @@ class ConfiguredAIClient:
             response=response,
             error=error,
             usage=usage,
+            waited_seconds=waited_seconds,
         )

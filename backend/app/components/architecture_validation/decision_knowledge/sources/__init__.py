@@ -35,23 +35,27 @@ from .repo_adr import RepositoryDecisionRecords
 MODES: dict[str, tuple[str, ...]] = {
     "repo_adr": ("repo_adr",),
     "external_adr": ("external_adr",),
-    "combined": ("repo_adr", "external_adr", "config_scan"),
+    "combined": ("repo_adr", "config_scan"),
 }
 """Which sources each mode reads, in the order their records are collected.
 
-**`combined` reads all three**, which is what makes it the superset the
-docstring above claims. It omitted `repo_adr` until 2026-10-20, and the defect
-was invisible for as long as the only subject repository kept no decision
-records: including or excluding a source that yields nothing changes nothing.
-The first repository that keeps records beside its code showed it immediately -
-forty-one documents that `combined` never opened, while the screen offered the
-mode as "both, plus rules recovered from configuration".
+**`combined` is this repository's own two sources**: the decision records it
+keeps beside its code, and the rules reconstructed from its own executable
+configuration. One repository, two kinds of evidence about it.
+
+**The external repository is deliberately not in it**, and that is a change
+made on 2026-10-21 after the mode proved impossible to explain. A run that
+drew rules from *another* repository's decision records and from *this*
+repository's configuration is answering a question nobody asked: the two
+describe different systems unless somebody says they do not, and the screen
+offering it could not say which parts of a verdict came from where without a
+paragraph of caveat. Naming an external decision repository is a deliberate
+act, so it stays a deliberate mode of its own.
 
 Declared records come first so that, where a written decision and a
 reconstructed rule speak about the same relationship, the written one is the
-first the knowledge log holds for that key. Both declared sources therefore
-precede the scan, and the in-repository one precedes the external one: a team
-that keeps records in both places has the ones beside the code closer to it.
+first the knowledge log holds for that key - which is what makes a prose
+decision outrank a rule recovered from configuration about the same pair.
 """
 
 DEFAULT_MODE = "combined"

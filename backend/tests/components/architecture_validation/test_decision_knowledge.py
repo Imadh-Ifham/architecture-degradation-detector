@@ -600,14 +600,16 @@ def both_sources_request() -> SourceRequest:
         release_id="v0.10.0",
         extracted_at=SCANNED_AT,
         manifest_paths=("policy.yaml",),
-        adr_repository_id="architecture-decisions",
     )
 
 
 def both_sources_service(store: ListStore) -> DecisionKnowledgeService:
+    # Both documents sit in the code repository, because that is what
+    # `combined` now reads: one repository's written decisions and one
+    # repository's configuration, about one system.
     reader = MultiRepositoryReader(
         {
-            ("architecture-decisions", "docs/adr/0014-cart.md"): ADR_DOCUMENT,
+            (REPOSITORY, "docs/adr/0014-cart.md"): ADR_DOCUMENT,
             (REPOSITORY, "policy.yaml"): policy_permitting_what_the_adr_forbids(),
         }
     )
@@ -754,7 +756,13 @@ class TestARuleAboutEveryCaller:
 
 
 class TestWhenTwoSourcesDisagree:
-    """Mode 3's finding, and it needs no mechanism of its own."""
+    """`combined`'s finding, and it needs no mechanism of its own.
+
+    One repository that both writes its decisions down and runs a
+    configuration, where the two do not agree. That is a statement about the
+    system under study rather than about this component, which is why neither
+    source is dropped.
+    """
 
     def test_a_declared_record_and_a_reconstructed_rule_can_disagree(self):
         """Two events on one key, from two sources, saying different things.
@@ -768,7 +776,7 @@ class TestWhenTwoSourcesDisagree:
         resolution = service.resolve(contested_fact(), REPOSITORY)
 
         assert resolution.governing.decision_id == "ADR-014"
-        assert resolution.governing.source == "external_adr"
+        assert resolution.governing.source == "repo_adr"
         assert resolution.conflicting_sources == ("config_scan",)
 
     def test_both_sources_are_in_one_log_with_their_own_provenance(self):
@@ -785,6 +793,6 @@ class TestWhenTwoSourcesDisagree:
         }
 
         assert sources == {
-            "external_adr": "architecture-decisions",
+            "repo_adr": REPOSITORY,
             "config_scan": REPOSITORY,
         }

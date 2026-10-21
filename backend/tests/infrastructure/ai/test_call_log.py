@@ -31,6 +31,7 @@ from app.infrastructure.ai.interface import ConfiguredAIClient, VerdictCache
 from app.infrastructure.ai.model_configuration import (
     TASK_NARRATION,
     TASK_PRIMARY_VERDICT,
+    TASK_VERIFICATION,
     AISettings,
 )
 from app.infrastructure.ai.providers.fake import FakeProvider
@@ -188,6 +189,42 @@ class TestWhatTheLogRecords:
                 raise RuntimeError("the run fell over")
 
         assert len(calls) == 1
+
+
+class TestWhichModelsAreToldHowHardToThink:
+    """`reasoning_effort` is an OpenAI field, and sending it everywhere cost
+    more than it saved."""
+
+    def test_a_model_that_takes_it_is_sent_it(self, tmp_path):
+        provider = FakeProvider(VERDICT)
+        configured = settings(tmp_path, ai_reasoning_effort="low")
+        ai = ConfiguredAIClient(
+            provider,
+            settings=configured,
+            cache=VerdictCache(configured.ai_cache_directory, True),
+        )
+
+        ask(ai, task=TASK_PRIMARY_VERDICT)
+
+        assert provider.calls[0]["reasoning_effort"] == "low"
+
+    def test_a_model_that_does_not_is_sent_nothing(self, tmp_path):
+        """Measured against the real provider: the verifier answered with 821
+        completion tokens when the field was sent and 40 when it was absent,
+        so the dial added to spend fewer tokens was doubling the cost of the
+        most expensive call in a run."""
+
+        provider = FakeProvider(VERDICT)
+        configured = settings(tmp_path, ai_reasoning_effort="low")
+        ai = ConfiguredAIClient(
+            provider,
+            settings=configured,
+            cache=VerdictCache(configured.ai_cache_directory, True),
+        )
+
+        ask(ai, task=TASK_VERIFICATION)
+
+        assert provider.calls[0]["reasoning_effort"] == ""
 
 
 class TestWhenNothingIsCapturing:

@@ -23,13 +23,23 @@ Description:
 """
 
 import json
+import re
 import time
+from dataclasses import dataclass
 
 import httpx
 
 MAX_RATE_LIMIT_WAITS = 3
 FALLBACK_WAIT_SECONDS = 20.0
 MAX_WAIT_SECONDS = 60.0
+
+ASSUMED_CALL_TOKENS = 1200
+"""What one call is assumed to cost before any have been measured.
+
+Used only to decide whether to pace before the first response has reported a
+budget. Deliberately a little high: being early to wait costs a second, and
+being late costs a refused request out of a daily allowance.
+"""
 
 
 class ProviderError(RuntimeError):
@@ -54,7 +64,14 @@ class ProviderRateLimited(ProviderError):
     limit is worth waiting out, and everything else is worth reporting. On a
     free tier the limit is on tokens per minute, so this fires on a burst of
     large evidence packages rather than on a burst of requests.
+
+    It carries how long was spent waiting before it gave up, because that is
+    the whole of the time the call took and none of it was the model.
     """
+
+    def __init__(self, message: str, waited_seconds: float = 0.0) -> None:
+        super().__init__(message)
+        self.waited_seconds = waited_seconds
 
 
 def strictify(schema: dict) -> dict:
@@ -100,6 +117,17 @@ def strictify(schema: dict) -> dict:
     return result
 
 
+@dataclass
+class _Budget:
+    """One model's token allowance, as the provider last reported it."""
+
+    left: int | None = None
+    limit: int = 0
+    reset: float = 0.0
+    cost: int = ASSUMED_CALL_TOKENS
+    """What one call to this model costs, from the last one that answered."""
+
+
 class OpenAICompatibleProvider:
     """Calls a chat-completions endpoint and returns parsed JSON."""
 
@@ -130,6 +158,11 @@ class OpenAICompatibleProvider:
         self._client = client
         self._wait_out_rate_limits = wait_out_rate_limits
         self._sleep = sleep
+        # Per model, because the budgets are. One adapter serves every task,
+        # and the two models a run uses have separate buckets - so a single
+        # figure meant the verifier was paced against the reasoner's healthy
+        # budget, never waited, and earned a refusal on almost every call.
+        self._budget: dict[str, _Budget] = {}
 
     def complete(
         self,
@@ -139,6 +172,7 @@ class OpenAICompatibleProvider:
         strict: bool = True,
         temperature: float = 0.0,
         seed: int | None = 42,
+        reasoning_effort: str = "",
     ) -> dict:
         """Send one completion request and return the parsed content.
 
@@ -163,6 +197,13 @@ class OpenAICompatibleProvider:
         }
         if seed is not None:
             payload["seed"] = seed
+        if reasoning_effort:
+            # Tokens are the binding constraint on a per-minute tier, and the
+            # reasoning a model emits before its answer is tokens. Measured on
+            # a real verdict: low spent 815 total where the default spent
+            # 1001, for the same verdict, the same citation and an equivalent
+            # sentence. A provider that does not know the field ignores it.
+            payload["reasoning_effort"] = reasoning_effort
 
         response = self._post(payload)
         return self._content(response, model_id)
@@ -196,21 +237,36 @@ class OpenAICompatibleProvider:
         and then it is reported as a rate limit like before.
         """
 
+        waited = 0.0
+
+        model = str(payload.get("model", ""))
+
         for attempt in range(MAX_RATE_LIMIT_WAITS + 1):
+            waited += self._pace(model)
             result = self._send(payload)
+            self._remember_budget(model, result)
 
             if result.status_code != 429:
                 break
 
             if not self._wait_out_rate_limits or attempt == MAX_RATE_LIMIT_WAITS:
+                # The waiting is on the error too. A call that waited a
+                # minute and then gave up was reporting `waited: 0`, so the
+                # transcript showed a seventy-second model where there was a
+                # seventy-second queue - the exact confusion this accounting
+                # was added to end, surviving on the one path that does not
+                # return a body.
                 raise ProviderRateLimited(
                     "The provider rate-limited this request and it did not clear "
-                    f"after {attempt} wait(s). On a free tier the limit is tokens "
-                    "per minute, so a burst of large evidence packages is the "
-                    "usual cause."
+                    f"after {attempt} wait(s) totalling {waited:.0f}s. On a free "
+                    "tier the limit is tokens per minute, so a burst of large "
+                    "evidence packages is the usual cause.",
+                    waited_seconds=waited,
                 )
 
-            self._sleep(_retry_after(result))
+            wait = _retry_after(result)
+            waited += wait
+            self._sleep(wait)
 
         if result.status_code >= 400:
             # The body carries which part of the schema was refused, and
@@ -220,9 +276,68 @@ class OpenAICompatibleProvider:
             )
 
         try:
-            return result.json()
+            body = result.json()
         except ValueError as error:
             raise ProviderError("The provider's response was not JSON.") from error
+
+        # Carried out with the body so the caller can tell a slow model from a
+        # slow tier. Without it a four-second call looks like the model
+        # thinking, when it is three and a half seconds of waiting for a
+        # token budget to refill and half a second of answering.
+        body["waited_seconds"] = waited
+        return body
+
+    def _pace(self, model: str) -> float:
+        """Wait before sending when the budget will not cover this call.
+
+        **Asking and being refused is not free.** A burst against a
+        tokens-per-minute cap spends a request out of the daily allowance for
+        every refusal, and a measured burst of seventeen calls was refused
+        eleven times - eleven requests bought nothing but a `retry-after`
+        header. Reading the budget the provider already reports and waiting
+        first turns those into one planned pause.
+
+        Returns the seconds spent, so the caller can report waiting apart
+        from answering.
+        """
+
+        budget = self._budget.get(model)
+        if not self._wait_out_rate_limits or budget is None or budget.left is None:
+            return 0.0
+
+        shortfall = budget.cost - budget.left
+        if shortfall <= 0:
+            return 0.0
+
+        # Wait for the shortfall to refill, not for the window to reset.
+        # `x-ratelimit-reset-tokens` is when the bucket is *full* again, and
+        # waiting that long for the few hundred tokens one call is short was
+        # the difference between a four-minute release and a twelve-minute
+        # one. The bucket refills continuously at limit-per-minute.
+        per_second = budget.limit / 60.0 if budget.limit else 0.0
+        wait = shortfall / per_second if per_second else budget.reset
+        wait = min(max(wait, 0.0), MAX_WAIT_SECONDS)
+        if wait <= 0:
+            return 0.0
+
+        self._sleep(wait)
+        # Assumed refilled by that much. The next response reports the truth
+        # either way, and guessing low costs one ordinary retry-after wait.
+        budget.left = None
+        return wait
+
+    def _remember_budget(self, model: str, response: httpx.Response) -> None:
+        """Keep what the provider said about this model's token budget."""
+
+        budget = self._budget.setdefault(model, _Budget())
+
+        budget.left = _whole(response.headers.get("x-ratelimit-remaining-tokens"))
+        budget.limit = _whole(response.headers.get("x-ratelimit-limit-tokens")) or 0
+        budget.reset = _seconds(response.headers.get("x-ratelimit-reset-tokens"))
+
+        used = (response.json().get("usage") or {}) if _is_json(response) else {}
+        if used.get("total_tokens"):
+            budget.cost = int(used["total_tokens"])
 
     def _send(self, payload: dict) -> httpx.Response:
         """One HTTP round trip, with transport failures translated."""
@@ -273,6 +388,10 @@ class OpenAICompatibleProvider:
             "content": parsed,
             "model_id": response.get("model", requested_model),
             "usage": response.get("usage", {}),
+            # Carried through rather than recomputed. It belongs to the round
+            # trip, not to the answer, and this is the last place that still
+            # has both.
+            "waited_seconds": response.get("waited_seconds", 0.0),
         }
 
 
@@ -292,3 +411,51 @@ def _retry_after(response: httpx.Response) -> float:
         wanted = FALLBACK_WAIT_SECONDS
 
     return min(max(wanted, 1.0), MAX_WAIT_SECONDS)
+
+
+def _is_json(response: httpx.Response) -> bool:
+    """Whether the body can be read as JSON, without raising if it cannot."""
+
+    try:
+        response.json()
+    except ValueError:
+        return False
+    return True
+
+
+def _seconds(raw: str | None) -> float:
+    """A provider's reset value as seconds.
+
+    The header is written as a duration - `547ms`, `1m6.2s`, `3.5s` - rather
+    than as a number, so it is parsed rather than cast. An unreadable value is
+    no wait at all: pacing is an optimisation, and a wrong guess here must not
+    stall a run.
+    """
+
+    if not raw:
+        return 0.0
+
+    match = re.fullmatch(
+        r"(?:(?P<m>[\d.]+)m)?(?:(?P<s>[\d.]+)s)?|(?P<ms>[\d.]+)ms", raw.strip()
+    )
+    if match is None:
+        return 0.0
+
+    if match.group("ms"):
+        return float(match.group("ms")) / 1000.0
+
+    total = 0.0
+    if match.group("m"):
+        total += float(match.group("m")) * 60.0
+    if match.group("s"):
+        total += float(match.group("s"))
+    return total
+
+
+def _whole(raw: str | None) -> int | None:
+    """A header as a whole number, or None when it is not one."""
+
+    try:
+        return int(raw) if raw is not None else None
+    except ValueError:
+        return None

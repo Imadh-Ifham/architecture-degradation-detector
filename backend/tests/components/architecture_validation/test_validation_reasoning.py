@@ -513,6 +513,7 @@ def reasoner(
     provider: FakeProvider,
     cache: VerdictCache | None = None,
     allow_arbiter_only: bool = True,
+    use_models: bool = True,
 ):
     """The real service over the real client, with a scripted provider.
 
@@ -542,6 +543,7 @@ def reasoner(
         TASKS,
         provider="fake",
         allow_arbiter_only=allow_arbiter_only,
+        use_models=use_models,
     )
 
 
@@ -845,6 +847,71 @@ class TestTheVerdictAndTheLadder:
         assert first.cached is False and first.ladder_rung == 1
         assert again.cached is True and again.ladder_rung == 0
         assert ai.call_count == 1
+
+
+class TestWhenThisRunDoesNotUseModels:
+    """The rollback for a demonstration with no network and no warm cache.
+
+    Its whole value is that it is **visibly** the table. A faster run that
+    reported a model id and a model-shaped reasoning sentence would be
+    presenting deterministic output as a language model's, in an artifact
+    whose central claim is that every verdict says how it was reached.
+    """
+
+    def test_not_one_call_is_made(self):
+        provider = FakeProvider(answer())
+
+        reasoner(provider, use_models=False).judge(package(), confirms())
+
+        assert provider.call_count == 0
+
+    def test_the_table_still_decides_every_governed_fact(self):
+        """The run completes. That is the point of having a rollback."""
+
+        verdict = reasoner(FakeProvider(answer()), use_models=False).judge(
+            package(), confirms()
+        )
+
+        assert verdict.verdict is Verdict.CONFIRMS
+        assert verdict.cited_evidence_refs
+
+    def test_the_verdict_says_no_model_produced_it(self):
+        verdict = reasoner(FakeProvider(answer()), use_models=False).judge(
+            package(), confirms()
+        )
+
+        assert verdict.produced_by is VerdictSource.ARBITER
+        assert verdict.model_id == "none"
+        assert verdict.schema_mode == ""
+
+    def test_not_asked_is_worded_apart_from_unreachable(self):
+        """Two different findings about a run, and the one that is a choice
+        must not borrow the words of the one that is a fault. The component
+        already keeps this distinction for the verifier."""
+
+        chosen = reasoner(FakeProvider(answer()), use_models=False).judge(
+            package(), confirms()
+        )
+        unreachable = reasoner(
+            FakeProvider(answer(), fail_times=9)
+        ).judge(package(), confirms())
+
+        assert "No model was asked" in chosen.reasoning
+        assert "configured not to use them" in chosen.reasoning
+        assert "No model was available" in unreachable.reasoning
+        assert chosen.reasoning != unreachable.reasoning
+
+    def test_an_abstaining_table_still_claims_nothing(self):
+        """No model and no rule the table can read is not a verdict, and the
+        rollback is not allowed to invent one to stay useful."""
+
+        verdict = reasoner(FakeProvider(answer()), use_models=False).judge(
+            package(), abstains()
+        )
+
+        assert verdict.verdict is Verdict.INSUFFICIENT_EVIDENCE
+        assert verdict.cited_evidence_refs == ()
+        assert "No model was asked" in verdict.reasoning
 
 
 class TestTheThreeWayComparison:

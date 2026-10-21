@@ -97,7 +97,40 @@ class AISettings(BaseSettings):
     # whose numbers will be reported, because without a key every governed
     # fact degrades to the table and a suite that accepted those would pass
     # while measuring nothing.
+    ai_use_models: bool = True
+    """Whether this deployment asks a model at all.
+
+    True is every ordinary run. False is the rollback for a demonstration
+    with no network *and* no warmed cache: the reasoner is not called, the
+    verifier is not called, and every governed fact is decided by the
+    deterministic table.
+
+    It is separate from `ai_cache_enabled` because the two answer different
+    questions. A warm cache makes a repeat run instant **and keeps the
+    model's own verdicts**, which is what a demonstration should use. This
+    flag is for when there is nothing to replay either.
+
+    Nothing produced under `false` is allowed to look like a model answered
+    it: the verdicts carry `produced_by: arbiter`, a model id of "none", and
+    a sentence saying the models were not asked. A faster run that claimed
+    otherwise would be presenting the table's output as a language model's.
+    """
+
     ai_allow_arbiter_only: bool = True
+
+    ai_reasoning_effort: str = "low"
+    """How much thinking a reasoning model emits before it answers.
+
+    Empty leaves the provider's default. `low` is the default here because
+    the binding constraint on a per-minute tier is tokens, and this is the
+    one dial that reduces them without shortening the evidence.
+
+    Measured on a real verdict from the corpus: `low` spent 815 total tokens
+    where the provider's default spent 1001, and returned the same verdict,
+    the same citation and an equivalent reasoning sentence. The sentence is
+    read by a person, so this is checked against the output rather than
+    assumed - if the reasoning stops being worth reading, raise it.
+    """
 
     ai_schema_mode: str = SCHEMA_MODE_STRICT
     ai_temperature: float = 0.0

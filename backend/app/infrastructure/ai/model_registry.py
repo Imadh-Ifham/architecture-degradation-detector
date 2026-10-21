@@ -32,6 +32,19 @@ class ModelCapabilities:
     supports_strict_schema: bool
     context_tokens: int
     free_tier: bool
+    supports_reasoning_effort: bool = False
+    """Whether `reasoning_effort` means what it says to this model.
+
+    It is an OpenAI parameter, and on the gpt-oss models `low` does what it
+    promises: measured on a real verdict, 82 completion tokens against 223.
+
+    **On a model that does not take it, sending it is not ignored - it is
+    worse than not sending it.** The verifier emitted 821 completion tokens
+    with `low` and 40 with the field absent, so the one dial added to save
+    tokens was doubling the cost of the call that was already the expensive
+    one. Recorded here rather than guessed, which is this file's whole job.
+    """
+
     notes: str = ""
 
 
@@ -41,6 +54,7 @@ _KNOWN = (
         supports_strict_schema=True,
         context_tokens=131_072,
         free_tier=True,
+        supports_reasoning_effort=True,
         notes="Default reasoner. Strict schema support is the reason it is the default.",
     ),
     ModelCapabilities(
@@ -48,6 +62,7 @@ _KNOWN = (
         supports_strict_schema=True,
         context_tokens=131_072,
         free_tier=True,
+        supports_reasoning_effort=True,
         notes="Larger sibling. Same strict support, lower rate limit.",
     ),
     ModelCapabilities(

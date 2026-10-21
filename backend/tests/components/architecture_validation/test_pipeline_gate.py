@@ -1457,6 +1457,7 @@ class CitingProvider(FakeProvider):
         strict: bool = True,
         temperature: float = 0.0,
         seed: int | None = 42,
+        reasoning_effort: str = "",
     ) -> dict:
         self._responses = {
             "reasoning": "the rule in this package names the dependency",
@@ -2533,6 +2534,7 @@ class ArmAwareProvider:
         strict=True,
         temperature=0.0,
         seed=42,
+        reasoning_effort="",
     ) -> dict:
         self.calls.append({"model_id": model_id, "prompt": prompt, "strict": strict})
 

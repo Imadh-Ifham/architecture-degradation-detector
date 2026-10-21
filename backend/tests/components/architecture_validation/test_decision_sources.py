@@ -56,7 +56,7 @@ PERMITTED_PAIRS = 17
 
 Sixteen name a pair. The seventeenth is `loadgenerator`'s policy, whose
 ingress rule names no peer at all - which in Kubernetes admits every source,
-and which this read as nothing until 2026-10-22. Reading it as nothing did not
+and which this read as nothing until 2026-10-21. Reading it as nothing did not
 lose a permission quietly: the default refusal is still in force, so the pair
 fell through to it and was published as a violation of a policy that allows
 it."""
@@ -730,19 +730,31 @@ class TestWhatEachModeWouldFind:
         with pytest.raises(ValueError, match="repo_adr"):
             sources_for("whatever_we_can_find", WorkspaceReader())
 
-    def test_combined_reads_every_source_declared_before_reconstructed(self):
+    def test_combined_is_this_repository_declared_before_reconstructed(self):
         """Where a written decision and a reconstructed rule speak about one
         relationship, the written one should be the first the log holds.
 
-        **Both** declared sources are in it. This assertion read
-        `["external_adr", "config_scan"]` until 2026-10-20 and so codified a
-        mode that silently skipped the records kept beside the code - which
-        nothing could detect while the only subject repository had none.
+        **It is one repository's two kinds of evidence about itself.** The
+        external decision repository is deliberately not in it: rules drawn
+        from another repository's records and from this one's configuration
+        describe two systems unless somebody says they do not, and naming an
+        external repository is a deliberate act that keeps its own mode.
         """
 
         order = [source.name for source in sources_for("combined", WorkspaceReader())]
 
-        assert order == ["repo_adr", "external_adr", "config_scan"]
+        assert order == ["repo_adr", "config_scan"]
+
+    def test_the_external_repository_is_reachable_only_through_its_own_mode(self):
+        """Asserted so that putting it back into `combined` for convenience
+        is a change somebody has to make deliberately."""
+
+        assert "external_adr" not in [
+            source.name for source in sources_for("combined", WorkspaceReader())
+        ]
+        assert [
+            source.name for source in sources_for("external_adr", WorkspaceReader())
+        ] == ["external_adr"]
 
 class TestWhereARuleWasRead:
     """A citation has to be showable, which means lines rather than a file.

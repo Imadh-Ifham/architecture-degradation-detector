@@ -30,6 +30,7 @@ from ._events import (
     DECISION_BACKDATED,
     DECISION_RECORDED,
     DECISION_SUPERSEDED,
+    RELEASE_SCANNED,
     changes,
     confirmed_event,
     record_hash,
@@ -346,7 +347,7 @@ class DecisionKnowledgeService:
                 for versions in index.versions.values()
                 for version in versions
                 if version.covers(release_id)
-                and CONSTRAINT_RELATIONSHIP.get(version.record.constraint) is not None
+                and CONSTRAINT_RELATIONSHIP.get(version.record.constraint)
                 and WILDCARD not in (version.record.subject, version.record.object)
                 and (
                     canonical_name(version.record.subject),
@@ -360,6 +361,57 @@ class DecisionKnowledgeService:
         """The decision history for one repository, replayed."""
 
         return DecisionIndex.from_events(self._replay(repository_id))
+
+    def movement(self, repository_id: str) -> list[dict]:
+        """What each scanned release changed, in the order they were scanned.
+
+        The count a reader is shown for one release answers *how many rules
+        are in force*, and two releases with the same count are the question
+        it cannot answer: the same rules, or a different set of the same
+        size? This is that answer, and the log already held every part of it.
+
+        Read out of the events rather than recomputed from the trees. A
+        second derivation would be a second opinion about what happened, and
+        the log is the one that was acted on.
+        """
+
+        movement: list[dict] = []
+        pending: list[dict] = []
+
+        for event in self._replay(repository_id):
+            kind = event.get("event")
+
+            if kind == DECISION_SUPERSEDED:
+                pending.append(
+                    {
+                        "decision_id": event.get("decision_id"),
+                        "constraint": event.get("constraint"),
+                        "subject": event.get("subject"),
+                        "object": event.get("object"),
+                        "reason": event.get("reason"),
+                    }
+                )
+                continue
+
+            if kind != RELEASE_SCANNED:
+                continue
+
+            movement.append(
+                {
+                    "release_id": event.get("release_id"),
+                    "recorded": event.get("recorded", 0),
+                    "closed": event.get("closed", 0),
+                    # `unchanged` is on the append outcome and not on the
+                    # event, so it is not reported here. A zero would read as
+                    # *nothing carried forward*, which is the opposite of
+                    # what a quiet release means.
+                    "sources": list(event.get("sources") or ()),
+                    "withdrawn": pending,
+                }
+            )
+            pending = []
+
+        return movement
 
     def _replay(self, repository_id: str) -> list[dict]:
         if self._store is None:
@@ -432,7 +484,7 @@ class DecisionKnowledgeService:
                 [
                     record
                     for record in extracted
-                    if CONSTRAINT_RELATIONSHIP.get(record.constraint) is not None
+                    if CONSTRAINT_RELATIONSHIP.get(record.constraint)
                 ]
             ),
         )

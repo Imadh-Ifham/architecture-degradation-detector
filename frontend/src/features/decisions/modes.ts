@@ -1,6 +1,13 @@
 /**
  * The three decision sources, in a person's words.
  *
+ *   **`combined` is this repository and nothing else** — its written records
+ *   and its own configuration. It deliberately does not reach into the
+ *   external decision repository: rules taken from another repository's
+ *   records and from this one's configuration describe two systems unless
+ *   somebody says they do not, and that caveat cannot be put on a card.
+ *   Naming an external repository stays its own deliberate choice.
+ *
  * Description:
  *   One definition, because the decisions list, the row for each release and
  *   the pipeline all name the same three things. Two copies of these strings
@@ -31,10 +38,10 @@ export const MODE: Record<
     detail: 'For teams that keep their decisions outside the codebase.',
   },
   combined: {
-    title: 'Both, plus rules recovered from configuration',
-    short: 'Both, plus configuration',
+    title: 'This repository: its records and its configuration',
+    short: 'Records and configuration',
     detail:
-      'The only option that produces a result on a repository holding no written decisions.',
+      'One system, judged against everything it says about itself. The only option that produces a result on a repository holding no written decisions.',
   },
 }
 
@@ -46,7 +53,7 @@ export const READS_FROM: Record<
   repo_adr: [{ glyph: 'MD', label: 'decision records in this repository' }],
   external_adr: [{ glyph: 'MD', label: 'decision records in another repository' }],
   combined: [
-    { glyph: 'MD', label: 'decision records, where a repository keeps any' },
+    { glyph: 'MD', label: 'decision records in this repository, where it keeps any' },
     { glyph: 'YML', label: 'network policies and identity manifests' },
     { glyph: 'PRO', label: 'service contracts (.proto)' },
   ],
