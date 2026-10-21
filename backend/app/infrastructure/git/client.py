@@ -76,6 +76,11 @@ class GitClient:
         A bare commit SHA is not a ref, so it is fetched as one object first
         and the full history is the fallback for a server that refuses that.
         Either way the checked-out tree is one revision, never a moving tip.
+
+        A revision that does not exist is answered before the full clone: a
+        mistyped tag is the most common way this fails, and cloning a large
+        repository only to discover it is not there costs minutes and produces
+        an error about `checkout`'s grammar rather than about the tag.
         """
 
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -107,12 +112,74 @@ class GitClient:
                 "-C", str(destination), "fetch", "--depth", "1", "origin", revision
             )
             self._run("-C", str(destination), "checkout", "--detach", "FETCH_HEAD")
+            return
         except GitCommandError:
-            # A server that refuses to serve a bare SHA. The full clone is the
-            # only way left to obtain that exact tree.
+            # Either a server that refuses to serve a bare SHA, or a revision
+            # that does not exist at all. The remote can answer which, without
+            # transferring a repository to find out.
             _discard(destination)
-            self._run("clone", "--no-checkout", "--", url, str(destination))
+            self._refuse_an_absent_revision(url, revision)
+
+        self._run("clone", "--no-checkout", "--", url, str(destination))
+
+        try:
             self._run("-C", str(destination), "checkout", "--detach", revision)
+        except GitCommandError as error:
+            # Belt and braces: git reports an unknown revision passed to
+            # `checkout --detach` as "does not take a path argument", which
+            # says nothing about the revision being absent.
+            raise GitCommandError(
+                error.command, error.returncode, _absent_revision_message(revision)
+            ) from error
+
+    def _refuse_an_absent_revision(self, url: str, revision: str) -> None:
+        """Raise naming the missing revision, when the remote does not serve it.
+
+        Only refs can be checked this way: a bare commit SHA is not listed by
+        `ls-remote`, so a SHA falls through to the full clone. When the remote
+        cannot be listed, nothing is concluded and the caller tries the clone.
+        """
+
+        refs = self._remote_refs(url)
+
+        if refs is None or _is_commit_sha(revision) or revision in refs:
+            return
+
+        near = sorted(
+            {
+                name
+                for name in refs
+                if name.lstrip("vV") == revision.lstrip("vV")
+            }
+        )
+        message = _absent_revision_message(revision, near)
+
+        raise GitCommandError(
+            ["git", "ls-remote", "--refs", url], 128, message
+        )
+
+    def _remote_refs(self, url: str) -> set[str] | None:
+        """Every tag and branch name the remote serves, or None if unlistable.
+
+        Names are returned as a caller would type them: `3.1.0` and
+        `release/v3.1.0`, not `refs/tags/3.1.0`.
+        """
+
+        output = self._try("ls-remote", "--refs", "--tags", "--heads", url)
+
+        if output is None:
+            return None
+
+        names: set[str] = set()
+
+        for line in output.splitlines():
+            _, _, reference = line.partition("\t")
+
+            for prefix in ("refs/tags/", "refs/heads/"):
+                if reference.startswith(prefix):
+                    names.add(reference[len(prefix) :])
+
+        return names
 
     def head_commit(self, repository: Path) -> str:
         """Return the full commit SHA currently checked out in `repository`."""
@@ -220,9 +287,33 @@ class GitClient:
 
 def _discard(path: Path) -> None:
     """Remove a half-built clone without letting cleanup mask the real error."""
-
     shutil.rmtree(path, ignore_errors=True)
 
+
+def _is_commit_sha(revision: str) -> bool:
+    """Whether a revision is a full commit SHA, which `ls-remote` cannot list."""
+
+    return len(revision) == 40 and all(
+        character in "0123456789abcdefABCDEF" for character in revision
+    )
+
+
+def _absent_revision_message(revision: str, near: list[str] | None = None) -> str:
+    """Say that a revision is not in the repository, and what is.
+
+    A near miss is named when one exists, because the common mistake is a
+    tag typed with the wrong prefix - `v3.1.0` where the repository tags
+    `3.1.0` - and the answer is then one edit away rather than a hunt.
+    """
+
+    message = (
+        f"'{revision}' is not a tag, branch or commit in this repository."
+    )
+
+    if near:
+        message += f" Did you mean {', '.join(near)}?"
+
+    return message
 
 def _parse_date(value: str | None) -> datetime | None:
     """Read an ISO 8601 timestamp from git, preserving its timezone."""
