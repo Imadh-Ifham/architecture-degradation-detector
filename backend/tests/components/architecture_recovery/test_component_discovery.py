@@ -622,3 +622,40 @@ def test_summary_counts_agree_with_the_collections() -> None:
         )
 
         assert summary["direct_association_count"] == direct
+
+
+# --------------------------------------------------------------------------- #
+# 9. Deployment images whose name is only known at deploy time
+# --------------------------------------------------------------------------- #
+
+
+def test_services_whose_images_differ_only_by_substitution_stay_separate() -> None:
+    """`${IMAGE_NAME}:${DEMO_VERSION}-cart` and `...-payment` are different images.
+
+    Both normalise to `${image_name}`, so a shared image name identifies neither
+    of them. Treating it as evidence merged an entire topology into one component.
+    """
+
+    payload = document("interpolated_image")
+
+    assert payload["summary"]["component_count"] == 3
+    assert sorted(item["name"] for item in payload["components"]) == [
+        "cache",
+        "cart",
+        "payment",
+    ]
+
+    for name in ("cart", "payment"):
+        component = component_named(payload, name)
+
+        assert len(component["artifact_ids"]) == 1
+        assert "shared_image_reference" not in rules_of(component)
+
+
+def test_a_literal_shared_image_still_merges() -> None:
+    """The interpolation guard must not disable image-based merging altogether."""
+
+    component = component_named(document("interpolated_image"), "cache")
+
+    assert len(component["artifact_ids"]) == 2
+    assert "shared_image_reference" in rules_of(component)
