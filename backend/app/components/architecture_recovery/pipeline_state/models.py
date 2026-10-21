@@ -89,6 +89,9 @@ class SnapshotState:
     release_tag: str
     workspace_id: str
     stage: SnapshotStage
+    repository_id: str = ""
+    """The identity the architecture is stored under, shared by its releases."""
+
     clone: CloneState | None = None
     recovery: RecoveryState | None = None
 
@@ -111,6 +114,7 @@ class SnapshotState:
             "branch": self.branch,
             "release_tag": self.release_tag,
             "workspace_id": self.workspace_id,
+            "repository_id": self.repository_id,
             "stage": self.stage.value,
             "needs_clone": self.needs_clone,
             "needs_recovery": self.needs_recovery,

@@ -213,3 +213,37 @@ def test_the_workspace_id_is_the_one_ingestion_writes(
     assert service.state(configuration()).workspace_id == build_revision_repository_id(
         URL, RELEASE
     )
+
+
+def test_the_repository_key_is_carried_even_when_nothing_is_cloned(
+    service: PipelineStateService,
+) -> None:
+    """A validation run is keyed by the repository, which the url alone gives.
+
+    The pipeline looks a snapshot's validation run up by this key. Reading it
+    only out of a recovery payload meant a snapshot whose recovery was skipped
+    could not find the run that had just judged it, and the flow stopped after
+    validation.
+    """
+
+    assert service.state(configuration()).repository_id == build_repository_key(URL)
+
+
+def test_every_release_of_one_repository_shares_the_repository_key(
+    service: PipelineStateService, tmp_path: Path
+) -> None:
+    checkout(tmp_path)
+
+    other = RepositoryConfiguration(
+        id=configuration_id_for(URL, BRANCH, "v2.0.0"),
+        url=URL,
+        branch=BRANCH,
+        release_tag="v2.0.0",
+        created_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+
+    first = service.state(configuration())
+    second = service.state(other)
+
+    assert first.repository_id == second.repository_id
+    assert first.workspace_id != second.workspace_id

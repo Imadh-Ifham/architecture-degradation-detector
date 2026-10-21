@@ -69,6 +69,11 @@ export interface ConfigurationState {
   release_tag: string
   /** The directory ingestion derives from the url and revision. */
   workspace_id: string
+  /**
+   * The identity the architecture is stored under, shared by every release of
+   * the repository. It is what a validation run is keyed by.
+   */
+  repository_id: string
   stage: SnapshotStage
   needs_clone: boolean
   needs_recovery: boolean

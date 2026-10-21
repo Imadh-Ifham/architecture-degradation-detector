@@ -1060,6 +1060,23 @@ def test_each_snapshot_of_one_repository_is_reported_separately(
     assert by_release["v1.0.0"]["workspace_id"] != by_release["v2.0.0"]["workspace_id"]
 
 
+def test_every_release_reports_the_key_a_validation_run_is_stored_under(
+    client: TestClient,
+) -> None:
+    """The pipeline finds a snapshot's run by this key, including after a skip.
+
+    A validation run is keyed by the repository, so both releases of one url
+    have to report the same `repository_id` even before either is cloned.
+    """
+
+    configure(client, release="v1.0.0")
+    configure(client, release="v2.0.0")
+
+    [key] = {state["repository_id"] for state in states(client)}
+
+    assert key.startswith("repo-")
+
+
 def snapshot_url(client: TestClient, release: str = "v1.0.0") -> tuple[str, str]:
     """Recover one release and return the url that reads its details."""
 

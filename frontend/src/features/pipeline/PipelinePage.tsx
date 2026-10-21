@@ -116,6 +116,7 @@ export default function PipelinePage() {
     snapshotStates,
     snapshotStatesError,
     isLoadingSnapshotStates,
+    repositoryKey,
   } = useWorkspace()
 
   const described = useRequest((options) => describePipeline(options), [])
@@ -216,7 +217,15 @@ export default function PipelinePage() {
 
   // A run reaches this screen through the session's runs, not through the
   // snapshot, because the decisions screen is what started it.
-  const validated = pipelineSnapshots.some((snapshot) => runFor(snapshot, runs))
+  //
+  // **Asked of the repository, not of the rows.** Detection reads every
+  // published graph of the selected repository, so a validation of any of its
+  // releases is what unlocks it. Deriving it from the rows alone meant a stack
+  // whose snapshots were already recovered had nothing to match a run against,
+  // and the flow stopped dead after a successful validation.
+  const validated =
+    Object.keys(runs).some((key) => key.startsWith(`${repositoryKey}::`)) ||
+    pipelineSnapshots.some((snapshot) => runFor(snapshot, runs))
 
   // Scoring ranks the current detection run, from its own card; the phase is
   // complete once that run has its ranking (`score-<detection run>`). A
@@ -1279,12 +1288,22 @@ function countedFacts(run: ValidationRun | undefined): number {
  * reaches this screen through the runs the session remembers. Keyed by the
  * identity recovery stores the architecture under, which is the key the run
  * was started with.
+ *
+ * **The key survives a skipped recovery.** A snapshot the run left alone has
+ * no recovery payload to read it from, and reading it only from there meant a
+ * validated row reported no run - so the pipeline stayed convinced nothing had
+ * been judged and never unlocked detection. The stored state knows the
+ * repository either way.
  */
 function runFor(
   snapshot: SnapshotRun | undefined,
   runs: Record<string, ValidationRun>,
 ): ValidationRun | undefined {
-  const key = snapshot?.recovery?.repository_id
+  if (!snapshot) return undefined
+
+  const key =
+    snapshot.recovery?.repository_id ?? snapshot.stored?.repository_id ?? null
+
   if (!key) return undefined
 
   return runs[runKey(key, snapshot.configuration.release_tag)]

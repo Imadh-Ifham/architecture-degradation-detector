@@ -206,6 +206,8 @@ class ConfigurationStateResponse(BaseModel):
 
     `stage` is `pending`, `cloned` or `recovered`. The `needs_*` flags say the
     same thing from the pipeline's side: a run only does the work they name.
+    `repository_id` is the identity the architecture is stored under, which is
+    how a screen finds this snapshot's validation run after skipping a clone.
     """
 
     configuration_id: str
@@ -213,6 +215,7 @@ class ConfigurationStateResponse(BaseModel):
     branch: str
     release_tag: str
     workspace_id: str
+    repository_id: str
     stage: str
     needs_clone: bool
     needs_recovery: bool

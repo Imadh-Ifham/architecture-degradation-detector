@@ -33,6 +33,7 @@ from app.components.architecture_recovery.repository_ingestion.errors import (
 )
 from app.components.architecture_recovery.repository_ingestion.service import (
     RepositoryIngestionService,
+    build_repository_key,
 )
 from app.domain.repository import IngestedRepository
 from app.domain.repository_configuration import RepositoryConfiguration
@@ -94,6 +95,7 @@ class PipelineStateService:
             release_tag=configuration.release_tag,
             workspace_id=workspace_id,
             stage=SnapshotStage.RECOVERED if recovery else SnapshotStage.CLONED,
+            repository_id=build_repository_key(configuration.url),
             clone=clone,
             recovery=recovery,
         )
@@ -107,6 +109,7 @@ def _pending(configuration: RepositoryConfiguration, workspace_id: str) -> Snaps
         release_tag=configuration.release_tag,
         workspace_id=workspace_id,
         stage=SnapshotStage.PENDING,
+        repository_id=build_repository_key(configuration.url),
     )
 
 
