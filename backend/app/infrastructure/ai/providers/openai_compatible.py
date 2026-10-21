@@ -178,6 +178,7 @@ class OpenAICompatibleProvider:
         temperature: float = 0.0,
         seed: int | None = 42,
         reasoning_effort: str = "",
+        max_output_tokens: int = 0,
     ) -> dict:
         """Send one completion request and return the parsed content.
 
@@ -204,6 +205,12 @@ class OpenAICompatibleProvider:
         }
         if seed is not None:
             payload["seed"] = seed
+        if max_output_tokens:
+            # Sent on every call, because a provider that is told nothing
+            # assumes its own default and may refuse the request for
+            # exceeding a per-minute output cap it compares against the
+            # *requested* maximum rather than the answer.
+            payload["max_tokens"] = max_output_tokens
         if reasoning_effort:
             # Tokens are the binding constraint on a per-minute tier, and the
             # reasoning a model emits before its answer is tokens. Measured on
@@ -267,6 +274,20 @@ class OpenAICompatibleProvider:
 
             if result.status_code != 429:
                 break
+
+            if _is_permanent(result):
+                # **A 429 is not always a queue.** A provider returns it too
+                # when the request can never be served as written - an output
+                # ceiling above a per-minute cap, say - and waiting for that
+                # to clear is waiting for something that will not happen.
+                # Seventeen facts each waited, each retried, each failed:
+                # minutes of nothing, reported as a busy provider. Reported as
+                # an outage instead, which is what it is, so the ladder moves
+                # on at once.
+                raise ProviderError(
+                    "The provider refused this request and will refuse it "
+                    f"again as written: {result.text[:300]}"
+                )
 
             if not self._wait_out_rate_limits or attempt == MAX_RATE_LIMIT_WAITS:
                 # The waiting is on the error too. A call that waited a
@@ -541,3 +562,19 @@ def _missing_fields(parsed: object, schema: dict) -> list[str]:
         return []
 
     return [str(field) for field in required if field not in parsed]
+
+
+def _is_permanent(response: httpx.Response) -> bool:
+    """Whether a 429 says the request can never be served as written.
+
+    Read off the message rather than guessed from headers: a provider that
+    rejects a request for asking too much says so in words, and the words are
+    the only place that distinction exists. Everything else is a queue and is
+    worth waiting for.
+    """
+
+    body = response.text.lower()
+    return any(
+        phrase in body
+        for phrase in ("reduce max_tokens", "request too large", "context length")
+    )

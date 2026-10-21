@@ -28,10 +28,10 @@ Description:
 
 import hashlib
 import json
-import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -194,7 +194,7 @@ class ConfiguredAIClient:
         self._local_provider = local_provider
         self._verifier_provider = verifier_provider
         self._call_log = call_log
-        self._ignoring = threading.local()
+        self._ignoring: ContextVar = ContextVar("ignoring_the_cache", default=False)
 
     def _provider_for(self, task: str):
         """Return the adapter that reaches `task`'s endpoint.
@@ -241,17 +241,22 @@ class ConfiguredAIClient:
         task and hands over evidence. Same placement, and the same reason, as
         the call log's capture.
 
-        Thread-local, because the client is process-wide and a run is one
-        request: a flag on the instance would make one caller's refresh
-        everybody's.
+        **A context variable, not a thread-local.** The client is
+        process-wide and a run is one request, so a flag on the instance would
+        make one caller's refresh everybody's - but a thread-local is invisible
+        to any worker the run starts, and a run that fans out would then read
+        from the cache on every worker while reporting itself as a cold run.
+        That is the one failure this flag must not have: it exists so a person
+        can be sure the models were asked. A `ContextVar` is copied into each
+        worker, so the refresh travels with the work.
         """
 
-        previous = getattr(self._ignoring, "on", False)
-        self._ignoring.on = True
+        previous = self._ignoring.get()
+        self._ignoring.set(True)
         try:
             yield
         finally:
-            self._ignoring.on = previous
+            self._ignoring.set(previous)
 
     def complete(
         self,
@@ -297,7 +302,7 @@ class ConfiguredAIClient:
             effort,
         )
         started = time.perf_counter()
-        cached = None if getattr(self._ignoring, "on", False) else self._cache.get(key)
+        cached = None if self._ignoring.get() else self._cache.get(key)
         if cached is not None:
             self._log(
                 task,
@@ -326,6 +331,7 @@ class ConfiguredAIClient:
                 prompt=prompt,
                 schema=schema,
                 schema_mode=schema_mode,
+                max_output_tokens=self._settings.ai_max_output_tokens,
                 temperature=self._settings.ai_temperature,
                 seed=self._settings.ai_seed,
                 reasoning_effort=effort,

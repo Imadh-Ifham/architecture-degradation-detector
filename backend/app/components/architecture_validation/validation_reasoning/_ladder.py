@@ -34,8 +34,8 @@ Description:
     longest path is first-rung failure, next model, model after that.
 """
 
-from dataclasses import dataclass
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 from app.domain.model_access import ModelResponseUnusable, ModelUnavailable
 

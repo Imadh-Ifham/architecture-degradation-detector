@@ -27,10 +27,11 @@ Description:
     be wrong in any visible way.
 """
 
-import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from threading import Lock
 
 OUTCOME_ANSWERED = "answered"
 OUTCOME_REPLAYED = "replayed"
@@ -113,24 +114,32 @@ class CallLog:
     """
 
     def __init__(self) -> None:
-        self._local = threading.local()
+        self._capture: ContextVar = ContextVar("call_log_capture", default=None)
+        self._lock = Lock()
+        """Guards the append. Workers record concurrently, and `list.append`
+        being atomic today is a property of one interpreter rather than of the
+        language."""
 
     @contextmanager
     def capture(self) -> Iterator[list[ModelCall]]:
-        """Collect every call made on this thread until the block ends.
+        """Collect every call made in this context until the block ends.
+
+        **A context variable, not a thread-local, and that is what lets a run
+        fan out.** A thread-local capture is invisible to any worker the run
+        starts, so a release judging its facts in parallel would publish a
+        transcript missing every call it made - and this component's whole
+        claim is that a model having answered is checkable.
 
         The list is handed over before the block runs, so a caller still has
         the calls made up to the point of a failure. A run that died halfway
         is exactly when the transcript is worth reading.
         """
 
-        previous = getattr(self._local, "capture", None)
-        current = _Capture()
-        self._local.capture = current
+        token = self._capture.set(_Capture())
         try:
-            yield current.calls
+            yield self._capture.get().calls
         finally:
-            self._local.capture = previous
+            self._capture.reset(token)
 
     def record(
         self,
@@ -150,30 +159,31 @@ class CallLog:
     ) -> None:
         """Add one call to the capture in progress, if there is one."""
 
-        current = getattr(self._local, "capture", None)
+        current = self._capture.get()
         if current is None:
             return
 
         tokens = usage or {}
-        current.calls.append(
-            ModelCall(
-                sequence=len(current.calls) + 1,
-                task=task,
-                requested_model=requested_model,
-                answered_model=answered_model,
-                prompt=prompt,
-                prompt_version=prompt_version,
-                schema_mode=schema_mode,
-                evidence_hash=evidence_hash,
-                outcome=outcome,
-                latency_ms=latency_ms,
-                waited_ms=int(waited_seconds * 1000),
-                response=response,
-                error=error,
-                prompt_tokens=int(tokens.get("prompt_tokens") or 0),
-                completion_tokens=int(tokens.get("completion_tokens") or 0),
+        with self._lock:
+            current.calls.append(
+                ModelCall(
+                    sequence=len(current.calls) + 1,
+                    task=task,
+                    requested_model=requested_model,
+                    answered_model=answered_model,
+                    prompt=prompt,
+                    prompt_version=prompt_version,
+                    schema_mode=schema_mode,
+                    evidence_hash=evidence_hash,
+                    outcome=outcome,
+                    latency_ms=latency_ms,
+                    waited_ms=int(waited_seconds * 1000),
+                    response=response,
+                    error=error,
+                    prompt_tokens=int(tokens.get("prompt_tokens") or 0),
+                    completion_tokens=int(tokens.get("completion_tokens") or 0),
+                )
             )
-        )
 
 
 def summarise(calls: list[ModelCall]) -> dict:

@@ -26,7 +26,9 @@ Description:
 
 import uuid
 from collections import Counter
-from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from time import perf_counter
 
@@ -191,6 +193,21 @@ def _attempt(stage: _Stage, call, *arguments):
         return None, False
     finally:
         stage.spend(perf_counter() - started)
+
+
+@dataclass(frozen=True)
+class _Judgement:
+    """What the model calls for one fact produced.
+
+    `ran` is false when a subcomponent on the path has no implementation yet,
+    which is the `_attempt` contract carried across a thread boundary: the
+    original loop said `break` at that point, and the caller still has to.
+    """
+
+    ran: bool
+    verdict: object = None
+    checked: object = None
+    blind: object = None
 
 
 def _verification_counts(judged: list[tuple], verify: bool, arm: str) -> dict:
@@ -487,7 +504,19 @@ class ArchitectureValidationService:
         classification: ClassificationService,
         review: ArchitectReviewService,
         publishing: GraphPublishingService,
+        concurrency: int = 1,
     ) -> None:
+        """`concurrency` is how many facts may be waiting on a model at once.
+
+        One is the original behaviour exactly, and the default, so nothing
+        changes for a caller that does not ask. Above one, the model calls of
+        independent facts overlap; nothing that decides anything does, so the
+        published document and every count in it are identical either way.
+
+        It is the provider's limit that bounds this rather than the machine's:
+        the work is waiting on a socket, not computing, and a tier with a
+        per-minute cap will refuse a burst that a generous one absorbs.
+        """
         self._architecture_reader = architecture_reader
         self._normalization = normalization
         self._knowledge = knowledge
@@ -497,6 +526,70 @@ class ArchitectureValidationService:
         self._classification = classification
         self._review = review
         self._publishing = publishing
+        self._concurrency = max(1, concurrency)
+
+    def _judge(
+        self,
+        fact,
+        resolution,
+        architecture,
+        evidence: _Stage,
+        reasoning: _Stage,
+        verification: _Stage,
+        verify: bool,
+        arm,
+    ) -> _Judgement:
+        """Assemble one fact's evidence and put it to the models.
+
+        Lifted out of the loop so it can be run for several facts at once. It
+        touches nothing shared but the stages' own clocks, which is why the
+        counting and the classification stayed behind.
+        """
+
+        package, ran = _attempt(
+            evidence, self._evidence.assemble, fact, resolution, architecture
+        )
+        if not ran:
+            return _Judgement(ran=False)
+
+        # The arbiter is computed here, beside the resolution it reads, and
+        # handed to the reasoner. It is deliberately not the reasoner's own
+        # call to make: a stage that could decide when to consult the table
+        # could also decide to tell the model what it said, and that would end
+        # the independence the whole three-judge design rests on.
+        verdict, ran = _attempt(
+            reasoning,
+            self._reasoning.judge,
+            package,
+            decide(fact, resolution.governing),
+        )
+        if not ran:
+            return _Judgement(ran=False)
+
+        checked = None
+        blind = None
+
+        if verify and arm in (VerificationArm.INFORMED, VerificationArm.BOTH):
+            checked, ran = _attempt(
+                verification, self._verification.verify, verdict, package
+            )
+            if not ran:
+                return _Judgement(ran=False)
+        # A blind-only run has no informed opinion by request, which is not
+        # the same as one being unavailable; and a run that did not ask for
+        # verification at all travels `None` exactly as an unreachable
+        # verifier's would, so classification caps the confidence by the one
+        # path it already has. What makes the two distinguishable is the stage
+        # note and the run's mode, never the per-fact value.
+
+        if verify and arm in (VerificationArm.BLIND, VerificationArm.BOTH):
+            blind, ran = _attempt(
+                verification, self._verification.verify_blind, package
+            )
+            if not ran:
+                return _Judgement(ran=False)
+
+        return _Judgement(ran=True, verdict=verdict, checked=checked, blind=blind)
 
     def run(
         self,
@@ -724,11 +817,86 @@ class ArchitectureValidationService:
         """
 
         with knowledge, evidence, reasoning, verification, classification:
+            # Phase one, in order and cheap: resolve every fact against the
+            # decisions in force. Measured at 33 ms for seventeen facts, so
+            # there is nothing to gain by spreading it and something to lose -
+            # the resolver reads one index and the order it reads in is the
+            # order the log was written in.
+            resolutions: list[tuple[object, object]] = []
+            halted = False
             for fact in facts:
                 resolution, ran = _attempt(
                     knowledge, self._knowledge.resolve, fact, repository_id
                 )
                 if not ran:
+                    halted = True
+                    break
+                resolutions.append((fact, resolution))
+
+            # Phase two, concurrently: the model calls, which are the run.
+            #
+            # **This is where a release's minutes are spent and the only place
+            # worth spreading.** Seventeen facts against a provider at a
+            # second and a half a call is twenty-six seconds of waiting on a
+            # socket, one fact at a time, with nothing else happening. The
+            # facts are independent - each reads its own evidence package and
+            # reaches its own verdict - so the wait is the only thing being
+            # serialised, and it does not need to be.
+            #
+            # What is *not* spread is anything that decides. Classification
+            # runs afterwards, in order, so the published document and its
+            # counts are identical whatever the concurrency; and a run with
+            # `concurrency` of one takes exactly the path it took before.
+            judgements: dict[int, _Judgement] = {}
+            to_judge = [
+                (index, fact, resolution)
+                for index, (fact, resolution) in enumerate(resolutions)
+                if not (resolution.uncovered or resolution.ambiguous)
+            ]
+
+            if to_judge and not halted:
+                def judge_one(entry):
+                    index, fact, resolution = entry
+                    return index, self._judge(
+                        fact,
+                        resolution,
+                        architecture,
+                        evidence,
+                        reasoning,
+                        verification,
+                        verify,
+                        arm,
+                    )
+
+                if self._concurrency > 1 and len(to_judge) > 1:
+                    # `copy_context` per task, because the two things a run
+                    # must be able to prove about itself live in context
+                    # variables: the transcript's capture and the cold-run
+                    # flag. A plain pool thread inherits neither, so the
+                    # transcript would omit every call the workers made and a
+                    # refresh would quietly read from the cache - a run that
+                    # claims to have asked the models and did not.
+                    with ThreadPoolExecutor(
+                        max_workers=min(self._concurrency, len(to_judge)),
+                        thread_name_prefix="c2-judge",
+                    ) as pool:
+                        futures = [
+                            pool.submit(copy_context().run, judge_one, entry)
+                            for entry in to_judge
+                        ]
+                        for future in futures:
+                            index, judgement = future.result()
+                            judgements[index] = judgement
+                else:
+                    for entry in to_judge:
+                        index, judgement = judge_one(entry)
+                        judgements[index] = judgement
+
+            # Phase three, in order: classify, count, and collect. Everything
+            # that becomes a published number happens here, on one thread, in
+            # the order the facts arrived.
+            for index, (fact, resolution) in enumerate(resolutions):
+                if halted:
                     break
 
                 if resolution.uncovered or resolution.ambiguous:
@@ -752,69 +920,31 @@ class ArchitectureValidationService:
                     classified.append(result)
                     continue
 
+                # Counted here, as it was before: a fact that got past the
+                # uncovered check was resolved, whether or not its evidence
+                # could then be assembled.
                 counts["resolved"] += 1
-                package, ran = _attempt(
-                    evidence, self._evidence.assemble, fact, resolution, architecture
-                )
-                if not ran:
+
+                judgement = judgements.get(index)
+                if judgement is None or not judgement.ran:
                     break
 
-                # The arbiter is computed here, beside the resolution it
-                # reads, and handed to the reasoner. It is deliberately not
-                # the reasoner's own call to make: a stage that could decide
-                # when to consult the table could also decide to tell the
-                # model what it said, and that would end the independence the
-                # whole three-judge design rests on.
-                verdict, ran = _attempt(
-                    reasoning,
-                    self._reasoning.judge,
-                    package,
-                    decide(fact, resolution.governing),
-                )
-                if not ran:
-                    break
-                verdicts.append(verdict)
-
-                blind = None
-                if verify and arm in (VerificationArm.INFORMED, VerificationArm.BOTH):
-                    checked, ran = _attempt(
-                        verification, self._verification.verify, verdict, package
-                    )
-                    if not ran:
-                        break
-                elif verify:
-                    # A blind-only run. There is no informed opinion by
-                    # request, which is not the same as one being unavailable.
-                    checked = None
-                else:
-                    # Not asked for. `None` travels on exactly as an
-                    # unreachable verifier's would, so classification caps the
-                    # confidence by the one path it already has - and the
-                    # reason the two are distinguishable is the stage note and
-                    # the run's mode, never the per-fact value.
-                    checked = None
-
-                if verify and arm in (VerificationArm.BLIND, VerificationArm.BOTH):
-                    blind, ran = _attempt(
-                        verification, self._verification.verify_blind, package
-                    )
-                    if not ran:
-                        break
-
-                judged.append((verdict, checked, blind))
+                verdicts.append(judgement.verdict)
+                judged.append((judgement.verdict, judgement.checked, judgement.blind))
                 counts["reasoned"] += 1
+
                 result, ran = _attempt(
                     classification,
                     self._classification.classify,
                     fact,
                     resolution,
-                    verdict,
-                    checked,
-                    per_fact_mode(verify, arm is VerificationArm.BLIND, checked),
+                    judgement.verdict,
+                    judgement.checked,
+                    per_fact_mode(verify, arm is VerificationArm.BLIND, judgement.checked),
                 )
                 if not ran:
                     break
-                if verdict.verdict is Verdict.UNRELATED:
+                if judgement.verdict.verdict is Verdict.UNRELATED:
                     # A governing decision was found and the model says it does
                     # not bear on this pair, which is a measurement of the
                     # resolver rather than of the architecture. The rate

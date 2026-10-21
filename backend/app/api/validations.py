@@ -650,6 +650,7 @@ def get_validation_service() -> ArchitectureValidationService:
             DecisionKnowledgeService(get_artifact_reader(), get_decision_store()),
         ),
         publishing=GraphPublishingService(get_graph_file_store()),
+        concurrency=ai_settings.ai_concurrency,
     )
 
 
@@ -1400,6 +1401,36 @@ def _review_item(item) -> dict:
         "status": str(item.status),
         "created_at": item.created_at,
     }
+
+
+@router.get(
+    "/validated",
+    summary="Which releases of one repository have been validated",
+    response_description=(
+        "The releases with a published graph, read off the store rather than "
+        "remembered by a screen."
+    ),
+)
+def list_validated_releases(repository_id: str) -> dict[str, list[str]]:
+    """Return every release of this repository that has a published graph.
+
+    **This exists because a screen was answering it from memory.** The
+    pipeline decided whether anything had been judged from the runs the
+    browser session happened to have started, so a page refresh made three
+    validated releases read as "nothing has been judged yet" - and the
+    detection phase, which only appears once something is judged, disappeared
+    with them. The work was on disk the whole time.
+
+    A published graph is the durable fact, and it is what the next component
+    reads too, so the screen and C3 now agree about what exists.
+
+    An empty list is an answer: this repository has no validated release. A
+    repository nobody ingested gives the same empty list rather than a 404,
+    because "nothing validated" is true of both and the screen does the same
+    thing either way.
+    """
+
+    return {"releases": get_graph_file_store().releases(repository_id)}
 
 
 @router.get(

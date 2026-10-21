@@ -261,9 +261,10 @@ function Outcome({ document }: { document: PublishedGraph }) {
 /**
  * The three judges, with the two that are models named.
  *
- * The verifier's box is filled from the run's own counts rather than from the
- * verdicts, because "nobody asked" and "it could not be reached" are
- * different facts and only the run record tells them apart.
+ * Filled from the published edges, because they are the durable record and
+ * the run record is only this session's memory of the run. The stage note
+ * still comes from the run where there is one - "nobody asked" and "it could
+ * not be reached" are different facts and only that note tells them apart.
  */
 function Judges({
   document,
@@ -273,8 +274,37 @@ function Judges({
   run: ValidationRun | null
 }) {
   const stamp = document.graph.run
+  const edges = document.links
   const verification = stage(run, 'independent_verification')
   const reasoning = stage(run, 'validation_reasoning')
+
+  // Counted off the published edges, not off the run record.
+  //
+  // **The run record is this browser session's memory of the run.** Open this
+  // screen after a refresh, or from a link, and it is absent - and every
+  // number in this card read `0` beneath a summary row saying seventeen
+  // dependencies were judged by a model. A card that reports nothing happened
+  // while the card above it reports what happened is worse than a card that
+  // is not there.
+  //
+  // The document is the durable record and it carries all of this: how each
+  // verdict was produced, what the second model said about it, and whether
+  // the table agreed. So that is what is counted, and the run record is used
+  // only for the two figures it alone holds.
+  const judgedEdges = edges.filter((edge) => Boolean(edge.governing_decision))
+  const fromModel = judgedEdges.filter(
+    (edge) => edge.produced_by === 'model' && edge.model_calls > 0,
+  ).length
+  const fromCache = judgedEdges.filter(
+    (edge) => edge.produced_by === 'model' && edge.model_calls === 0,
+  ).length
+  const fromArbiter = judgedEdges.filter((edge) => edge.produced_by !== 'model').length
+  const checked = judgedEdges.filter((edge) => Boolean(edge.verification_outcome))
+  const agreed = checked.filter((edge) => edge.verification_outcome === 'agree').length
+  const objected = checked.filter(
+    (edge) => edge.verification_outcome === 'disagree',
+  ).length
+  const uncertain = checked.length - agreed - objected
 
   return (
     <Card
@@ -291,10 +321,10 @@ function Judges({
           model={stamp?.reasoner_model}
           tone="ai"
           lines={[
-            `${reasoning?.counts.verdicts ?? 0} verdicts`,
-            `${reasoning?.counts.from_model ?? 0} from the model`,
-            `${reasoning?.counts.from_cache ?? 0} from cache`,
-            `${reasoning?.counts.from_arbiter ?? 0} from the table alone`,
+            `${judgedEdges.length} verdicts`,
+            `${fromModel} from the model`,
+            `${fromCache} from cache`,
+            `${fromArbiter} from the table alone`,
           ]}
           note={reasoning?.note}
         />
@@ -304,10 +334,10 @@ function Judges({
           model={stamp?.verifier_model}
           tone="ai"
           lines={[
-            `${verification?.counts.verifications ?? 0} checked`,
-            `${verification?.counts.agreed ?? 0} agreed`,
-            `${verification?.counts.disagreed ?? 0} objected`,
-            `${verification?.counts.uncertain ?? 0} uncertain`,
+            `${checked.length} checked`,
+            `${agreed} agreed`,
+            `${objected} objected`,
+            `${uncertain} uncertain`,
           ]}
           note={verification?.note}
         />
@@ -319,8 +349,15 @@ function Judges({
           lines={[
             'a table, not a model',
             'it cannot invent a rule',
-            `${reasoning?.counts.guard_rejections ?? 0} answers rejected by a guard`,
-            `${reasoning?.counts.insufficient_evidence ?? 0} refused for want of evidence`,
+            // Only the run record holds the guard count, so it is named as
+            // unavailable rather than printed as a zero when this screen was
+            // not the one that started the run.
+            reasoning
+              ? `${reasoning.counts.guard_rejections ?? 0} answers rejected by a guard`
+              : 'guard rejections: not in this session',
+            `${
+              edges.filter((edge) => edge.bucket === 'insufficient_evidence').length
+            } refused for want of evidence`,
           ]}
         />
       </div>

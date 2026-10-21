@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Protocol
 from app.domain.recovered_architecture import RecoveredArchitecture
 from app.domain.validated_architecture import ValidatedArchitectureGraph
 
-from .models import AIResult, EvidencePackage, ReviewItem
+from .models import AIResult, ReviewItem
 
 if TYPE_CHECKING:
     from .architect_review.models import ReviewDecision

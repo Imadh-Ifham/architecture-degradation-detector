@@ -113,6 +113,7 @@ from app.domain.recovered_architecture import (
     RecoveryProvenance,
     StyleSource,
 )
+from app.infrastructure.ai.call_log import CallLog
 from app.infrastructure.ai import (
     TASK_PRIMARY_VERDICT,
     TASK_PRIMARY_VERDICT_FALLBACK,
@@ -1458,6 +1459,7 @@ class CitingProvider(FakeProvider):
         temperature: float = 0.0,
         seed: int | None = 42,
         reasoning_effort: str = "",
+        max_output_tokens: int = 0,
     ) -> dict:
         self._responses = {
             "reasoning": "the rule in this package names the dependency",
@@ -2537,6 +2539,7 @@ class ArmAwareProvider:
         temperature=0.0,
         seed=42,
         reasoning_effort="",
+        max_output_tokens=0,
     ) -> dict:
         self.calls.append(
             {"model_id": model_id, "prompt": prompt, "schema_mode": schema_mode}
@@ -2867,3 +2870,114 @@ class _NotBuilt:
 
     def judge(self, *args, **kwargs):
         raise NotImplementedError
+
+
+class TestFactsJudgedConcurrently:
+    """Overlapping the model calls, and the three things that must not move.
+
+    A release's time is almost entirely a socket: measured on seventeen facts,
+    this component's own work is 1.2 seconds and the rest is calls made one
+    after another. Overlapping them is the only lever left - and it is only
+    worth pulling if the result is the same result.
+
+    So these tests are not about speed. They are about the published document
+    being identical, the transcript still holding every call, and a cold run
+    still being cold - the last two because both live in context variables
+    that a plain pool thread would not inherit.
+    """
+
+    REPOSITORY = "microservices-demo"
+    RELEASE = "v0.10.0"
+
+    def pipeline(self, provider, concurrency, cache=None):
+        return ArchitectureValidationService(
+            architecture_reader=SnapshotFileReader(SNAPSHOTS),
+            normalization=ObservationNormalizationService(),
+            knowledge=DecisionKnowledgeService(
+                WorkspaceReader(), JsonlDecisionStore(FIXTURES / "decisions")
+            ),
+            evidence=EvidenceRetrievalService(WorkspaceReader()),
+            reasoning=TestTheM4Gate().reasoner(provider, cache),
+            verification=StubVerification(),
+            classification=StubClassification(),
+            review=StubReview(),
+            publishing=StubPublishing(),
+            concurrency=concurrency,
+        )
+
+    def run(self, concurrency, cache=None):
+        return self.pipeline(CitingProvider(), concurrency, cache).run(
+            self.REPOSITORY, self.RELEASE
+        )
+
+    def test_the_verdicts_are_the_same_and_in_the_same_order(self):
+        """The published order is the order the facts arrived in, whatever
+        order the answers came back in. Classification runs afterwards, on one
+        thread, which is what makes that true rather than lucky."""
+
+        one = self.run(concurrency=1)
+        many = self.run(concurrency=6)
+
+        assert [fact.fact_id for fact in many.facts] == [
+            fact.fact_id for fact in one.facts
+        ]
+        assert [fact.bucket for fact in many.facts] == [
+            fact.bucket for fact in one.facts
+        ]
+
+    def test_every_count_is_the_same(self):
+        """A number that moved with the concurrency would mean something was
+        being counted per thread rather than per fact."""
+
+        one = self.run(concurrency=1)
+        many = self.run(concurrency=6)
+
+        assert many.validation_confidence == one.validation_confidence
+        assert {stage.name: stage.counts for stage in many.stages} == {
+            stage.name: stage.counts for stage in one.stages
+        }
+
+    def test_one_is_the_old_path_exactly(self):
+        """The default, and a way back: a deployment that sets nothing takes
+        the code path this component shipped with."""
+
+        service = self.pipeline(CitingProvider(), concurrency=1)
+
+        assert service._concurrency == 1
+
+    def test_a_nonsense_setting_cannot_disable_the_run(self):
+        """Zero workers is not a smaller pool, it is no pool at all."""
+
+        assert self.pipeline(CitingProvider(), concurrency=0)._concurrency == 1
+        assert self.pipeline(CitingProvider(), concurrency=-4)._concurrency == 1
+
+    def test_a_cold_run_stays_cold_on_every_worker(self, tmp_path):
+        """`ignoring_the_cache` is a context variable too. As a thread-local
+        it would be set on the thread that opened the block and unset on every
+        worker, so a refresh would quietly replay - a run that says it asked
+        the models and did not."""
+
+        provider = CitingProvider()
+        cache = VerdictCache(tmp_path / "cache")
+        client = ConfiguredAIClient(
+            provider,
+            settings=AISettings(ai_api_key="k", ai_cache_directory=str(tmp_path)),
+            cache=cache,
+        )
+        reasoning = ValidationReasoningService(
+            client, load_prompt("primary_verdict.v1.md"), (TASK_PRIMARY_VERDICT,)
+        )
+        service = self.pipeline(provider, concurrency=6)
+        service._reasoning = reasoning
+
+        service.run(self.REPOSITORY, self.RELEASE)
+        warm = provider.call_count
+        service.run(self.REPOSITORY, self.RELEASE)
+        replayed = provider.call_count - warm
+
+        with client.ignoring_the_cache():
+            service.run(self.REPOSITORY, self.RELEASE)
+        asked_again = provider.call_count - warm - replayed
+
+        assert replayed == 0, "a second ordinary run should replay"
+        assert asked_again == warm, "a cold run should ask every question again"

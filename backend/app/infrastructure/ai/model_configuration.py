@@ -171,6 +171,24 @@ class AISettings(BaseSettings):
     assumed - if the reasoning stops being worth reading, raise it.
     """
 
+    ai_concurrency: int = 1
+    """How many facts may be waiting on a model at once, within one release.
+
+    **A release's time is almost entirely a socket.** Measured on seventeen
+    facts: the component's own work is 1.2 seconds, of which evidence
+    retrieval is 31 milliseconds, and the rest of the run is model calls made
+    one after another. Overlapping them is the only lever left.
+
+    One is the behaviour this component shipped with, and the default, so an
+    unconfigured deployment runs exactly as it did. What bounds a higher value
+    is the provider rather than the machine - a per-minute token tier refuses
+    a burst that a paid tier absorbs - so it is a number to raise against a
+    provider and then leave alone.
+
+    Nothing that decides anything is spread: classification runs afterwards,
+    in order, and the published document is identical at any setting.
+    """
+
     ai_schema_mode: str = SCHEMA_MODE_STRICT
     """How the answer is constrained to the schema. One of `SCHEMA_MODES`.
 
@@ -179,6 +197,23 @@ class AISettings(BaseSettings):
     answer would still parse, and the one guarantee the design rests on would
     be absent from a run nobody could tell apart from a good one.
     """
+    ai_max_output_tokens: int = 800
+    """A ceiling on the answer, sent with every call.
+
+    **Not an optimisation - without it a provider assumes its own default and
+    can refuse the request outright.** Groq's on-demand tier caps some models
+    at 1000 output tokens a minute and compares that cap against the
+    *requested* maximum, not against what the answer turns out to be. Sending
+    nothing meant 2048 was assumed, which exceeds the cap, so every call came
+    back 429 with `reduce max_tokens` - a permanent refusal that the adapter
+    read as a rate limit and dutifully waited out, over and over.
+
+    800 clears that cap and is far above what any task here produces: a
+    verdict is about 100 tokens and a challenge is smaller. Raise it only for
+    a prompt that genuinely needs a longer answer, and check the provider's
+    per-minute output limit before doing so.
+    """
+
     ai_temperature: float = 0.0
     ai_seed: int = 42
     ai_timeout_seconds: float = 60.0

@@ -63,6 +63,7 @@ import {
   type StageDescription,
   type ValidationRun,
 } from '../../lib/api'
+import { listValidatedReleases } from '../../lib/api/validation'
 import { useRequest } from '../../lib/useRequest'
 import ColdRun from './ColdRun'
 import SecondModel from './SecondModel'
@@ -116,7 +117,6 @@ export default function PipelinePage() {
     snapshotStates,
     snapshotStatesError,
     isLoadingSnapshotStates,
-    repositoryKey,
   } = useWorkspace()
 
   const described = useRequest((options) => describePipeline(options), [])
@@ -219,11 +219,42 @@ export default function PipelinePage() {
   // and therefore what "all the validations" means.
   const ready = releases.filter((release) => decisionChoices[release])
 
-  // A run reaches this screen through the session's runs, not through the
-  // snapshot, because the decisions screen is what started it. Keyed by
-  // `runKey`, so the lookup works whether or not this session recovered the
-  // snapshot itself (see `runFor`).
+  // Whether one release has been judged - and the only answer to it.
   //
+  // **Two sources of truth was the bug, and having one is the fix.** The runs
+  // the session remembers are emptied by a refresh, so validated releases read
+  // as "nothing has been judged yet" and the detect phase, rendered only once
+  // something is judged, vanished while its input sat published on disk.
+  // Asking the store as well fixed that and introduced a worse fault: the flow
+  // node read the store and the rows still read the session, so a freshly
+  // cloned repository showed `Validate - complete` above a column of
+  // `not judged`.
+  //
+  // So there is one predicate and everything below calls it. It is keyed on
+  // **the snapshot's own recovery id**, not on the selected repository: a
+  // re-clone is a new id with nothing published under it, and keying on the
+  // selection is what let one repository's history vouch for another's.
+  const recoveryKey =
+    pipelineSnapshots.find((snapshot) => snapshot.recovery?.repository_id)?.recovery
+      ?.repository_id ?? ''
+  const publishedReleases = useRequest(
+    (options) =>
+      recoveryKey
+        ? listValidatedReleases(recoveryKey, options)
+        : Promise.resolve({ releases: [] }),
+    [recoveryKey],
+  )
+  const published = new Set(publishedReleases.data?.releases ?? [])
+
+  const isJudged = (snapshot: SnapshotRun | undefined, releaseTag: string) =>
+    Boolean(runFor(snapshot, runs)) ||
+    (Boolean(snapshot?.recovery?.repository_id) && published.has(releaseTag))
+
+  const snapshotFor = (releaseTag: string) =>
+    pipelineSnapshots.find(
+      (snapshot) => snapshot.configuration.release_tag === releaseTag,
+    )
+
   // **Every release that is going to be judged, not just one of them.**
   // Detection reads the published graph of every release, so unlocking it
   // after the first validation let a stack of three be detected over one -
@@ -231,8 +262,11 @@ export default function PipelinePage() {
   // result. The releases in scope are the ones somebody picked a source for,
   // which is exactly what the validate button runs; a release nobody chose a
   // source for would otherwise keep the flow at validation for ever.
+  //
+  // Counted through the predicate above rather than through `runs` directly,
+  // so a release validated before this page was opened still counts.
   const judged = ready.filter((release) =>
-    Boolean(runs[runKey(repositoryKey, release)]),
+    isJudged(snapshotFor(release), release),
   ).length
 
   const allValidated = ready.length > 0 && judged === ready.length
@@ -467,6 +501,7 @@ export default function PipelinePage() {
         activeId={activeId}
         runs={runs}
         releases={releases}
+        isJudged={isJudged}
         decisionChoices={decisionChoices}
         validatingRelease={validatingRelease}
         onValidate={validateOne}
@@ -593,6 +628,7 @@ function SnapshotsCard({
   activeId,
   runs,
   releases,
+  isJudged,
   decisionChoices,
   validatingRelease,
   onValidate,
@@ -617,6 +653,15 @@ function SnapshotsCard({
   runs: Record<string, ValidationRun>
   /** The releases recovery has stored, which outlive this session's run. */
   releases: string[]
+  /**
+   * Whether one release has been judged - the page's single answer to that.
+   *
+   * Passed in rather than worked out here, because the flow node above and
+   * this column were answering it from different places: the node from the
+   * store and the rows from the session. A freshly cloned repository then
+   * showed `Validate - complete` over a column of `not judged`.
+   */
+  isJudged: (snapshot: SnapshotRun | undefined, releaseTag: string) => boolean
   decisionChoices: Record<string, DecisionChoice>
   /** The release being validated right now, so only its button spins. */
   validatingRelease: string | null
@@ -792,7 +837,7 @@ function SnapshotsCard({
                       isValidating={
                         validatingRelease === configuration.release_tag
                       }
-                      isValidated={Boolean(run)}
+                      isValidated={isJudged(snapshot, configuration.release_tag)}
                     />
                     <Button
                       size="sm"
@@ -1175,6 +1220,10 @@ function RunStatus({
       {!isRunning && phase === 'recovered' && (
         <div className="flex flex-col gap-1.5">
           <span className="text-sm text-ink">
+            {/* Said from the same predicate the rows and the flow node use.
+                This line claimed nothing had been judged while the node beside
+                it was drawn complete, which is the kind of disagreement that
+                makes a screen untrustworthy. */}
             {recovered} of {total} snapshots recovered.{' '}
             {inScope === 0
               ? 'Nothing has been judged yet.'

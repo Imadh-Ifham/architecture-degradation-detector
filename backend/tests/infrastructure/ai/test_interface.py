@@ -12,6 +12,8 @@ Description:
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 
 import httpx
 import pytest
@@ -40,6 +42,7 @@ from app.infrastructure.ai.model_registry import (
     strict_schema_models,
 )
 from app.infrastructure.ai.providers.fake import FakeProvider
+from app.infrastructure.ai.call_log import CallLog
 from app.infrastructure.ai.providers.openai_compatible import (
     FALLBACK_WAIT_SECONDS,
     MAX_RATE_LIMIT_WAITS,
@@ -1201,3 +1204,88 @@ class TestTheVerifierAtItsOwnProvider:
         assert local.call_count == 1
         assert reasoner.call_count == 0
         assert verifier.call_count == 0
+
+
+class TestWhatSurvivesAFanOut:
+    """The two things a run must be able to prove about itself, in a worker.
+
+    Both live in context variables rather than thread-locals, and that is the
+    whole reason a release can judge its facts concurrently. As thread-locals
+    the transcript would omit every call a worker made, and a cold run would
+    quietly replay on every worker while reporting itself live - which is the
+    one failure this component cannot ship, because its claim is that a model
+    having answered is checkable.
+    """
+
+    def test_a_capture_reaches_a_worker_thread(self):
+        log = CallLog()
+
+        def record_one():
+            log.record(
+                task=TASK_PRIMARY_VERDICT,
+                requested_model="m",
+                answered_model="m",
+                prompt="p",
+                prompt_version="v1",
+                schema_mode=SCHEMA_MODE_STRICT,
+                evidence_hash="e",
+                outcome="answered",
+                latency_ms=1,
+            )
+
+        with log.capture() as recorded:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for future in [
+                    pool.submit(copy_context().run, record_one) for _ in range(8)
+                ]:
+                    future.result()
+
+        assert len(recorded) == 8
+
+    def test_a_worker_without_the_context_records_nothing(self):
+        """The failure the copy prevents, pinned so it cannot come back
+        silently: a plain pool thread inherits no capture at all."""
+
+        log = CallLog()
+
+        def record_one():
+            log.record(
+                task=TASK_PRIMARY_VERDICT,
+                requested_model="m",
+                answered_model="m",
+                prompt="p",
+                prompt_version="v1",
+                schema_mode=SCHEMA_MODE_STRICT,
+                evidence_hash="e",
+                outcome="answered",
+                latency_ms=1,
+            )
+
+        with log.capture() as recorded:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                pool.submit(record_one).result()
+
+        assert recorded == []
+
+    def test_the_cold_run_flag_reaches_a_worker_thread(self, tmp_path):
+        provider = FakeProvider(VERDICT)
+        configuration = settings(tmp_path)
+        client = ConfiguredAIClient(
+            provider,
+            settings=configuration,
+            cache=VerdictCache(configuration.ai_cache_directory, True),
+        )
+
+        def ask():
+            return client.complete(
+                task=TASK_PRIMARY_VERDICT, prompt="p", schema={"type": "object"}
+            )
+
+        ask()
+        warm = provider.call_count
+
+        with client.ignoring_the_cache():
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                pool.submit(copy_context().run, ask).result()
+
+        assert provider.call_count == warm + 1, "the worker must not replay"
