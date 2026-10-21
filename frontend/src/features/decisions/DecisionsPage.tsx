@@ -34,23 +34,16 @@ import {
   Button,
   Card,
   EmptyState,
-  ErrorState,
   Field,
   PageHeading,
   Pill,
-  Spinner,
   inputClass,
 } from '../../components/ui'
-import {
-  readDecisionSources,
-  type DecisionMode,
-  type ModeAvailability,
-} from '../../lib/api'
-import { useRequest } from '../../lib/useRequest'
+import type { DecisionMode } from '../../lib/api'
 import { runKey, type DecisionChoice } from '../../workspace/context'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import { MODE } from './modes'
-import ProseExtraction from './ProseExtraction'
+import DecisionMovement from './DecisionMovement'
 import ReleaseDecision from './ReleaseDecision'
 
 export default function DecisionsPage() {
@@ -69,22 +62,15 @@ export default function DecisionsPage() {
   const [adrRepository, setAdrRepository] = useState('')
 
   const chosenCount = releases.filter((release) => decisionChoices[release]).length
-  const readsANamedRepository = releases.some((release) => {
-    const mode = decisionChoices[release]?.mode
-    return mode === 'external_adr' || mode === 'combined'
-  })
+  // Only the source that actually reads one. `combined` used to as well,
+  // and the card went on offering a second repository to a mode that stopped
+  // opening it - which reads as the choice doing something it does not.
+  const readsANamedRepository = releases.some(
+    (release) => decisionChoices[release]?.mode === 'external_adr',
+  )
 
   const candidates = repositoryOptions.filter((option) => option.key !== repositoryKey)
 
-  // One probe for the prose panel below. How much a repository documents is a
-  // property of the repository rather than of a release, so the newest one
-  // answers for the stack instead of fifty requests saying the same thing.
-  const newest = releases[releases.length - 1] ?? null
-  const probe = useRequest(
-    (options) => readDecisionSources(repositoryKey, newest ?? '', options),
-    [repositoryKey, newest],
-    Boolean(repositoryKey && newest),
-  )
 
   if (!repository || releases.length === 0) {
     return (
@@ -184,8 +170,9 @@ export default function DecisionsPage() {
         <Card title="The decision repository">
           <div className="flex flex-col gap-6">
             <p className="max-w-prose text-sm leading-relaxed text-ink-3">
-              For teams that keep their decisions in a repository of their own.
-              It applies to every release judged against one.
+              Read only by <em>Records in another repository</em>. For teams
+              that keep their decisions outside the codebase; it applies to
+              every release judged against that source.
             </p>
 
             {candidates.length > 0 ? (
@@ -243,9 +230,7 @@ export default function DecisionsPage() {
         </ol>
       </Card>
 
-      {probe.isLoading && <Spinner label="reading what this repository documents" />}
-      {probe.error && <ErrorState message={probe.error} onRetry={probe.reload} />}
-      <ProseExtraction documents={documentsFoundButUnused(probe.data?.modes ?? [])} />
+      <DecisionMovement repositoryKey={repositoryKey} />
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-6">
@@ -268,20 +253,3 @@ export default function DecisionsPage() {
   )
 }
 
-/**
- * How many decision documents were found and produced no rule.
- *
- * Taken out of the source's own sentence rather than recomputed, because the
- * backend already published the number and a second derivation here is a
- * second number that disagrees on exactly the repository somebody is looking
- * at. Zero when no source reported one, which reads as "not applicable".
- */
-function documentsFoundButUnused(modes: ModeAvailability[]): number {
-  for (const mode of modes) {
-    for (const note of Object.values(mode.source_notes)) {
-      const found = note.match(/^(\d+) decision document/)
-      if (found) return Number(found[1])
-    }
-  }
-  return 0
-}

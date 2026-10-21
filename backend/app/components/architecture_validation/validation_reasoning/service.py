@@ -60,6 +60,7 @@ class ValidationReasoningService:
         tasks: tuple[str, ...],
         provider: str = "",
         allow_arbiter_only: bool = True,
+        use_models: bool = True,
     ) -> None:
         """Takes the model port, the loaded prompt and the ladder's task order.
 
@@ -86,6 +87,7 @@ class ValidationReasoningService:
         self._tasks = tasks
         self._provider = provider
         self._allow_arbiter_only = allow_arbiter_only
+        self._use_models = use_models
 
     def judge(self, package: EvidencePackage, arbiter: ArbiterCheck) -> PrimaryVerdict:
         """Produces the primary verdict for one evidence package.
@@ -105,6 +107,15 @@ class ValidationReasoningService:
         number improves, and the only uncorrelated check in the component
         quietly disappears.
         """
+
+        if not self._use_models:
+            # Deliberately not asked, which is a different finding from
+            # nothing having answered and must not borrow its words. The
+            # component already keeps that distinction for the verifier -
+            # `unverified_by_choice` beside `unverified_unavailable` - and a
+            # run configured to skip the models has to be as legible as one
+            # that could not reach them.
+            return self._without_asking(package, arbiter)
 
         outcome = climb(
             self._ai,
@@ -153,6 +164,68 @@ class ValidationReasoningService:
             arbiter_agreement=compare(verdict, arbiter),
             guard_failures=outcome.guard_failures,
             ladder_rung=outcome.rung,
+        )
+
+    def _without_asking(
+        self, package: EvidencePackage, arbiter: ArbiterCheck
+    ) -> PrimaryVerdict:
+        """This run was configured not to use a model at all.
+
+        The rollback for a demonstration with no network and no warmed cache.
+        Every governed fact still gets a verdict and **every one of them says
+        on its face that no model produced it** - `produced_by: arbiter`, a
+        model id of "none", and a sentence that opens by stating it was not
+        asked rather than that it was unreachable.
+
+        Nothing here is allowed to look like a model answered. A run that
+        reported otherwise would be presenting the deterministic table's
+        output as a language model's, which is a fabricated result in an
+        artifact whose whole claim is that it says how each verdict was
+        reached.
+        """
+
+        if arbiter.verdict is None:
+            return PrimaryVerdict(
+                fact_id=package.fact_id,
+                verdict=Verdict.INSUFFICIENT_EVIDENCE,
+                reasoning=(
+                    f"No model was asked on this run, and the deterministic "
+                    f"table abstained ({arbiter.basis}), so nothing checked "
+                    f"this dependency."
+                ),
+                cited_evidence_refs=(),
+                model_id=NO_MODEL,
+                prompt_version=self._prompt.version,
+                evidence_hash=package.evidence_hash,
+                cached=False,
+                provider=self._provider,
+                schema_mode="",
+                produced_by=VerdictSource.ARBITER,
+                arbiter=arbiter,
+                arbiter_agreement=None,
+                ladder_rung=RUNG_NOTHING,
+            )
+
+        return PrimaryVerdict(
+            fact_id=package.fact_id,
+            verdict=arbiter.verdict,
+            reasoning=(
+                f"No model was asked on this run, so this verdict is the "
+                f"deterministic table's alone: {arbiter.basis}. The models "
+                f"were not unreachable; this run was configured not to use "
+                f"them."
+            ),
+            cited_evidence_refs=_rule_refs(package),
+            model_id=NO_MODEL,
+            prompt_version=self._prompt.version,
+            evidence_hash=package.evidence_hash,
+            cached=False,
+            provider=self._provider,
+            schema_mode="",
+            produced_by=VerdictSource.ARBITER,
+            arbiter=arbiter,
+            arbiter_agreement=None,
+            ladder_rung=RUNG_ARBITER,
         )
 
     def _from_arbiter(

@@ -50,6 +50,25 @@ export interface DecisionChoice {
   adrRepositoryId: string | null
 }
 
+/** Where a run over every release has got to. */
+export interface StackProgress {
+  /** Releases finished, successfully or not. */
+  done: number
+  total: number
+  /** The one being validated now, or null while pausing between releases. */
+  release: string | null
+  /** Seconds left of a deliberate pause, or 0 when not pausing. */
+  pausingFor: number
+  /**
+   * Releases that failed, with the reason.
+   *
+   * Collected rather than thrown, because a stack run is left unattended: one
+   * release refused by a rate limit used to stop the other nineteen, and the
+   * person came back to a job that had done almost nothing and said so once.
+   */
+  failures: { release: string; reason: string }[]
+}
+
 export interface Workspace {
   /** Every clone currently on the machine, newest first. */
   repositories: IngestedRepository[]
@@ -127,8 +146,32 @@ export interface Workspace {
   /** Apply one choice to every release at once, for the common case. */
   chooseDecisionForAll: (choice: DecisionChoice) => void
 
+  /**
+   * Whether a run asks the second model to attack the first one's verdict.
+   *
+   * On by default, because an unaudited verdict is what the second model
+   * exists to stop being trusted. Off roughly halves the model calls and the
+   * tokens, which on a per-minute tier is the difference between a cold run
+   * of three minutes and one of about ninety seconds - and every fact it
+   * produces is published **unverified and capped**, reported as *not
+   * requested* rather than as agreement.
+   *
+   * A run-level choice rather than a per-release one: it is about what this
+   * run is for, not about what any release deserves.
+   */
+  verifyRuns: boolean
+  setVerifyRuns: (verify: boolean) => void
+
   /** The release being validated right now, or null. One at a time. */
   validatingRelease: string | null
+  /**
+   * How a run over the whole stack is going, or null when none is.
+   *
+   * Twenty releases take long enough that "validating v0.9.0" does not say
+   * whether it is nearly done or barely started, and whether to keep waiting
+   * is the one thing somebody who walked away needs to know.
+   */
+  stackProgress: StackProgress | null
   /** Validate one release against the choice made for it. */
   validateRelease: (releaseId: string) => Promise<boolean>
   /**

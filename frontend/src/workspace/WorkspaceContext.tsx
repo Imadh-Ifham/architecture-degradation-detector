@@ -46,6 +46,7 @@ import {
   runKey,
   type DecisionChoice,
   type RepositoryOption,
+  type StackProgress,
   type Workspace,
 } from './context'
 import { runPipeline, type PipelinePhase, type SnapshotRun } from './pipeline'
@@ -62,6 +63,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     Record<string, DecisionChoice>
   >({})
   const [validatingRelease, setValidatingRelease] = useState<string | null>(null)
+  const [stackProgress, setStackProgress] = useState<StackProgress | null>(null)
+  const [verifyRuns, setVerifyRuns] = useState(true)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isDetecting, setIsDetecting] = useState(false)
   const [isDetectionStale, setIsDetectionStale] = useState(false)
@@ -218,6 +221,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             release_id: releaseId,
             decision_mode: choice.mode,
             adr_repository_id: choice.adrRepositoryId,
+            verify: verifyRuns,
           }),
         )
         return true
@@ -230,7 +234,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setValidatingRelease(null)
       }
     },
-    [decisionChoices, rememberRun, repositoryKey, validatingRelease],
+    [decisionChoices, rememberRun, repositoryKey, validatingRelease, verifyRuns],
   )
 
   /**
@@ -249,34 +253,80 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const validateAllReleases = useCallback(async () => {
     if (validatingRelease) return
 
-    setValidationError(null)
+    const queue = releases.filter((release) => decisionChoices[release])
+    if (queue.length === 0) return
 
-    for (const release of releases) {
+    setValidationError(null)
+    const failures: { release: string; reason: string }[] = []
+    setStackProgress({
+      done: 0,
+      total: queue.length,
+      release: null,
+      pausingFor: 0,
+      failures,
+    })
+
+    for (const [index, release] of queue.entries()) {
       const choice = decisionChoices[release]
-      if (!choice) continue
 
       setValidatingRelease(release)
+      setStackProgress({
+        done: index,
+        total: queue.length,
+        release,
+        pausingFor: 0,
+        failures: [...failures],
+      })
 
       try {
-        rememberRun(
-          await runValidation({
-            repository_id: repositoryKey,
-            release_id: release,
-            decision_mode: choice.mode,
-            adr_repository_id: choice.adrRepositoryId,
-          }),
-        )
+        const run = await runValidation({
+          repository_id: repositoryKey,
+          release_id: release,
+          decision_mode: choice.mode,
+          adr_repository_id: choice.adrRepositoryId,
+          verify: verifyRuns,
+        })
+        rememberRun(run)
       } catch (cause) {
-        // Named with the release it belongs to, and the loop stops: the rest
-        // of the stack would fail the same way, and a wall of identical
-        // messages buries the one that says why.
+        // Collected, not thrown. A stack run is left unattended, and one
+        // release refused by a rate limit used to abandon the other
+        // nineteen - so somebody came back to a job that had done almost
+        // nothing and reported it once.
+        failures.push({ release, reason: messageOf(cause) })
         setValidationError(`${release}: ${messageOf(cause)}`)
-        break
       }
+
+      // **No pause between releases, deliberately.** There used to be a flat
+      // seventy seconds after any release that spent a call, written when the
+      // adapter could not see the provider's budget and a burst could drain
+      // it. The adapter now reads `x-ratelimit-remaining-tokens` per model
+      // and waits exactly the shortfall, at the moment it is short - so a
+      // second pause here waits for a budget that is already accounted for.
+      //
+      // It was also the whole cost of a nearly-warm stack: three releases
+      // replaying all but one call each did ten seconds of work and a
+      // hundred and forty seconds of waiting for nothing.
+      //
+      // A release that genuinely exhausts the budget still fails loudly and
+      // lands in `failures`, which is the signal to run it again.
     }
 
     setValidatingRelease(null)
-  }, [decisionChoices, releases, rememberRun, repositoryKey, validatingRelease])
+    setStackProgress({
+      done: queue.length,
+      total: queue.length,
+      release: null,
+      pausingFor: 0,
+      failures: [...failures],
+    })
+  }, [
+    decisionChoices,
+    releases,
+    rememberRun,
+    repositoryKey,
+    validatingRelease,
+    verifyRuns,
+  ])
 
   /**
    * Recover every configured snapshot.
@@ -410,7 +460,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       decisionChoices,
       chooseDecision,
       chooseDecisionForAll,
+      verifyRuns,
+      setVerifyRuns,
       validatingRelease,
+      stackProgress,
       validateRelease,
       validateAllReleases,
       validationError,
@@ -452,7 +505,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       decisionChoices,
       chooseDecision,
       chooseDecisionForAll,
+      verifyRuns,
+      setVerifyRuns,
       validatingRelease,
+      stackProgress,
       validateRelease,
       validateAllReleases,
       validationError,

@@ -74,6 +74,7 @@ class FakeProvider:
         strict: bool = True,
         temperature: float = 0.0,
         seed: int | None = 42,
+        reasoning_effort: str = "",
     ) -> dict:
         """Return the next scripted response, or raise as scripted."""
 
@@ -85,6 +86,7 @@ class FakeProvider:
                 "strict": strict,
                 "temperature": temperature,
                 "seed": seed,
+                "reasoning_effort": reasoning_effort,
             }
         )
 

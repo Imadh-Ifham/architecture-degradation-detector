@@ -61,6 +61,16 @@ class ModelCall:
     evidence_hash: str
     outcome: str
     latency_ms: int
+    waited_ms: int = 0
+    """Of `latency_ms`, how much was spent waiting for a rate limit.
+
+    Separated because the two look identical in a single number and mean
+    opposite things. A four-second call on a per-minute tier is usually half
+    a second of model and three and a half of waiting for a token budget to
+    refill, and reporting that as latency makes a fast model look slow and
+    sends somebody shopping for a different one.
+    """
+
     response: dict | None = None
     error: str | None = None
     prompt_tokens: int = 0
@@ -78,6 +88,8 @@ class ModelCall:
             "evidence_hash": self.evidence_hash,
             "outcome": self.outcome,
             "latency_ms": self.latency_ms,
+            "waited_ms": self.waited_ms,
+            "answered_ms": max(self.latency_ms - self.waited_ms, 0),
             "response": self.response,
             "error": self.error,
             "prompt_tokens": self.prompt_tokens,
@@ -134,6 +146,7 @@ class CallLog:
         response: dict | None = None,
         error: str | None = None,
         usage: dict | None = None,
+        waited_seconds: float = 0.0,
     ) -> None:
         """Add one call to the capture in progress, if there is one."""
 
@@ -154,6 +167,7 @@ class CallLog:
                 evidence_hash=evidence_hash,
                 outcome=outcome,
                 latency_ms=latency_ms,
+                waited_ms=int(waited_seconds * 1000),
                 response=response,
                 error=error,
                 prompt_tokens=int(tokens.get("prompt_tokens") or 0),
@@ -181,6 +195,10 @@ def summarise(calls: list[ModelCall]) -> dict:
         "unusable": len([call for call in calls if call.outcome == OUTCOME_UNUSABLE]),
         "prompt_tokens": sum(call.prompt_tokens for call in calls),
         "completion_tokens": sum(call.completion_tokens for call in calls),
+        "waited_ms": sum(call.waited_ms for call in calls),
+        "answered_ms": sum(
+            max(call.latency_ms - call.waited_ms, 0) for call in calls
+        ),
     }
 
 

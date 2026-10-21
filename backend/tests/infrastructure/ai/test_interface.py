@@ -255,6 +255,32 @@ class TestDeterminismControls:
         assert result.model_id
 
 
+class TestWhatTheCacheKeyHolds:
+    """Everything that could change the answer, so a hit is only ever a hit
+    on the identical question."""
+
+    def test_the_decoding_effort_changes_the_key(self):
+        """It changes the answer: measured on one verdict, `low` spent 85
+        completion tokens where the default spent 223. Leaving it out of the
+        key meant a run at one effort could be served an answer produced at
+        another."""
+
+        base = dict(
+            task=TASK_PRIMARY_VERDICT,
+            prompt_version="primary_verdict@1",
+            model_id="openai/gpt-oss-20b",
+            schema_mode=SCHEMA_MODE_STRICT,
+            evidence_hash="ev",
+        )
+
+        assert VerdictCache.key(**base, reasoning_effort="low") != VerdictCache.key(
+            **base, reasoning_effort="high"
+        )
+        assert VerdictCache.key(**base, reasoning_effort="low") == VerdictCache.key(
+            **base, reasoning_effort="low"
+        )
+
+
 class TestVerdictCache:
     """One mechanism, four problems."""
 
@@ -557,6 +583,219 @@ class TestOpenAICompatibleProvider:
             provider.complete("openai/gpt-oss-20b", "p", {})
 
         assert set(waits) == {MAX_WAIT_SECONDS}
+
+    def test_the_budget_is_waited_for_before_a_refusal_is_earned(self):
+        """Asking and being refused is not free.
+
+        A burst against a tokens-per-minute cap spends a request out of the
+        daily allowance for every refusal. A measured burst of seventeen was
+        refused eleven times - eleven requests that bought nothing but a
+        `retry-after` header. The budget is reported on every response, so
+        the wait happens before the request rather than after it.
+        """
+
+        waits = []
+        # The fixture reports 42-token calls, so the middle budget is
+        # deliberately below one call rather than merely small.
+        budget = iter(["4000", "20", "4000"])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            response = self.ok_response(request)
+            response.headers["x-ratelimit-remaining-tokens"] = next(budget)
+            response.headers["x-ratelimit-reset-tokens"] = "3.5s"
+            return response
+
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1", "k",
+            client=self.transport(handler), sleep=waits.append,
+        )
+
+        provider.complete("openai/gpt-oss-20b", "p", {})
+        assert waits == [], "a budget that covers the call is not waited for"
+
+        provider.complete("openai/gpt-oss-20b", "p", {})
+        third = provider.complete("openai/gpt-oss-20b", "p", {})
+
+        assert waits == [3.5], "a budget below one call's cost waits first"
+        assert third["waited_seconds"] == 3.5
+
+    def test_waiting_is_reported_apart_from_answering(self):
+        """A four-second call is usually half a second of model and three and
+        a half of waiting. One number cannot say which, and reporting the sum
+        as latency makes a fast model look slow."""
+
+        waits = []
+        answers = iter([429, 200])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if next(answers) == 429:
+                return httpx.Response(429, headers={"retry-after": "2"})
+            return self.ok_response(request)
+
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1", "k",
+            client=self.transport(handler), sleep=waits.append,
+        )
+
+        answer = provider.complete("openai/gpt-oss-20b", "p", {})
+
+        assert answer["waited_seconds"] == 2.0
+
+    def test_the_reset_header_is_parsed_as_a_duration(self):
+        """The provider writes it as `547ms` or `1m6.2s`, not as a number."""
+
+        from app.infrastructure.ai.providers.openai_compatible import _seconds
+
+        assert _seconds("547ms") == pytest.approx(0.547)
+        assert _seconds("3.5s") == pytest.approx(3.5)
+        assert _seconds("1m6.2s") == pytest.approx(66.2)
+        assert _seconds("nonsense") == 0.0
+        assert _seconds(None) == 0.0
+
+    def test_the_reasoning_effort_reaches_the_request(self):
+        """Tokens are the binding constraint on a per-minute tier, and the
+        reasoning a model emits before its answer is tokens."""
+
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.update(json.loads(request.content))
+            return self.ok_response(request)
+
+        OpenAICompatibleProvider(
+            "https://example.test/v1", "k", client=self.transport(handler)
+        ).complete("openai/gpt-oss-20b", "p", {}, reasoning_effort="low")
+
+        assert captured["reasoning_effort"] == "low"
+
+    def test_no_reasoning_effort_leaves_the_providers_default(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.update(json.loads(request.content))
+            return self.ok_response(request)
+
+        OpenAICompatibleProvider(
+            "https://example.test/v1", "k", client=self.transport(handler)
+        ).complete("openai/gpt-oss-20b", "p", {})
+
+        assert "reasoning_effort" not in captured
+
+    def test_giving_up_still_reports_what_the_waiting_cost(self):
+        """A call that waited a minute and then gave up reported `waited: 0`,
+        so the transcript showed a seventy-second model where there was a
+        seventy-second queue - the exact confusion this accounting exists to
+        end, surviving on the one path that returns no body."""
+
+        waits = []
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1",
+            "k",
+            client=self.transport(
+                lambda request: httpx.Response(429, headers={"retry-after": "9"})
+            ),
+            sleep=waits.append,
+        )
+
+        with pytest.raises(ProviderRateLimited) as refused:
+            provider.complete("openai/gpt-oss-20b", "p", {})
+
+        assert refused.value.waited_seconds == sum(waits)
+        assert "totalling 27s" in str(refused.value)
+
+    def test_the_wait_covers_the_shortfall_not_the_whole_window(self):
+        """`x-ratelimit-reset-tokens` is when the bucket is *full* again.
+
+        Waiting that long for the few hundred tokens one call is short of is
+        the difference between a four-minute release and a twelve-minute one.
+        The bucket refills continuously, so the wait is the shortfall divided
+        by the rate.
+        """
+
+        waits = []
+        budget = iter(["8000", "500", "8000"])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            response = self.ok_response(request)
+            response.headers["x-ratelimit-limit-tokens"] = "6000"
+            response.headers["x-ratelimit-remaining-tokens"] = next(budget)
+            response.headers["x-ratelimit-reset-tokens"] = "55s"
+            return response
+
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1", "k",
+            client=self.transport(handler), sleep=waits.append,
+        )
+
+        for _ in range(3):
+            provider.complete("openai/gpt-oss-20b", "p", {})
+
+        # The fixture reports 42-token calls. 500 left covers one, so nothing
+        # waits; the shortfall path is exercised by the budgets above it.
+        assert waits == [], "500 remaining covers a 42-token call"
+
+    def test_a_shortfall_waits_only_long_enough_to_cover_it(self):
+        waits = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            response = httpx.Response(
+                200,
+                json={
+                    "model": "openai/gpt-oss-20b",
+                    "choices": [{"message": {"content": json.dumps(VERDICT)}}],
+                    "usage": {"total_tokens": 1200},
+                },
+            )
+            response.headers["x-ratelimit-limit-tokens"] = "6000"
+            response.headers["x-ratelimit-remaining-tokens"] = "600"
+            response.headers["x-ratelimit-reset-tokens"] = "55s"
+            return response
+
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1", "k",
+            client=self.transport(handler), sleep=waits.append,
+        )
+
+        provider.complete("openai/gpt-oss-20b", "p", {})
+        provider.complete("openai/gpt-oss-20b", "p", {})
+
+        # 1200 needed, 600 left, refilling at 100/s: six seconds, not 55.
+        assert waits == [pytest.approx(6.0)]
+
+    def test_each_model_is_paced_against_its_own_budget(self):
+        """One adapter serves every task and the models have separate
+        buckets. A single figure paced the verifier against the reasoner's
+        healthy budget, so it never waited and earned a refusal instead."""
+
+        seen = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            model = json.loads(request.content)["model"]
+            seen.append(model)
+            response = self.ok_response(request)
+            response.headers["x-ratelimit-limit-tokens"] = "6000"
+            # The verifier is empty; the reasoner is full.
+            response.headers["x-ratelimit-remaining-tokens"] = (
+                "0" if "qwen" in model else "6000"
+            )
+            response.headers["x-ratelimit-reset-tokens"] = "30s"
+            return response
+
+        waits = []
+        provider = OpenAICompatibleProvider(
+            "https://example.test/v1", "k",
+            client=self.transport(handler), sleep=waits.append,
+        )
+
+        provider.complete("qwen/qwen3.8-27b", "p", {})
+        provider.complete("openai/gpt-oss-20b", "p", {})
+        assert waits == [], "neither has been seen twice yet"
+
+        provider.complete("openai/gpt-oss-20b", "p", {})
+        assert waits == [], "the reasoner has budget and must not wait"
+
+        provider.complete("qwen/qwen3.8-27b", "p", {})
+        assert waits, "the verifier had none left and must wait for its own"
 
     def test_waiting_can_be_turned_off(self):
         """For a caller that would rather fail now than hold a run open."""

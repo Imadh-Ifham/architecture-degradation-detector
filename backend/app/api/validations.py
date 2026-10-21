@@ -610,6 +610,7 @@ def get_validation_service() -> ArchitectureValidationService:
             REASONING_TASKS,
             provider=ai_settings.ai_provider,
             allow_arbiter_only=ai_settings.ai_allow_arbiter_only,
+            use_models=ai_settings.ai_use_models,
         ),
         verification=IndependentVerificationService(
             get_ai_client(),
@@ -1110,6 +1111,13 @@ def run_validation(
 
     released_at, released_at_source = _resolve_release_date(request)
 
+    # A deployment that does not use models does not use the verifier either.
+    # Forced here rather than inside the component, because the component is
+    # handed what to do and this is a fact about the deployment - and because
+    # the run then reports verification as not requested, which is what
+    # happened, instead of as unavailable, which did not.
+    verify = request.verify and ai_settings.ai_use_models
+
     # The calls are collected around the run rather than inside it. The
     # component names a task and is handed an answer; which model answered,
     # how long it took and what the request text was are facts about the
@@ -1123,7 +1131,7 @@ def run_validation(
                 request.release_id,
                 decision_mode=request.decision_mode,
                 adr_repository_id=request.adr_repository_id,
-                verify=request.verify,
+                verify=verify,
                 arm=request.arm,
                 released_at=released_at,
                 released_at_source=released_at_source,
@@ -1419,6 +1427,11 @@ def _transcript(run, calls: list) -> dict:
         "temperature": ai_settings.ai_temperature,
         "base_url": ai_settings.ai_base_url,
         "key_configured": bool(ai_settings.ai_api_key),
+        # Stamped on the transcript so a run with no calls in it is never
+        # ambiguous: no calls because nothing was asked, or no calls because
+        # everything replayed, are different runs and the screen must not
+        # have to guess which it is looking at.
+        "models_used": ai_settings.ai_use_models,
         "summary": summarise(calls),
         "calls": [call.to_dict() for call in calls],
     }
@@ -1488,6 +1501,16 @@ class TranscriptResponse(BaseModel):
     key_configured: bool = Field(
         description="Whether a key was configured when this ran. False with "
         "calls recorded is impossible; false with none is the keyless run."
+    )
+    models_used: bool = Field(
+        default=True,
+        description=(
+            "Whether this deployment asks a model at all. False is the "
+            "rollback: the reasoner and the verifier are not called and the "
+            "deterministic table decides every governed fact. A transcript "
+            "with no calls in it means one of two different things - nothing "
+            "was asked, or everything replayed - and this is which."
+        ),
     )
     summary: dict[str, int] = Field(
         description="Counts by outcome, plus the tokens the live calls spent."
@@ -1817,3 +1840,58 @@ def _tally(edges: list[dict], field_name: str) -> dict:
         value = edge.get(field_name) or "none"
         counts[str(value)] = counts.get(str(value), 0) + 1
     return dict(sorted(counts.items()))
+
+
+class WithdrawnRecordResponse(BaseModel):
+    """A rule the log held that a later release stopped stating."""
+
+    decision_id: str
+    constraint: str
+    subject: str
+    object: str
+    reason: str | None = Field(
+        default=None,
+        description="Which source stopped stating it, and at which release.",
+    )
+
+
+class ReleaseMovementResponse(BaseModel):
+    """What one release's scan changed in the decision history."""
+
+    release_id: str
+    recorded: int = Field(
+        description="Rules this release stated that the log did not already hold."
+    )
+    closed: int = Field(
+        description="Rules the log held that this release no longer states."
+    )
+    sources: list[str] = Field(description="Which sources ran for this release.")
+    withdrawn: list[WithdrawnRecordResponse] = Field(
+        default_factory=list, description="The closed rules, named."
+    )
+
+
+@router.get(
+    "/decision-history",
+    response_model=list[ReleaseMovementResponse],
+    summary="What each scanned release changed in the decision history",
+    response_description=(
+        "One entry per release scanned, in the order they were scanned, with "
+        "the rules each one withdrew."
+    ),
+)
+def read_decision_movement(
+    repository_id: str,
+    knowledge: DecisionKnowledgeService = Depends(
+        lambda: DecisionKnowledgeService(get_artifact_reader(), get_decision_store())
+    ),
+):
+    """Return the movement in one repository's decision history.
+
+    The count on the decisions screen answers *how many rules are in force*,
+    and two releases reporting the same count is the question it cannot
+    answer: the same rules, or a different set of the same size? This is that
+    answer, and every part of it was already in the log.
+    """
+
+    return knowledge.movement(repository_id)

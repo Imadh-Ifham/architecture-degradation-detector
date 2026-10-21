@@ -303,11 +303,18 @@ class TestTheDefaultRefusal:
 class TestWhatAConstraintSpeaksAbout:
     """The mapping from the four constraints onto the two relationship kinds."""
 
-    def test_a_dependency_is_not_governed_by_a_rule_about_calling(self):
-        """`depends-on` means the dependency is real and the transport
-        unknown. A rule about who may call whom is not a rule about that, and
-        pretending otherwise would attach communication verdicts to edges
-        nobody claimed were calls."""
+    def test_a_dependency_is_governed_by_the_rule_that_names_its_pair(self):
+        """Reversed on 2026-10-21, and the corpus is why.
+
+        The old reading was that `depends-on` means the transport is unknown
+        and a rule about who may *call* whom does not speak to it. But the
+        rules here are network policies, and a network policy is not a
+        statement about a transport - it is a statement about which workload
+        may reach which. `cartservice -> redis-cart` is a datastore
+        dependency, a policy names exactly that pair and admits exactly that
+        caller, and the fact was published as *nothing in the recorded intent
+        speaks to this* while the rule speaking to it sat in the log.
+        """
 
         index = index_of(record("rule-frontend-cartservice"))
 
@@ -315,13 +322,24 @@ class TestWhatAConstraintSpeaksAbout:
             index, fact(relationship=RelationshipKind.DEPENDS_ON)
         )
 
-        assert resolution.uncovered is True
+        assert resolution.uncovered is False
+        assert resolution.governing.decision_id == "rule-frontend-cartservice"
+
+    def test_a_declared_operation_still_governs_neither_kind(self):
+        """The row that genuinely does not apply is excluded by its own
+        entry, not by the relationship it was asked about - which is what
+        makes widening the others safe."""
+
+        assert constraints_for(RelationshipKind.DEPENDS_ON) and (
+            ConstraintKind.DECLARED_RPC
+            not in constraints_for(RelationshipKind.DEPENDS_ON)
+        )
 
     def test_a_declared_operation_governs_no_observed_relationship_yet(self):
         """It is held in the log and counted. An observed fact carries no
         operation, so there is nothing for it to be matched against."""
 
-        assert CONSTRAINT_RELATIONSHIP[ConstraintKind.DECLARED_RPC] is None
+        assert CONSTRAINT_RELATIONSHIP[ConstraintKind.DECLARED_RPC] == ()
         assert ConstraintKind.DECLARED_RPC not in constraints_for(
             RelationshipKind.COMMUNICATES_WITH
         )

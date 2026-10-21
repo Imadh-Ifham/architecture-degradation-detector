@@ -123,6 +123,14 @@ class _Stage:
         self.note: str | None = None
         self.warnings: tuple[str, ...] = ()
         self._started = 0.0
+        self._spent = 0.0
+        """Time inside this stage's own calls, when it is one of a group.
+
+        The five per-fact stages share one `with` block, so each one's
+        enter-to-record span is the whole loop's - and every one of them was
+        reporting the total. A screen then said evidence retrieval took
+        eleven minutes, which sent two people looking in the wrong place.
+        """
 
     def __enter__(self) -> "_Stage":
         self._started = perf_counter()
@@ -142,12 +150,22 @@ class _Stage:
         self.status = StageStatus.PENDING
         self.note = note or "not implemented yet"
 
+    def spend(self, seconds: float) -> None:
+        """Add one call's time to this stage's own total."""
+
+        self._spent += seconds
+
     def record(self) -> StageRecord:
+        # Its own accumulated time when it had any, and the span otherwise.
+        # A stage that runs alone in its block - normalisation, publishing -
+        # never calls `spend`, and for it the span is the right answer.
+        elapsed = self._spent or (perf_counter() - self._started)
+
         return StageRecord(
             name=self.name,
             status=self.status,
             counts=self.counts,
-            duration_ms=int((perf_counter() - self._started) * 1000),
+            duration_ms=int(elapsed * 1000),
             note=self.note,
             warnings=self.warnings,
         )
@@ -159,13 +177,20 @@ def _attempt(stage: _Stage, call, *arguments):
     Catches `NotImplementedError` around that single call and nothing else, so
     a stub nobody has written yet and a subcomponent that broke stay
     distinguishable in the run record.
+
+    It also times the call and charges it to the stage, which is the only way
+    the five that share a `with` block can report their own cost rather than
+    the whole loop's.
     """
 
+    started = perf_counter()
     try:
         return call(*arguments), True
     except NotImplementedError as error:
         stage.pending(str(error) or None)
         return None, False
+    finally:
+        stage.spend(perf_counter() - started)
 
 
 def _verification_counts(judged: list[tuple], verify: bool, arm: str) -> dict:

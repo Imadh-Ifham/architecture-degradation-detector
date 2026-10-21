@@ -63,6 +63,8 @@ import {
   type ValidationRun,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import SecondModel from './SecondModel'
+import StackRun from './StackRun'
 import { runKey, type DecisionChoice } from '../../workspace/context'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import type {
@@ -94,6 +96,9 @@ export default function PipelinePage() {
     runs,
     decisionChoices,
     validatingRelease,
+    stackProgress,
+    verifyRuns,
+    setVerifyRuns,
     validateRelease,
     validateAllReleases,
     validationError,
@@ -150,6 +155,15 @@ export default function PipelinePage() {
     setToggled([])
     await validateAllReleases()
   }
+
+  // `validatingRelease` is null between releases while the stack waits for
+  // the provider's token budget, so gating on it alone re-enables every
+  // control mid-run - and a second stack started during a pause would be two
+  // runs sharing one per-minute budget, which is the thing the pause exists
+  // to avoid.
+  const isValidating =
+    Boolean(validatingRelease) ||
+    Boolean(stackProgress && stackProgress.done < stackProgress.total)
 
   // A run reaches this screen through the session's runs, not through the
   // snapshot, because the decisions screen is what started it.
@@ -243,7 +257,9 @@ export default function PipelinePage() {
         description="Four phases. Recovery clones and analyses every configured release; validation then judges each one against the source chosen for it."
         action={
           <div className="flex flex-wrap items-center gap-5">
-            {validatingRelease && <Spinner label={`validating ${validatingRelease}`} />}
+            {validatingRelease && !stackProgress && (
+              <Spinner label={`validating ${validatingRelease}`} />
+            )}
             {isPipelineRunning && <Spinner label="recovering" />}
             {isDetecting && <Spinner label="detecting" />}
             {isScoring && <Spinner label="scoring" />}
@@ -252,18 +268,26 @@ export default function PipelinePage() {
               <Button
                 size="sm"
                 variant="quiet"
-                disabled={isPipelineRunning || Boolean(validatingRelease)}
+                disabled={isPipelineRunning || isValidating}
                 onClick={recover}
               >
                 Recover again
               </Button>
             )}
 
+            {isRecovered && (
+              <SecondModel
+                verify={verifyRuns}
+                onChange={setVerifyRuns}
+                disabled={isPipelineRunning || isValidating}
+              />
+            )}
+
             <Button
               variant={detectIsNext || hasFreshDetection ? undefined : 'primary'}
               disabled={
                 isPipelineRunning ||
-                Boolean(validatingRelease) ||
+                isValidating ||
                 (isRecovered ? ready.length === 0 : configurations.length === 0)
               }
               onClick={isRecovered ? validateAll : recover}
@@ -280,7 +304,7 @@ export default function PipelinePage() {
             {validated && (
               <Button
                 variant={detectIsNext ? 'primary' : undefined}
-                disabled={isPipelineRunning || Boolean(validatingRelease) || isDetecting}
+                disabled={isPipelineRunning || isValidating || isDetecting}
                 onClick={() => void detectDegradation()}
               >
                 {isDetecting
@@ -307,6 +331,11 @@ export default function PipelinePage() {
           </div>
         }
       />
+
+      {/* Above the flow, because while a stack is running it is the only
+          thing on the page anybody is reading - and the person it is for
+          walked away and came back. */}
+      {stackProgress && <StackRun progress={stackProgress} />}
 
       <Card
         title="Flow"

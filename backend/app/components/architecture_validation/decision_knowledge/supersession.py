@@ -72,23 +72,42 @@ from ..models import (
 )
 from .models import DecisionVersion
 
-CONSTRAINT_RELATIONSHIP: dict[ConstraintKind, RelationshipKind | None] = {
-    ConstraintKind.MAY_CALL: RelationshipKind.COMMUNICATES_WITH,
-    ConstraintKind.MUST_NOT_CALL: RelationshipKind.COMMUNICATES_WITH,
-    ConstraintKind.MUST_CALL_VIA: RelationshipKind.COMMUNICATES_WITH,
-    ConstraintKind.DECLARED_RPC: None,
+CONSTRAINT_RELATIONSHIP: dict[ConstraintKind, tuple[RelationshipKind, ...]] = {
+    ConstraintKind.MAY_CALL: (
+        RelationshipKind.COMMUNICATES_WITH,
+        RelationshipKind.DEPENDS_ON,
+    ),
+    ConstraintKind.MUST_NOT_CALL: (
+        RelationshipKind.COMMUNICATES_WITH,
+        RelationshipKind.DEPENDS_ON,
+    ),
+    ConstraintKind.MUST_CALL_VIA: (
+        RelationshipKind.COMMUNICATES_WITH,
+        RelationshipKind.DEPENDS_ON,
+    ),
+    ConstraintKind.DECLARED_RPC: (),
 }
-"""Which kind of observed relationship each constraint speaks about.
+"""Which kinds of observed relationship each constraint speaks about.
 
-The three communication constraints all describe one element reaching another,
-which is what `communicates-with` is. `declared_rpc` describes an operation a
-service exposes, and an observed fact carries no operation - so it is held in
-the log, reported in the counts, and governs nothing until a fact exists that
-names an operation.
+The three communication constraints describe one element reaching another.
+`declared_rpc` describes an operation a service exposes, and an observed fact
+carries no operation - so it is held in the log, reported in the counts, and
+governs nothing until a fact exists that names an operation.
 
-A `depends-on` fact is deliberately not governed by a communication rule. The
-label means the dependency is real and the transport unknown, and a rule about
-who may *call* whom is not a rule about that.
+**`depends-on` was excluded until 2026-10-21 and should not have been.** The
+argument was that the label means the transport is unknown, and that a rule
+about who may *call* whom does not speak to it. The corpus showed the cost:
+`cartservice -> redis-cart` is a datastore dependency, a NetworkPolicy names
+exactly that pair and admits exactly that caller, and the fact was published
+as `uncovered` - *nothing in the recorded intent speaks to this* - while a
+rule speaking to it sat in the log.
+
+The reason the old argument fails is what the rules are made of here. A
+network policy is not a statement about a transport; it is a statement about
+which workload may reach which, and a dependency whose transport is unknown
+is still that workload reaching that one. A rule that would genuinely not
+apply - an operation on a service contract - is excluded by its own row
+above, not by this one.
 """
 
 _TIER_ORDER = tuple(SourceTier)
@@ -105,7 +124,7 @@ def constraints_for(relationship: RelationshipKind) -> tuple[ConstraintKind, ...
     return tuple(
         constraint
         for constraint, governs in CONSTRAINT_RELATIONSHIP.items()
-        if governs == relationship
+        if relationship in governs
     )
 
 

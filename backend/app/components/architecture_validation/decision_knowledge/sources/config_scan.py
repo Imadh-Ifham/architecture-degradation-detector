@@ -456,7 +456,7 @@ def _permitted_pairs(specification: dict, selected: str) -> list[tuple[str, str]
 
     **An ingress rule that names no peer admits every caller**, which is what
     `ingress: [{}]` means in Kubernetes and what this read as nothing until
-    2026-10-22. Reading it as nothing is not a gap that loses a permission
+    2026-10-21. Reading it as nothing is not a gap that loses a permission
     quietly: the default refusal is still in force, so the pair falls through
     to it and is published as a *violation of a policy that explicitly allows
     it*. One of the two contradictions in the demonstration corpus was this.

@@ -432,3 +432,35 @@ export function narrateRun(
     query: { repository_id: repositoryId, release_id: releaseId },
   })
 }
+
+/** A rule the log held that a later release stopped stating. */
+export interface WithdrawnRecord {
+  decision_id: string
+  constraint: string
+  subject: string
+  object: string
+  reason: string | null
+}
+
+/**
+ * What one release's scan changed in the decision history.
+ *
+ * The record count on the decisions screen answers *how many rules are in
+ * force*, and two releases reporting the same count is the question it
+ * cannot answer: the same rules, or a different set of the same size? This
+ * is that answer, read out of the decision log rather than recomputed.
+ */
+export interface ReleaseMovement {
+  release_id: string
+  recorded: number
+  closed: number
+  sources: string[]
+  withdrawn: WithdrawnRecord[]
+}
+
+export function readDecisionHistory(repositoryId: string, options?: RequestOptions) {
+  return get<ReleaseMovement[]>('/validations/decision-history', {
+    ...options,
+    query: { repository_id: repositoryId },
+  })
+}
