@@ -1,5 +1,5 @@
 /**
- * Priorities screen.
+ * Scoring screen.
  *
  * Description:
  *   What degraded, ranked by how much it matters, read from a saved severity
@@ -23,7 +23,7 @@
  */
 
 import { Fragment, useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router'
 import {
   Button,
   Card,
@@ -43,6 +43,10 @@ import {
 import { useRequest } from '../../lib/useRequest'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import RankedEventDetail from './RankedEventDetail'
+import RunActions from './RunActions'
+import RunChooser from './RunChooser'
+import RunDetails from './RunDetails'
+import WhatIfCard from './WhatIfCard'
 import {
   DIMENSIONS,
   isActive,
@@ -51,7 +55,7 @@ import {
   plainType,
   provenanceNote,
   reason,
-  runLabel,
+  runTitle,
   sameSystem,
   score,
   subject,
@@ -59,13 +63,13 @@ import {
   weightsOf,
 } from './dimensions'
 
-export default function PrioritiesPage() {
+export default function ScoringPage() {
   const { repositoryKey } = useWorkspace()
   const runs = useRequest((options) => listScoringRuns(options), [])
 
   // The ranking, the one it is compared with and an opened row can all come
   // from the url, so a link opens exactly this view:
-  // /priorities?run=<id>&compare=<id>&open=<event id>.
+  // /scoring?run=<id>&compare=<id>&open=<event id>.
   const [params, setParams] = useSearchParams()
   const [selected, setSelected] = useState<string | null>(params.get('open'))
 
@@ -108,7 +112,7 @@ export default function PrioritiesPage() {
     <>
       <PageHeading
         eyebrow="ranked"
-        title="Priorities"
+        title="Scoring"
         description="What degraded between releases, ranked by how much it matters — and, for every item, why."
         action={
           <Link to="/">
@@ -132,18 +136,14 @@ export default function PrioritiesPage() {
       )}
 
       {all.length > 0 && runId && (
-        <div className="flex flex-wrap items-end gap-6">
-          <Picker label="ranking" runs={all} value={runId} onChange={showRun} />
-          {comparable.length > 0 && (
-            <Picker
-              label="compare with"
-              runs={comparable}
-              value={compareId ?? ''}
-              empty="nothing"
-              onChange={compareWith}
-            />
-          )}
-        </div>
+        <RunChooser
+          runs={all}
+          value={runId}
+          comparable={comparable}
+          compareValue={compareId ?? ''}
+          onChange={showRun}
+          onCompare={compareWith}
+        />
       )}
 
       {report.isLoading && <Spinner label="reading the severity report" />}
@@ -151,30 +151,88 @@ export default function PrioritiesPage() {
 
       {shown && (
         <>
+          <RunActions report={shown} />
           <Provenance report={shown} />
+          {shown.data_provenance === 'live' && (shown.records?.length ?? 0) === 0 && (
+            <NothingFound
+              examples={all.filter((run) => run.data_provenance !== 'live')}
+              onShow={showRun}
+            />
+          )}
           <ReadingGuide report={shown} />
           <Recipe report={shown} />
           <Ranked
             report={shown}
+            architectureRelease={
+              sameSystem(shown.system_id, repositoryKey) ? shown.release_id : null
+            }
             against={against}
             againstRun={comparable.find((run) => run.run_id === compareId) ?? null}
             selected={selected}
             onSelect={(id) => setSelected(selected === id ? null : id)}
           />
+          <WhatIfCard key={shown.run_id} report={shown} />
           <SetAside report={shown} />
+          <RunDetails runId={shown.run_id} />
         </>
       )}
     </>
   )
 }
 
+/** The page's earlier address (/priorities), kept so old links open the same view. */
+export function ScoringRedirect() {
+  const { search } = useLocation()
+  return <Navigate to={`/scoring${search}`} replace />
+}
+
+/**
+ * Detection found nothing to hand on. Said as a result, with the way to see
+ * how scoring works on example data - clearly labelled as such there.
+ */
+function NothingFound({
+  examples,
+  onShow,
+}: {
+  examples: ScoringRunSummary[]
+  onShow: (runId: string) => void
+}) {
+  return (
+    <Card title="Nothing to rank in this repository">
+      <div className="flex flex-col gap-5">
+        <p className="max-w-prose text-sm leading-relaxed text-ink-2">
+          Detection found nothing getting worse with statistical support across the releases it
+          read, so it handed on no events. That is a result, not a fault: the architecture held its
+          shape over those releases.
+        </p>
+        {examples.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs text-ink-4">See how scoring works on example data:</span>
+            {examples.slice(0, 3).map((run) => (
+              <Button key={run.run_id} size="sm" variant="quiet" onClick={() => onShow(run.run_id)}>
+                {runTitle(run)}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 function Provenance({ report }: { report: SeverityReportV1 }) {
   const note = provenanceNote(report.data_provenance)
   if (!note) return null
+  // pipeline output is the normal case, said plainly; example data is flagged
+  const live = report.data_provenance === 'live'
   return (
-    <div className="flex flex-col gap-2 rounded-control border border-warn/40 bg-warn-wash px-5 py-4">
-      <span className="font-mono text-xs tracking-wide text-warn">
-        {report.data_provenance} data
+    <div
+      className={`flex flex-col gap-2 rounded-control border px-5 py-4 ${
+        live ? 'border-line bg-panel' : 'border-warn/40 bg-warn-wash'
+      }`}
+    >
+      <span className={`font-mono text-xs tracking-wide ${live ? 'text-ink-3' : 'text-warn'}`}>
+        {live ? 'from the pipeline' : 'example data'}
       </span>
       <p className="text-sm leading-relaxed text-ink-2">{note}</p>
     </div>
@@ -195,7 +253,11 @@ function ReadingGuide({ report }: { report: SeverityReportV1 }) {
           <Funnel
             value={total}
             label="events in"
-            note={`found by degradation detection in ${systemName(report.system_id)} ${report.release_id}`}
+            note={
+              report.data_provenance === 'live'
+                ? `found by degradation detection in ${systemName(report.system_id)} ${report.release_id}`
+                : `hand-made for ${systemName(report.system_id)} ${report.release_id}`
+            }
           />
           <span className="pt-1 font-mono text-ink-4">→</span>
           <Funnel value={ranked} label="ranked" note="the list below" />
@@ -300,12 +362,14 @@ function Recipe({ report }: { report: SeverityReportV1 }) {
 
 function Ranked({
   report,
+  architectureRelease,
   against,
   againstRun,
   selected,
   onSelect,
 }: {
   report: SeverityReportV1
+  architectureRelease: string | null
   against: SeverityReportV1 | null
   againstRun: ScoringRunSummary | null
   selected: string | null
@@ -327,7 +391,7 @@ function Ranked({
       action={
         <span className="text-xs text-ink-4">
           Open a row to see how its score was built.
-          {againstRun && ` Compared with: ${runLabel(againstRun)}.`}
+          {againstRun && ` Compared with: ${runTitle(againstRun)}.`}
         </span>
       }
     >
@@ -335,7 +399,7 @@ function Ranked({
         (report.skipped?.length ?? 0) + (report.quarantined?.length ?? 0) === 0 ? (
           <EmptyState
             title="Nothing to rank"
-            body="Detection found nothing getting worse across these releases, so no problem was handed on. That is a result, not a fault: the system held its shape over the releases analysed."
+            body="No events were handed on, so the list is empty."
           />
         ) : (
           <EmptyState
@@ -394,7 +458,10 @@ function Ranked({
                   {selected === record.event_id && (
                     <tr>
                       <td colSpan={heads.length} className="border-b border-line p-0">
-                        <RankedEventDetail record={record} />
+                        <RankedEventDetail
+                          record={record}
+                          architectureRelease={architectureRelease}
+                        />
                       </td>
                     </tr>
                   )}
@@ -521,7 +588,7 @@ function SetAside({ report }: { report: SeverityReportV1 }) {
                 <td className="border-b border-line px-4 py-3.5 text-ink-2">
                   {row.reason.replace(/_/g, ' ')}
                 </td>
-                <td className="border-b border-line px-4 py-3.5 font-mono text-xs break-words text-ink-3">
+                <td className="border-b border-line px-4 py-3.5 font-mono text-xs wrap-break-word text-ink-3">
                   {row.detail}
                 </td>
               </tr>
@@ -530,38 +597,6 @@ function SetAside({ report }: { report: SeverityReportV1 }) {
         </table>
       </div>
     </Card>
-  )
-}
-
-function Picker({
-  label,
-  runs,
-  value,
-  empty,
-  onChange,
-}: {
-  label: string
-  runs: ScoringRunSummary[]
-  value: string
-  empty?: string
-  onChange: (runId: string) => void
-}) {
-  return (
-    <label className="flex flex-col gap-1.5 text-sm">
-      <span className="text-xs text-ink-4">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="max-w-xl rounded-control border border-line-strong bg-raised px-2.5 py-1.5 text-sm text-ink focus:border-ai focus:outline-none"
-      >
-        {empty !== undefined && <option value="">{empty}</option>}
-        {runs.map((run) => (
-          <option key={run.run_id} value={run.run_id}>
-            {runLabel(run)}
-          </option>
-        ))}
-      </select>
-    </label>
   )
 }
 

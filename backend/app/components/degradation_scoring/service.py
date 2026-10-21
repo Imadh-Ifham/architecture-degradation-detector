@@ -50,6 +50,11 @@ from app.shared.canonical_json import content_hash
 
 log = structlog.get_logger(__name__)
 
+# the files of a saved run that may be read back (CLAUDE.md §6)
+RUN_FILES = frozenset(
+    {"c4_report.json", "c4_report.html", "c4_run_manifest.json", "c4_quarantine.json"}
+)
+
 __all__ = [
     "AmbiguousRunError",
     "DegradationScoringService",
@@ -272,6 +277,16 @@ class DegradationScoringService:
             return SeverityReportV1.model_validate(documents[0])
         except ValidationError as error:
             raise SavedReportError(f"saved report {run_id!r} breaks SeverityReportV1") from error
+
+    def run_file(self, run_id: str, name: str) -> bytes | None:
+        # read-side query: one of a saved run's files (RUN_FILES), for download and the run
+        # details; None when no run has that id or the file is not one of them
+        if name not in RUN_FILES:
+            return None
+        found = self._saved_source().files(run_id, name)
+        if len(found) > 1:
+            raise AmbiguousRunError(f"run {run_id!r} exists for several systems")
+        return found[0] if found else None
 
     def _saved_source(self) -> SavedReportSource:
         if self._saved is None:

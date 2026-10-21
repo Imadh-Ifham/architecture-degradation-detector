@@ -23,7 +23,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import {
   Button,
   Card,
@@ -66,8 +66,53 @@ export default function ArchitecturePage() {
   } = useReleases()
 
   const [view, setView] = useState<View>('diagram')
-  const [selection, setSelection] = useState<Selection>(null)
+  // undefined until somebody selects or clears something; until then a linked
+  // element (below) is what is selected
+  const [chosen, setSelection] = useState<Selection | undefined>(undefined)
   const detailAnchor = useRef<HTMLDivElement>(null)
+
+  // Another screen can link to one element of one release
+  // (?release=v0.10.7&element=frontend, by name). The release is chosen once,
+  // when the list of releases is there; the element is selected until somebody
+  // selects or clears something themselves.
+  const [params] = useSearchParams()
+  const linkedRelease = params.get('release')
+  const linkedElement = params.get('element')
+  const releaseLinked = useRef(false)
+
+  useEffect(() => {
+    if (releaseLinked.current || !linkedRelease || !releases.includes(linkedRelease)) return
+    releaseLinked.current = true
+    selectRelease(linkedRelease)
+  }, [linkedRelease, releases, selectRelease])
+
+  const snapshotId =
+    snapshots.find((item) => item.release_id === release)?.snapshot_id ?? null
+
+  const snapshot = useRequest(
+    (options) => readSnapshot(key, snapshotId ?? '', options),
+    [key, snapshotId],
+    Boolean(key && snapshotId),
+  )
+
+  // The evidence is a second request because it is a second question: the
+  // snapshot is what was concluded, the details are why. Neither blocks the
+  // other, and a missing details document degrades the panels rather than the
+  // page.
+  const details = useRequest(
+    (options) => readSnapshotDetails(key, snapshotId ?? '', options),
+    [key, snapshotId],
+    Boolean(key && snapshotId),
+  )
+
+  const elements = useMemo(() => snapshot.data?.elements ?? [], [snapshot.data])
+
+  const linkedId =
+    linkedElement && (!linkedRelease || release === linkedRelease)
+      ? elements.find((item) => item.name === linkedElement)?.id
+      : undefined
+  const selection: Selection =
+    chosen !== undefined ? chosen : linkedId ? { kind: 'element', id: linkedId } : null
 
   // Selecting something opens a panel underneath the drawing, which on a full
   // page is below the fold - the click would otherwise look like it did
@@ -90,26 +135,6 @@ export default function ArchitecturePage() {
     })
   }, [selectedKey])
 
-  const snapshotId =
-    snapshots.find((item) => item.release_id === release)?.snapshot_id ?? null
-
-  const snapshot = useRequest(
-    (options) => readSnapshot(key, snapshotId ?? '', options),
-    [key, snapshotId],
-    Boolean(key && snapshotId),
-  )
-
-  // The evidence is a second request because it is a second question: the
-  // snapshot is what was concluded, the details are why. Neither blocks the
-  // other, and a missing details document degrades the panels rather than the
-  // page.
-  const details = useRequest(
-    (options) => readSnapshotDetails(key, snapshotId ?? '', options),
-    [key, snapshotId],
-    Boolean(key && snapshotId),
-  )
-
-  const elements = useMemo(() => snapshot.data?.elements ?? [], [snapshot.data])
   const relationships = useMemo(
     () => snapshot.data?.relationships ?? [],
     [snapshot.data],

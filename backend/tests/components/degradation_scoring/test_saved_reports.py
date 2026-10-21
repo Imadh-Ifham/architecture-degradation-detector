@@ -30,6 +30,9 @@ class FakeSource:
     def reports(self, run_id: str) -> Sequence[Mapping[str, object]]:
         return [r for r in self._reports if r["run_id"] == run_id]
 
+    def files(self, run_id: str, name: str) -> Sequence[bytes]:
+        return [f"{run_id}/{name}".encode() for r in self._reports if r["run_id"] == run_id]
+
 
 def service(source: SavedReportSource) -> DegradationScoringService:
     return DegradationScoringService(default_config(), saved_reports=source)
@@ -94,3 +97,26 @@ def test_report_that_breaks_the_contract_raises() -> None:
 def test_no_source_configured_raises() -> None:
     with pytest.raises(SavedReportError, match="no saved report source"):
         DegradationScoringService(default_config()).runs()
+
+
+def test_run_file_returns_an_allowed_file(tmp_path: Path) -> None:
+    save_run(tmp_path, "run-a")
+    (tmp_path / "c4-fixture-shop" / "run-a" / "c4_report.html").write_text("<html>", "utf-8")
+    reader = service(ScoringReportFileStore(tmp_path))
+
+    assert reader.run_file("run-a", "c4_report.html") == b"<html>"
+    assert reader.run_file("run-a", "c4_quarantine.json") is None
+    assert reader.run_file("missing", "c4_report.html") is None
+
+
+def test_run_file_refuses_names_outside_the_run_files(tmp_path: Path) -> None:
+    save_run(tmp_path, "run-a")
+
+    assert service(ScoringReportFileStore(tmp_path)).run_file("run-a", "logs") is None
+
+
+def test_run_file_with_an_id_in_two_systems_is_ambiguous() -> None:
+    reports = [{"run_id": "run-a"}, {"run_id": "run-a"}]
+
+    with pytest.raises(AmbiguousRunError):
+        service(FakeSource(reports=reports)).run_file("run-a", "c4_report.json")

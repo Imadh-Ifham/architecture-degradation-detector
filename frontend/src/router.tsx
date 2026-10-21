@@ -20,7 +20,7 @@ import ValidationPage from './features/validation/ValidationPage'
 import RecoveryPage from './features/recovery/RecoveryPage'
 import DecisionsPage from './features/decisions/DecisionsPage'
 import PipelinePage from './features/pipeline/PipelinePage'
-import PrioritiesPage from './features/priorities/PrioritiesPage'
+import ScoringPage, { ScoringRedirect } from './features/scoring/ScoringPage'
 import RepositoriesPage from './features/repositories/RepositoriesPage'
 import NotFound from './pages/NotFound'
 import DriftPage from './features/drift/DriftPage'
@@ -39,7 +39,9 @@ export const router = createBrowserRouter([
       { path: 'findings', element: <FindingsPage /> },
       { path: 'canvas', element: <CanvasPage /> },
       { path: 'drift', element: <DriftPage /> },
-      { path: 'priorities', element: <PrioritiesPage /> },
+      { path: 'scoring', element: <ScoringPage /> },
+      // the page's earlier name, so links written before the rename still open it
+      { path: 'priorities', element: <ScoringRedirect /> },
       { path: '*', element: <NotFound /> },
     ],
   },

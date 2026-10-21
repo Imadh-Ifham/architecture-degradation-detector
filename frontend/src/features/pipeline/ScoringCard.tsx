@@ -3,7 +3,7 @@
  *
  * Description:
  *   Rank what the detect phase just handed on, and see at a glance what came
- *   of it. The ranking itself, with a reason for every row, is the priorities
+ *   of it. The ranking itself, with a reason for every row, is the scoring
  *   screen's; this card says enough to know whether to go there.
  *
  *   **Started by hand, after detection.** A ranking belongs to one detection
@@ -32,7 +32,7 @@ export default function ScoringCard({
   canScore: boolean
   onScore: () => void
 }) {
-  const link = ranking ? `/priorities?run=${encodeURIComponent(ranking.run_id)}` : null
+  const link = ranking ? `/scoring?run=${encodeURIComponent(ranking.run_id)}` : null
 
   return (
     <Card
@@ -45,7 +45,7 @@ export default function ScoringCard({
               to={link}
               className="font-mono text-xs text-ink-2 underline-offset-4 hover:text-ink hover:underline"
             >
-              open priorities →
+              open scoring →
             </Link>
           )}
           {!ranking && (

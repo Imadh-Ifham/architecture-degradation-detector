@@ -77,6 +77,9 @@ class SavedReportSource(Protocol):
 
     def reports(self, run_id: str) -> Sequence[Mapping[str, object]]: ...
 
+    # files(run_id, name) = that file of every run folder with that id, as bytes
+    def files(self, run_id: str, name: str) -> Sequence[bytes]: ...
+
 
 class DetectionHandoverSource(Protocol):
     # What degradation detection (C3) leaves for scoring after a run: {"events": [...],
