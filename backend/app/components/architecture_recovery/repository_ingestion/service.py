@@ -94,6 +94,27 @@ class RepositoryIngestionService:
             clone=lambda path: self._git.clone_at(source_url, source_revision, path),
         )
 
+    def workspace_id_for(
+        self, url: str, branch: str, release_tag: str | None = None
+    ) -> str:
+        """The workspace a configured snapshot is, or would be, ingested into.
+
+        A configuration is a url, a branch and a release tag, and ingestion
+        derives one directory name from exactly those. Deriving it here means
+        "is this already cloned" can never answer with an id ingestion would
+        not have produced.
+
+        Raises `InvalidRepositorySource` for a rejected url or revision.
+        """
+
+        source_url = redact_credentials(validate_url(url))
+        revision = (release_tag or "").strip()
+
+        if not revision:
+            return build_repository_id(source_url, validate_branch(branch))
+
+        return build_revision_repository_id(source_url, validate_branch(revision))
+
     def _ingest(
         self,
         source_url: str,

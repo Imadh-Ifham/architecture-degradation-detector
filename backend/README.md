@@ -44,6 +44,7 @@ Degradation detection (C3): install, one-command demo and CLI are in [`app/compo
 | `POST` | `/repositories/{id}/recovery` | Runs architecture recovery over an ingested repository and returns one summary per stage. |
 | `GET` | `/repositories/configurations` | Lists the snapshots configured for a pipeline run. |
 | `POST` | `/repositories/configurations` | Saves `{url, branch, release_tag}`. Clones nothing. |
+| `GET` | `/repositories/configurations/state` | For each configured snapshot: whether its revision is cloned and whether a completed recovery left an architecture, so a run only does the missing half. Clones and recovers nothing. |
 | `DELETE` | `/repositories/configurations/{id}` | Removes a configured snapshot. |
 | `GET` | `/repositories` | Lists ingested repositories. |
 | `GET` | `/repositories/{id}/snapshots` | Lists a repository's architecture snapshots, oldest first. |
