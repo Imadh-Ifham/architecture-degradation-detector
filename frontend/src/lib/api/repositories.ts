@@ -52,6 +52,43 @@ export type RepositoryConfigurationInput = Omit<
   'id' | 'created_at'
 >
 
+/** How far a configured snapshot has got on this machine. */
+export type SnapshotStage = 'pending' | 'cloned' | 'recovered'
+
+/**
+ * What the pipeline would still have to do for one configured snapshot.
+ *
+ * `needs_clone` and `needs_recovery` say the same thing as `stage` from the
+ * run's side. Re-cloning is not idle: it replaces the checkout directory,
+ * which is where that snapshot's recovery artifacts live.
+ */
+export interface ConfigurationState {
+  configuration_id: string
+  url: string
+  branch: string
+  release_tag: string
+  /** The directory ingestion derives from the url and revision. */
+  workspace_id: string
+  stage: SnapshotStage
+  needs_clone: boolean
+  needs_recovery: boolean
+  clone: {
+    id: string
+    commit: string
+    branch: string
+    release_tag: string | null
+    ingested_at: string
+  } | null
+  recovery: {
+    release_id: string
+    commit_sha: string
+    finished_at: string | null
+    duration_ms: number | null
+    element_count: number | null
+    relationship_count: number | null
+  } | null
+}
+
 /** Counts a stage of the analysis reports about what it found. */
 export interface StageSummary {
   path: string
@@ -289,6 +326,17 @@ export function saveConfiguration(
   options?: RequestOptions,
 ) {
   return post<RepositoryConfiguration>('/repositories/configurations', input, options)
+}
+
+/**
+ * What the pipeline still has to do for each configured snapshot.
+ *
+ * The answer is read from what previous runs left on disk, so pressing run
+ * again does not re-clone a checkout that exists or re-recover one whose
+ * architecture is already stored. Nothing is cloned or analysed by this call.
+ */
+export function readConfigurationStates(options?: RequestOptions) {
+  return get<ConfigurationState[]>('/repositories/configurations/state', options)
 }
 
 export function removeConfiguration(
