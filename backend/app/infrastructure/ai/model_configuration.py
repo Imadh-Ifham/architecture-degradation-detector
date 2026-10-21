@@ -22,6 +22,8 @@ Description:
     rule that no component depends on a specific provider or model.
 """
 
+from urllib.parse import urlparse
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -108,6 +110,24 @@ class AISettings(BaseSettings):
     # never being able to answer. Empty means no local runtime is configured,
     # and the rung reports that instead of asking the wrong endpoint.
     ai_local_base_url: str = ""
+
+    # The verifier's own endpoint and key, when it lives at a different
+    # provider from the reasoner.
+    #
+    # **This is the arrangement the design has always argued for and could not
+    # express.** The verifier exists to catch the reasoner being confidently
+    # wrong; two models from one provider share a tokenizer, a serving stack
+    # and usually a lineage, so they share blind spots. Two providers share
+    # none of that, and the second opinion is worth more.
+    #
+    # It is also the fastest arrangement measured: the reasoner's latency and
+    # the verifier's are set by different models at different providers, and
+    # the slow arm of one is not the slow arm of the other.
+    #
+    # Empty means the verifier goes wherever everything else goes, which is
+    # the single-provider configuration and still correct.
+    ai_verifier_base_url: str = ""
+    ai_verifier_api_key: str = ""
 
     # Whether a verdict with no model behind it may be produced at all.
     #
@@ -217,7 +237,34 @@ class AISettings(BaseSettings):
 
         if task == TASK_PRIMARY_VERDICT_LOCAL:
             return self.ai_local_base_url
+        if task == TASK_VERIFICATION and self.ai_verifier_base_url:
+            return self.ai_verifier_base_url
         return self.ai_base_url
+
+    def api_key_for(self, task: str) -> str:
+        """Return the key that opens `task`'s endpoint.
+
+        **The shared key is inherited only when the two endpoints are the same
+        host.** Two URLs at one host is a real arrangement - a gateway, a
+        second path - and it should not need the key written twice. Two hosts
+        is the opposite case: sending one provider's key to another is a 401,
+        which the ladder reads as an outage, and the run then publishes every
+        verdict `unverified_unavailable` while looking exactly like a run
+        whose verifier was simply down.
+
+        So a cross-provider verifier with no key of its own gets no key, and
+        the adapter refuses before the request with a message naming the
+        setting. An absent check must never look like a passed one, and that
+        applies to the check this component is built out of.
+        """
+
+        if task == TASK_VERIFICATION and self.ai_verifier_base_url:
+            if self.ai_verifier_api_key:
+                return self.ai_verifier_api_key
+            if _host(self.ai_verifier_base_url) == _host(self.ai_base_url):
+                return self.ai_api_key
+            return ""
+        return self.ai_api_key
 
 
 class UnknownTaskError(KeyError):
@@ -232,3 +279,9 @@ class UnknownTaskError(KeyError):
 
 
 ai_settings = AISettings()
+
+
+def _host(url: str) -> str:
+    """The host an endpoint names, for deciding whether a key can be shared."""
+
+    return urlparse(url).netloc.lower()

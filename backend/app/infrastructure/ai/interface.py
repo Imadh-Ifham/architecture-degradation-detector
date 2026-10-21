@@ -46,6 +46,7 @@ from .call_log import (
 from .model_configuration import (
     SCHEMA_MODE_STRICT,
     TASK_PRIMARY_VERDICT_LOCAL,
+    TASK_VERIFICATION,
     AISettings,
     ai_settings,
 )
@@ -175,6 +176,7 @@ class ConfiguredAIClient:
         settings: AISettings | None = None,
         cache: VerdictCache | None = None,
         local_provider=None,
+        verifier_provider=None,
         call_log=None,
     ) -> None:
         """`call_log` is optional because nothing in a run depends on it.
@@ -190,23 +192,31 @@ class ConfiguredAIClient:
             self._settings.ai_cache_directory, self._settings.ai_cache_enabled
         )
         self._local_provider = local_provider
+        self._verifier_provider = verifier_provider
         self._call_log = call_log
         self._ignoring = threading.local()
 
     def _provider_for(self, task: str):
         """Return the adapter that reaches `task`'s endpoint.
 
-        Two adapters rather than one because they differ in the only thing an
-        adapter holds: the URL. The alternative - one adapter told the URL per
-        call - would put the endpoint in the caller's hands, and the caller is
-        the thing that is not allowed to know where a model lives.
+        An adapter per endpoint rather than one told the URL per call, which
+        would put the endpoint in the caller's hands - and the caller is the
+        thing that is not allowed to know where a model lives.
 
-        With no local runtime configured this raises the same error a dead
-        network raises, which is the truth: the rung cannot answer. The ladder
-        then moves past it, as it already did when the local model id was
-        being posted to the hosted provider.
+        There are up to three. The hosted one answers everything by default.
+        The local one is the ladder's offline rung, and with none configured
+        this raises what a dead network raises, which is the truth: the rung
+        cannot answer, and the ladder moves past it.
+
+        **The third is the verifier's, and it is the one worth having.** With
+        it configured the two judges sit at different providers, so they share
+        no tokenizer, no serving stack and no lineage - which is what the
+        second opinion was always supposed to be, and could not be while one
+        URL served every task.
         """
 
+        if task == TASK_VERIFICATION and self._verifier_provider is not None:
+            return self._verifier_provider
         if task != TASK_PRIMARY_VERDICT_LOCAL:
             return self._provider
         if self._local_provider is None:
