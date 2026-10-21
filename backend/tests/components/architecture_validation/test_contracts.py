@@ -65,7 +65,7 @@ def load(name: str) -> dict:
 def build_graph() -> ValidatedArchitectureGraph:
     """A minimal published graph, built the way the publisher builds one.
 
-    Every field of schema 1.2.0 is set to something a consumer would have to
+    Every field of schema 1.3.0 is set to something a consumer would have to
     handle, because the fixture is what they develop against: four of the six
     fields this version added were asked for after loading the 1.0.0 fixture,
     and a field left at its default in here is a field nobody finds until
@@ -115,6 +115,12 @@ def build_graph() -> ValidatedArchitectureGraph:
                 arbiter_agreement="agreed",
                 route="publish",
                 evidence_hash="b" * 16,
+                confidence_terms={
+                    "verdict_base": 0.50,
+                    "source_strength_authoritative": 0.25,
+                },
+                confidence_ceiling="unverified_by_choice",
+                confidence_maximum=0.85,
                 attributes={"interaction": "grpc"},
             ),
         ),
@@ -221,7 +227,7 @@ class TestValidatedArchitectureContract:
 
         graph = build_graph().to_node_link()["graph"]
 
-        assert graph["schema_version"] == "1.2.0"
+        assert graph["schema_version"] == "1.3.0"
         assert set(graph) == {
             "schema_version",
             "generator",

@@ -161,6 +161,16 @@ export interface Workspace {
    */
   verifyRuns: boolean
   setVerifyRuns: (verify: boolean) => void
+  /**
+   * Whether the next run asks the models again rather than replaying.
+   *
+   * For a release whose evidence changed, and for showing the models being
+   * called. It costs the full token budget - minutes rather than seconds -
+   * and leaves the cache holding the new answers, so the run after it is
+   * fast again.
+   */
+  freshRuns: boolean
+  setFreshRuns: (fresh: boolean) => void
 
   /** The release being validated right now, or null. One at a time. */
   validatingRelease: string | null

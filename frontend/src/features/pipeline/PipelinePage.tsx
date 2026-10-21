@@ -63,6 +63,7 @@ import {
   type ValidationRun,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
+import AskAgain from './AskAgain'
 import SecondModel from './SecondModel'
 import StackRun from './StackRun'
 import { runKey, type DecisionChoice } from '../../workspace/context'
@@ -99,6 +100,8 @@ export default function PipelinePage() {
     stackProgress,
     verifyRuns,
     setVerifyRuns,
+    freshRuns,
+    setFreshRuns,
     validateRelease,
     validateAllReleases,
     validationError,
@@ -276,11 +279,18 @@ export default function PipelinePage() {
             )}
 
             {isRecovered && (
-              <SecondModel
-                verify={verifyRuns}
-                onChange={setVerifyRuns}
-                disabled={isPipelineRunning || isValidating}
-              />
+              <>
+                <SecondModel
+                  verify={verifyRuns}
+                  onChange={setVerifyRuns}
+                  disabled={isPipelineRunning || isValidating}
+                />
+                <AskAgain
+                  fresh={freshRuns}
+                  onChange={setFreshRuns}
+                  disabled={isPipelineRunning || isValidating}
+                />
+              </>
             )}
 
             <Button
@@ -297,7 +307,9 @@ export default function PipelinePage() {
                   the half that is already done and the half that costs
                   minutes. What is left is validation. */}
               {isRecovered
-                ? `Validate ${ready.length} release${ready.length === 1 ? '' : 's'}`
+                ? `${freshRuns ? 'Re-ask' : 'Validate'} ${ready.length} release${
+                    ready.length === 1 ? '' : 's'
+                  }`
                 : 'Run recovery'}
             </Button>
 
@@ -741,17 +753,32 @@ function SnapshotsCard({
                     </div>
 
                     <StatRow>
+                      {/* 0.85 is the top of this method's scale, not a
+                          number that failed to reach 1.00 - and the label
+                          has to say the verdicts are what it is about, or it
+                          reads as a health score for the architecture. */}
                       <Stat
-                        label="confidence"
-                        value={run.validation_confidence.toFixed(2)}
-                        note={`over ${countedFacts(run)} dependencies`}
+                        label="how sure of the verdicts"
+                        value={`${run.validation_confidence.toFixed(2)} / 0.85`}
+                        note={`the mean over ${countedFacts(run)} dependencies · 0.85 is the maximum`}
                         tone="ok"
                       />
+                      {/* Not "model calls: 0". That number is live calls,
+                          and zero of them is what a warm cache looks like -
+                          but it reads as *no model was involved*, which is
+                          the opposite of what happened. The verdicts are the
+                          models' either way, so the label says which it is. */}
                       <Stat
-                        label="model calls"
-                        value={run.model_calls}
+                        label="judged by"
+                        value={run.model_calls > 0 ? 'the models, live' : 'the models'}
                         note={
-                          run.verification_mode ?? 'verification not requested'
+                          run.model_calls > 0
+                            ? `${run.model_calls} call${run.model_calls === 1 ? '' : 's'} this run · ${
+                                run.verification_mode ?? 'verification not requested'
+                              }`
+                            : `replayed from cache · ${
+                                run.verification_mode ?? 'verification not requested'
+                              }`
                         }
                         tone="ai"
                       />

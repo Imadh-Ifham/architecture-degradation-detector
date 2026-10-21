@@ -25,6 +25,7 @@
 import { useState } from 'react'
 import { Pill } from '../../components/ui'
 import type { ModelCall, ModelTranscript, PublishedGraph, ValidatedEdge } from '../../lib/api'
+import Confidence from '../validation/Confidence'
 
 export default function FindingDetail({
   edge,
@@ -68,6 +69,15 @@ export default function FindingDetail({
 
       <Verdict edge={edge} />
 
+      {/* Before the judges, because the number is the first thing a reader
+          looks at and the one they cannot interpret unaided. */}
+      <div className="flex flex-col gap-4">
+        <span className="text-xs tracking-wide text-ink-4">
+          how confident, and why
+        </span>
+        <Confidence edge={edge} />
+      </div>
+
       <Judges edge={edge} />
 
       <WhatTheModelsSaid calls={calls} transcript={transcript} edge={edge} />
@@ -85,9 +95,13 @@ function Verdict({ edge }: { edge: ValidatedEdge }) {
       />
       <Figure term="evidence strength" value={tier(edge.source_tier)} />
       <Figure
-        term="confidence"
-        value={edge.confidence > 0 ? edge.confidence.toFixed(2) : '—'}
-        note={edge.confidence === 0 ? 'no claim was established' : undefined}
+        term="how sure of this verdict"
+        value={
+          edge.confidence > 0
+            ? `${edge.confidence.toFixed(2)} of ${(edge.confidence_maximum || 0.85).toFixed(2)}`
+            : 'none'
+        }
+        note={edge.confidence === 0 ? 'no claim was established' : 'what it is made of, below'}
       />
       <Figure
         term="model calls"

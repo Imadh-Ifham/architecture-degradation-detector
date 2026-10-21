@@ -26,6 +26,7 @@
 import { Fragment, useState } from 'react'
 import { Card, Pill } from '../../components/ui'
 import type { PublishedGraph, ValidatedEdge } from '../../lib/api'
+import { explain } from './certainty'
 
 type Judgement = {
   label: string
@@ -136,7 +137,9 @@ export default function ModelComparison({ document }: { document: PublishedGraph
                           {edge.bucket.replace(/_/g, ' ')}
                         </Pill>
                         <span className="mt-1.5 block font-mono text-xs text-ink-2">
-                          {edge.confidence > 0 ? edge.confidence.toFixed(2) : '—'}
+                          <span title={explain(edge)} className="cursor-help">
+                            {edge.confidence > 0 ? edge.confidence.toFixed(2) : '—'}
+                          </span>
                         </span>
                       </Cell>
                     </tr>
@@ -197,10 +200,10 @@ function Agreement({ edges }: { edges: ValidatedEdge[] }) {
 
   const rows = [
     {
-      label: 'all three agreed',
+      label: 'all three agreed on the verdict',
       count: counts.agreed,
       tone: 'ok' as const,
-      note: 'published',
+      note: 'whatever the verdict was — including a contradiction',
     },
     {
       label: 'the second model objected',
@@ -242,8 +245,37 @@ function Agreement({ edges }: { edges: ValidatedEdge[] }) {
 
   const total = edges.length
 
+  // What was concluded, beside whether the judges concurred. Without it the
+  // top row reads as *everything is fine*: a release where all three judges
+  // agree a dependency violates the policy scores seventeen out of seventeen
+  // here, and nothing on the panel says one of them was a violation.
+  const verdicts = edges.reduce(
+    (totals, edge) => {
+      const bucket = edge.bucket.toLowerCase()
+      if (bucket.includes('contradict')) totals.contradicted += 1
+      else if (bucket.includes('confirm')) totals.confirmed += 1
+      else totals.other += 1
+      return totals
+    },
+    { confirmed: 0, contradicted: 0, other: 0 },
+  )
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-4 border-b border-line pb-5">
+        <span className="text-xs tracking-wide text-ink-4">they concluded</span>
+        <Pill tone="ok">{verdicts.confirmed} confirmed</Pill>
+        <Pill tone={verdicts.contradicted > 0 ? 'bad' : 'neutral'}>
+          {verdicts.contradicted} contradicted
+        </Pill>
+        {verdicts.other > 0 && <Pill tone="warn">{verdicts.other} neither</Pill>}
+        <span className="max-w-prose text-xs leading-relaxed text-ink-4">
+          The rows below are whether the three judges <em>agreed with each
+          other</em>, not what they decided. All three agreeing on a
+          contradiction counts as agreement.
+        </span>
+      </div>
+
       {rows.map((row) => (
         <div key={row.label} className="flex items-center gap-5">
           <span className="w-64 shrink-0 text-sm text-ink-2">{row.label}</span>

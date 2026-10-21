@@ -65,6 +65,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [validatingRelease, setValidatingRelease] = useState<string | null>(null)
   const [stackProgress, setStackProgress] = useState<StackProgress | null>(null)
   const [verifyRuns, setVerifyRuns] = useState(true)
+  const [freshRuns, setFreshRuns] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isDetecting, setIsDetecting] = useState(false)
   const [isDetectionStale, setIsDetectionStale] = useState(false)
@@ -222,6 +223,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             decision_mode: choice.mode,
             adr_repository_id: choice.adrRepositoryId,
             verify: verifyRuns,
+            fresh: freshRuns,
           }),
         )
         return true
@@ -234,7 +236,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setValidatingRelease(null)
       }
     },
-    [decisionChoices, rememberRun, repositoryKey, validatingRelease, verifyRuns],
+    [decisionChoices, rememberRun, repositoryKey, validatingRelease, verifyRuns, freshRuns],
   )
 
   /**
@@ -285,6 +287,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           decision_mode: choice.mode,
           adr_repository_id: choice.adrRepositoryId,
           verify: verifyRuns,
+          fresh: freshRuns,
         })
         rememberRun(run)
       } catch (cause) {
@@ -326,6 +329,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     repositoryKey,
     validatingRelease,
     verifyRuns,
+    freshRuns,
   ])
 
   /**
@@ -462,6 +466,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       chooseDecisionForAll,
       verifyRuns,
       setVerifyRuns,
+      freshRuns,
+      setFreshRuns,
       validatingRelease,
       stackProgress,
       validateRelease,
@@ -507,6 +513,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       chooseDecisionForAll,
       verifyRuns,
       setVerifyRuns,
+      freshRuns,
+      setFreshRuns,
       validatingRelease,
       stackProgress,
       validateRelease,
