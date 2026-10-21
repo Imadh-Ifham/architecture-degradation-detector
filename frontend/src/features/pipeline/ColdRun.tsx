@@ -1,5 +1,5 @@
 /**
- * Ask the models again instead of replaying what they already said.
+ * A cold run: ask every question live instead of replaying the answers.
  *
  * Description:
  *   An ordinary run replays identical questions from the response cache, so
@@ -26,7 +26,7 @@
 
 import { Pill } from '../../components/ui'
 
-export default function AskAgain({
+export default function ColdRun({
   fresh,
   onChange,
   disabled,
@@ -54,13 +54,20 @@ export default function AskAgain({
       />
       <span className="flex flex-col gap-0.5">
         <span className="font-mono text-xs whitespace-nowrap text-ink-2">
-          ask the models again
+          cold run — ask the models live
         </span>
+        {/* "resets the cache" would be the wrong words and the wrong promise.
+            Nothing is deleted: the run ignores what is stored, asks every
+            question again, and writes the new answers over the old. Deleting
+            the directory is a different and worse thing - it leaves every
+            other release cold too. */}
         <span className="text-[10.5px] leading-tight whitespace-nowrap text-ink-4">
-          {fresh ? 'ignores the cache — minutes, not seconds' : 'off — replays what they said'}
+          {fresh
+            ? 'ignores the cache, asks every question again — minutes'
+            : 'warm — replays the models’ own answers in seconds'}
         </span>
       </span>
-      {fresh && <Pill tone="warn">slow</Pill>}
+      {fresh && <Pill tone="warn">live</Pill>}
     </label>
   )
 }

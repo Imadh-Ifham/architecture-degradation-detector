@@ -64,7 +64,7 @@ import {
   type ValidationRun,
 } from '../../lib/api'
 import { useRequest } from '../../lib/useRequest'
-import AskAgain from './AskAgain'
+import ColdRun from './ColdRun'
 import SecondModel from './SecondModel'
 import StackRun from './StackRun'
 import { runKey, type DecisionChoice } from '../../workspace/context'
@@ -359,7 +359,7 @@ export default function PipelinePage() {
                   onChange={setVerifyRuns}
                   disabled={isPipelineRunning || isValidating}
                 />
-                <AskAgain
+                <ColdRun
                   fresh={freshRuns}
                   onChange={setFreshRuns}
                   disabled={isPipelineRunning || isValidating}
@@ -382,7 +382,7 @@ export default function PipelinePage() {
                   the half that is already done and the half that costs
                   minutes. What is left is validation. */}
               {isRecovered
-                ? `${freshRuns ? 'Re-ask' : 'Validate'} ${ready.length} release${
+                ? `${freshRuns ? 'Cold-run' : 'Validate'} ${ready.length} release${
                     ready.length === 1 ? '' : 's'
                   }`
                 : pending.length === configurations.length
