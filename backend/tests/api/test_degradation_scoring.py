@@ -134,6 +134,7 @@ def test_the_only_write_is_scoring_a_detection_run() -> None:
     assert {p: sorted(ops) for p, ops in paths.items()} == {
         "/degradation-scoring/runs": ["get", "post"],
         "/degradation-scoring/runs/{run_id}/report": ["get"],
+        "/degradation-scoring/runs/{run_id}/files/{name}": ["get"],
     }
 
 
@@ -235,3 +236,41 @@ def test_code_commit_is_a_sha_or_none() -> None:
     commit = degradation_scoring.code_commit()
 
     assert commit is None or len(commit) == 40
+
+
+# GET /degradation-scoring/runs/{run_id}/files/{name}: a saved run's files, unchanged
+
+
+def test_run_files_come_back_unchanged_with_their_type(client: TestClient, root: Path) -> None:
+    save_run(root, "run-a")
+    (root / "c4-fixture-shop" / "run-a" / "c4_report.html").write_text("<html>", "utf-8")
+
+    page = client.get("/degradation-scoring/runs/run-a/files/c4_report.html")
+    report = client.get("/degradation-scoring/runs/run-a/files/c4_report.json")
+
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    assert page.text == "<html>"
+    assert report.headers["content-type"] == "application/json"
+    assert report.json()["run_id"] == "run-a"
+
+
+def test_a_missing_run_file_is_404(client: TestClient, root: Path) -> None:
+    save_run(root, "run-a")
+
+    response = client.get("/degradation-scoring/runs/run-a/files/c4_quarantine.json")
+
+    assert response.status_code == 404
+
+
+def test_only_the_run_files_can_be_asked_for(client: TestClient) -> None:
+    assert client.get("/degradation-scoring/runs/run-a/files/logs").status_code == 422
+
+
+def test_a_run_file_of_an_id_in_two_systems_is_409(client: TestClient, root: Path) -> None:
+    save_run(root, "run-a")
+    save_run(root, "run-a", system_id="online-boutique")
+
+    response = client.get("/degradation-scoring/runs/run-a/files/c4_report.json")
+
+    assert response.status_code == 409

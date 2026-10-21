@@ -295,9 +295,9 @@ export default function PipelinePage() {
               (ranking ? (
                 <Button
                   variant="primary"
-                  onClick={() => navigate(`/priorities?run=${encodeURIComponent(ranking.run_id)}`)}
+                  onClick={() => navigate(`/scoring?run=${encodeURIComponent(ranking.run_id)}`)}
                 >
-                  Open priorities
+                  Open scoring
                 </Button>
               ) : (
                 <Button variant="primary" disabled={isScoring} onClick={() => void score()}>

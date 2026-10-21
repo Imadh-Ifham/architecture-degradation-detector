@@ -6,13 +6,24 @@
  *   the weight it carried and the share of the score it produced, with the raw
  *   measurements behind it. A part switched off for the run says so instead
  *   of showing 0, which would claim it was measured and found harmless.
+ *   When the ranking is of the repository on screen, each part links to it on
+ *   the architecture page.
  */
 
+import { Link } from 'react-router'
 import { Pill } from '../../components/ui'
 import type { SeverityRecord } from '../../lib/api'
 import { DIMENSIONS, isActive, percent, plainType, reason } from './dimensions'
 
-export default function RankedEventDetail({ record }: { record: SeverityRecord }) {
+export default function RankedEventDetail({
+  record,
+  architectureRelease,
+}: {
+  record: SeverityRecord
+  /** The release to open on the architecture page; null when it is not this repository. */
+  architectureRelease: string | null
+}) {
+  const names = (record.elements ?? []).map((id) => id.replace(/^[a-z]+:/, ''))
   return (
     <div className="flex flex-col gap-6 border-l-2 border-ink-4 bg-sunken px-6 py-5">
       <div className="flex flex-col gap-2">
@@ -32,6 +43,20 @@ export default function RankedEventDetail({ record }: { record: SeverityRecord }
           )}
           <Pill>{record.event_id}</Pill>
         </div>
+        {architectureRelease && names.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span className="text-ink-4">in the architecture:</span>
+            {names.map((name) => (
+              <Link
+                key={name}
+                to={`/architecture?release=${encodeURIComponent(architectureRelease)}&element=${encodeURIComponent(name)}`}
+                className="font-mono text-ink-2 underline-offset-4 hover:text-ink hover:underline"
+              >
+                {name} →
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-4">

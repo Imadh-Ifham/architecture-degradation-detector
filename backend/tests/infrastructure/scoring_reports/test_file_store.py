@@ -57,3 +57,18 @@ def test_missing_root_has_no_runs(tmp_path: Path) -> None:
 
     assert store.runs() == []
     assert store.reports("run-a") == []
+
+
+def test_files_returns_the_bytes_of_every_run_folder(tmp_path: Path) -> None:
+    save_run(tmp_path, "run-a")
+    save_run(tmp_path, "run-a", system_id="online-boutique")
+    for system in ("c4-fixture-shop", "online-boutique"):
+        (tmp_path / system / "run-a" / "c4_report.html").write_text(system, encoding="utf-8")
+
+    store = ScoringReportFileStore(tmp_path)
+
+    assert store.files("run-a", "c4_report.html") == [b"c4-fixture-shop", b"online-boutique"]
+    assert store.files("run-a", "missing.json") == []
+    assert store.files("../run-a", "c4_report.html") == []
+    assert store.files("run-a", "../c4_report.html") == []
+    assert ScoringReportFileStore(tmp_path / "absent").files("run-a", "c4_report.html") == []

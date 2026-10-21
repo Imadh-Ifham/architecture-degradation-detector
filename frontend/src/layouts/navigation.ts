@@ -95,10 +95,10 @@ export const PAGES: readonly PageDefinition[] = [
     state: 'ready',
   },
   {
-    path: '/priorities',
-    label: 'Priorities',
+    path: '/scoring',
+    label: 'Scoring',
     group: 'results',
-    summary: 'Findings ranked by how much they matter',
+    summary: 'What degraded, ranked by how much it matters, and why',
     state: 'ready',
   },
 ]
@@ -166,7 +166,7 @@ export const PHASES: readonly PhaseDefinition[] = [
     label: 'Score',
     input: 'what degraded',
     output: 'a ranked list with reasons',
-    page: '/priorities',
+    page: '/scoring',
     requires: 'degradation has been detected',
     state: 'ready',
   },

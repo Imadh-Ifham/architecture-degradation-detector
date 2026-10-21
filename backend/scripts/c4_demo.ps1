@@ -8,7 +8,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts/c4_demo.ps1 -Warm    # once, after C3's run
 #   powershell -ExecutionPolicy Bypass -File scripts/c4_demo.ps1 -Ui      # the demo
 #   ... -NoOpen  (do not open anything)   -SkipDb  (no Postgres)
-#   ... -Ui      (open http://localhost:5173/priorities?run=<id> instead of the HTML files)
+#   ... -Ui      (open http://localhost:5173/scoring?run=<id> instead of the HTML files)
 #   ... -C3Run <id>        detection's run to score (default RUN-demo)
 #   ... -C3Packages <dir>  where its release packages are (default: searched under data/)
 #   ... -C3Provenance <p>  banner label (default: live for Online Boutique, else fixture)
@@ -145,7 +145,7 @@ $opened += "online-boutique/demo-ob"
 if (-not $NoOpen) {
     foreach ($run in $opened) {
         if ($Ui) {
-            Start-Process "http://localhost:5173/priorities?run=$(Split-Path -Leaf $run)"
+            Start-Process "http://localhost:5173/scoring?run=$(Split-Path -Leaf $run)"
         } else {
             $html = Get-ChildItem "$out/$run/c4_report.html" -ErrorAction SilentlyContinue |
                     Select-Object -First 1

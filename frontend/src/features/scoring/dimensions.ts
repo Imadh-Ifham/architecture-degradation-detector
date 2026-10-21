@@ -166,14 +166,29 @@ export function systemName(systemId: string): string {
   return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
-/** A run named by what it is, with its id last for whoever needs it. */
-export function runLabel(run: ScoringRunSummary): string {
+/** A run named in words: where its events came from, and what was switched on. */
+export function runTitle(run: ScoringRunSummary): string {
+  const name = systemName(run.system_id)
   const decisions = run.active_dimensions.includes('adr_violation')
     ? 'decision check on'
     : 'decision check off'
-  const history = run.active_dimensions.includes('hotspot') ? 'real history' : 'no history'
-  const source = run.data_provenance === 'live' ? 'detection output, ' : ''
-  return `${systemName(run.system_id)} ${run.release_id} — ${source}${history}, ${decisions} (${run.run_id})`
+  if (run.data_provenance === 'live') return `${name}: detection run`
+  if (run.data_provenance === 'fixture-events+live-history') {
+    return `${name}: hand-made events, real history, ${decisions}`
+  }
+  return `${name}: designed test system, ${decisions}`
+}
+
+/** Release, events read, when it was made, and the id for whoever needs it. */
+export function runMeta(run: ScoringRunSummary): string {
+  const made = new Date(run.created_at).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const events = `${run.counts.payloads} event${run.counts.payloads === 1 ? '' : 's'}`
+  return `${run.release_id} · ${events} · ${made} · ${run.run_id}`
 }
 
 export function percent(value: number, digits = 0): string {

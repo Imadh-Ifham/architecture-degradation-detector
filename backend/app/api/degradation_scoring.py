@@ -8,9 +8,9 @@ import json
 import re
 import subprocess
 from functools import lru_cache
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Response, status
 from sqlalchemy.exc import OperationalError
 
 from app.api.schemas.degradation_scoring import ScoringRunRequest, ScoringRunResponse
@@ -102,6 +102,7 @@ def code_commit() -> str | None:
 ScoringService = Annotated[DegradationScoringService, Depends(get_degradation_scoring_service)]
 RunService = Annotated[DegradationScoringService, Depends(get_run_service)]
 RunId = Annotated[str, Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$", max_length=128)]
+RunFile = Literal["c4_report.json", "c4_report.html", "c4_run_manifest.json", "c4_quarantine.json"]
 
 
 @router.post(
@@ -172,3 +173,26 @@ def get_report(run_id: RunId, service: ScoringService) -> SeverityReportV1:
             status_code=status.HTTP_404_NOT_FOUND, detail=f"no saved run {run_id!r}"
         )
     return report
+
+
+@router.get(
+    "/runs/{run_id}/files/{name}",
+    summary="Get one of a run's saved files",
+    description="The run's report (JSON or the standalone HTML page), its manifest (how the run "
+    "was made: code version, inputs, weights, settings) or its quarantine list, unchanged.",
+    responses={
+        404: {"description": "No saved run has this id, or it has no such file."},
+        409: {"description": "Two systems hold a run with this id."},
+    },
+)
+def get_run_file(run_id: RunId, name: RunFile, service: ScoringService) -> Response:
+    try:
+        content = service.run_file(run_id, name)
+    except AmbiguousRunError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    if content is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"run {run_id!r} has no {name}"
+        )
+    media_type = "text/html" if name.endswith(".html") else "application/json"
+    return Response(content=content, media_type=media_type)

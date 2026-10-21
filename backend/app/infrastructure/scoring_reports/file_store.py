@@ -43,6 +43,17 @@ class ScoringReportFileStore:
                     documents.append(document)
         return documents
 
+    def files(self, run_id: str, name: str) -> Sequence[bytes]:
+        # one file of every run folder with that id, as bytes; plain names only
+        if not (RUN_ID.fullmatch(run_id) and RUN_ID.fullmatch(name)) or not self._root.is_dir():
+            return []
+        found = []
+        for system in sorted(p for p in self._root.iterdir() if p.is_dir()):
+            path = system / run_id / name
+            if path.is_file():
+                found.append(path.read_bytes())
+        return found
+
     @staticmethod
     def _read(path: Path) -> Mapping[str, object] | None:
         try:
