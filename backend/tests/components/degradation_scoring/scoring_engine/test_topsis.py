@@ -84,26 +84,43 @@ def test_classic_hand_computed_3x3() -> None:
     assert severity(ranking)["E1"] == pytest.approx(17 / 30)
 
 
-def test_rank_reversal_classic_flips_fixed_reference_never_does() -> None:
-    # E3 = (0, 0.2) is worse than E1 and E2 on every criterion, so it says nothing about
-    # which of them is worse. Classic TOPSIS still swaps them, because E3 moves the anti-ideal
-    # and the column norms. Fixed reference: E1 = 0.2, E2 = 0.3313 with or without E3.
-    criteria, w = [BR, PS], {BR: 0.5, EH: 0.0, AV: 0.0, PS: 0.5}
-    pair = events([[0.2, 0.2], [0.1, 0.5]], criteria)
-    with_third = events([[0.2, 0.2], [0.1, 0.5], [0.0, 0.2]], criteria)
+# Rank reversal (shown in the demo: pytest ... -k rank_reversal -v -s). E3 = (0, 0.2) is worse
+# than E1 and E2 on every criterion, so it says nothing about which of them is worse.
+RR_CRITERIA, RR_WEIGHTS = [BR, PS], {BR: 0.5, EH: 0.0, AV: 0.0, PS: 0.5}
+RR_PAIR = [[0.2, 0.2], [0.1, 0.5]]
+RR_WITH_THIRD = [*RR_PAIR, [0.0, 0.2]]
 
-    before = severity(topsis(pair, w, criteria, "classic"))
-    after = severity(topsis(with_third, w, criteria, "classic"))
+
+def show(title: str, before: dict[str, float], after: dict[str, float]) -> None:
+    # a small table for the demo (visible with -s)
+    print(f"\n  {title}")
+    print("              E1      E2      leader")
+    for label, scores in (("E1,E2 only", before), ("+ E3", after)):
+        leader = max(("E1", "E2"), key=lambda k: scores[k])
+        print(f"  {label:<12}{scores['E1']:.4f}  {scores['E2']:.4f}  {leader}")
+
+
+def test_rank_reversal_classic_topsis_swaps_e1_and_e2_when_a_worse_e3_is_added() -> None:
+    # classic TOPSIS: E3 moves the anti-ideal and the column norms, so E1 and E2 swap
+    before = severity(topsis(events(RR_PAIR, RR_CRITERIA), RR_WEIGHTS, RR_CRITERIA, "classic"))
+    after = severity(topsis(events(RR_WITH_THIRD, RR_CRITERIA), RR_WEIGHTS, RR_CRITERIA, "classic"))
+    show("classic TOPSIS", before, after)
+
     assert before["E2"] > before["E1"]
     assert after["E1"] > after["E2"]
 
-    fixed_before = severity(topsis(pair, w, criteria, "fixed_reference"))
-    fixed_after = severity(topsis(with_third, w, criteria, "fixed_reference"))
-    assert fixed_before["E1"] == pytest.approx(0.2)
-    assert fixed_before["E2"] == pytest.approx(
-        math.sqrt(0.065) / (math.sqrt(0.065) + math.sqrt(0.265))
-    )
-    assert {k: fixed_after[k] for k in fixed_before} == fixed_before
+
+def test_rank_reversal_fixed_reference_keeps_e1_and_e2_unchanged_when_e3_is_added() -> None:
+    # fixed reference (C4-ADR-002): ideal 1 and anti-ideal 0 never move, so E1 = 0.2 and
+    # E2 = sqrt(0.065) / (sqrt(0.065) + sqrt(0.265)) = 0.3313 with or without E3
+    pair, with_third = events(RR_PAIR, RR_CRITERIA), events(RR_WITH_THIRD, RR_CRITERIA)
+    before = severity(topsis(pair, RR_WEIGHTS, RR_CRITERIA, "fixed_reference"))
+    after = severity(topsis(with_third, RR_WEIGHTS, RR_CRITERIA, "fixed_reference"))
+    show("fixed-reference TOPSIS", before, after)
+
+    assert before["E1"] == pytest.approx(0.2)
+    assert before["E2"] == pytest.approx(math.sqrt(0.065) / (math.sqrt(0.065) + math.sqrt(0.265)))
+    assert {k: after[k] for k in before} == before
 
 
 unit = st.floats(min_value=0.0, max_value=1.0, allow_nan=False)

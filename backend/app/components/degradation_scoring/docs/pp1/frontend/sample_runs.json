@@ -1,0 +1,97 @@
+[
+    {
+        "run_id": "t21-ob-av-off",
+        "system_id": "online-boutique",
+        "release_id": "v0.10.7",
+        "data_provenance": "fixture-events+live-history",
+        "active_dimensions": [
+            "blast_radius",
+            "hotspot",
+            "persistence"
+        ],
+        "counts": {
+            "payloads": 6,
+            "ranked": 6,
+            "skipped": 0,
+            "quarantined": 0
+        },
+        "resolution_rate": 1.0,
+        "created_at": "2026-10-20T15:59:58.423514Z"
+    },
+    {
+        "run_id": "t21-ob-av-on",
+        "system_id": "online-boutique",
+        "release_id": "v0.10.7",
+        "data_provenance": "fixture-events+live-history",
+        "active_dimensions": [
+            "blast_radius",
+            "hotspot",
+            "adr_violation",
+            "persistence"
+        ],
+        "counts": {
+            "payloads": 6,
+            "ranked": 6,
+            "skipped": 0,
+            "quarantined": 0
+        },
+        "resolution_rate": 1.0,
+        "created_at": "2026-10-20T15:59:55.175797Z"
+    },
+    {
+        "run_id": "demo-ob",
+        "system_id": "online-boutique",
+        "release_id": "v0.10.7",
+        "data_provenance": "fixture-events+live-history",
+        "active_dimensions": [
+            "blast_radius",
+            "hotspot",
+            "persistence"
+        ],
+        "counts": {
+            "payloads": 6,
+            "ranked": 6,
+            "skipped": 0,
+            "quarantined": 0
+        },
+        "resolution_rate": 1.0,
+        "created_at": "2026-10-20T15:59:36.830680Z"
+    },
+    {
+        "run_id": "demo-adr-off",
+        "system_id": "c4-fixture-shop",
+        "release_id": "v1.5.0",
+        "data_provenance": "fixture",
+        "active_dimensions": [
+            "blast_radius",
+            "persistence"
+        ],
+        "counts": {
+            "payloads": 17,
+            "ranked": 9,
+            "skipped": 4,
+            "quarantined": 4
+        },
+        "resolution_rate": 0.9,
+        "created_at": "2026-10-20T15:59:28.193959Z"
+    },
+    {
+        "run_id": "demo-adr-on",
+        "system_id": "c4-fixture-shop",
+        "release_id": "v1.5.0",
+        "data_provenance": "fixture",
+        "active_dimensions": [
+            "blast_radius",
+            "adr_violation",
+            "persistence"
+        ],
+        "counts": {
+            "payloads": 17,
+            "ranked": 9,
+            "skipped": 4,
+            "quarantined": 4
+        },
+        "resolution_rate": 0.9,
+        "created_at": "2026-10-20T15:59:26.216503Z"
+    }
+]

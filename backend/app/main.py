@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api.degradation import router as degradation_router
+from app.api.degradation_scoring import router as degradation_scoring_router
 from app.api.health import router as health_router
 from app.api.repositories import router as repositories_router
 from app.api.validations import router as validations_router
@@ -32,6 +33,7 @@ TAGS = [
             "getting worse."
         ),
     },
+    {"name": "Severity scoring", "description": "Saved C4 severity reports (read-only)."},
 ]
 
 app = FastAPI(
@@ -44,6 +46,7 @@ app.include_router(health_router)
 app.include_router(repositories_router)
 app.include_router(validations_router)
 app.include_router(degradation_router)
+app.include_router(degradation_scoring_router)
 
 
 @app.get("/")

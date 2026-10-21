@@ -21,7 +21,7 @@ def test_report_json_reads_back_as_the_same_report() -> None:
     text = report_json(report)
 
     assert SeverityReportV1.model_validate_json(text) == report
-    assert json.loads(text)["schema_version"] == "1.1.0"
+    assert json.loads(text)["schema_version"] == "1.2.0"
     assert json.loads(text)["weights_provenance"] == "provisional-author-elicited"
     assert text.endswith("}\n")
 

@@ -1,6 +1,6 @@
 # C4-ADR-013 — Normaliser rules: hotspot weights, AV unscaled, sparse fallback, percentiles
 
-- **Status:** Accepted
+- **Status:** Accepted (the "0.5 for all when every value is equal" rule is replaced by C4-ADR-015, 2026-10-19)
 - **Date:** 2026-10-18
 - **Task:** C4-T17 Normaliser
 - **Decided by:** owner (Dahami)

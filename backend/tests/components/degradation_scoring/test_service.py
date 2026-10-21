@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import jsonschema
+import networkx as nx
 import pytest
 
 from app.components import degradation_scoring
@@ -16,6 +17,7 @@ from app.components.degradation_scoring.reporting.manifest import file_hash
 from app.components.degradation_scoring.service import (
     DegradationScoringService,
     RankRun,
+    mapped_nodes,
     report_view,
     scoring_inputs,
 )
@@ -288,9 +290,25 @@ def test_rank_report_is_schema_valid(tmp_path: Path) -> None:
 
     jsonschema.validate(data, read(REPORT_SCHEMA))
     assert SeverityReportV1.model_validate(data) == result.report
-    assert data["schema_version"] == "1.1.0"
+    assert data["schema_version"] == "1.2.0"
     assert data["weights_provenance"] == "provisional-author-elicited"
     assert data["data_provenance"] == "fixture"
+
+
+def test_rank_records_carry_the_graph_elements_they_resolved_to(tmp_path: Path) -> None:
+    # E01 = the 4-service cycle; E07 matched notification-service by source path (1.2.0)
+    records = {
+        r.event_id: r for r in rank(tmp_path, adr_document=adr_index_document()).report.records
+    }
+
+    assert set(records["DEG-C4FX-R02-0001"].elements) == {
+        "order-service",
+        "payment-service",
+        "inventory-service",
+        "shipping-service",
+    }
+    assert records["DEG-C4FX-R02-0007"].elements == ["notification-service"]
+    assert all(record.elements for record in records.values())
 
 
 def test_rank_report_follows_the_fixture_design(tmp_path: Path) -> None:
@@ -445,6 +463,21 @@ def test_manual_source_paths_switch_hotspot_on_with_a_badge(tmp_path: Path) -> N
     assert "paths from manual-mapping" in html
     assert "unmapped line share" in html
     assert '<span class="badge warn">manual mapping</span>' in html
+
+
+def test_mapping_keys_match_nodes_with_a_kind_prefix() -> None:
+    graph: nx.DiGraph[str] = nx.DiGraph()
+    graph.add_nodes_from(["svc:checkoutservice", "lib:checkoutservice", "frontend", "cart"])
+    graph.add_node("component:31a85d9abab5", name="currencyservice")
+
+    assert mapped_nodes("frontend", graph) == ["frontend"]
+    assert sorted(mapped_nodes("checkoutservice", graph)) == [
+        "lib:checkoutservice",
+        "svc:checkoutservice",
+    ]
+    assert mapped_nodes("svc:checkoutservice", graph) == ["svc:checkoutservice"]
+    assert mapped_nodes("currencyservice", graph) == ["component:31a85d9abab5"]
+    assert mapped_nodes("payment", graph) == []
 
 
 def test_report_view_flags_by_event() -> None:

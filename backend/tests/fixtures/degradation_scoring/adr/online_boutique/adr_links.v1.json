@@ -1,0 +1,12 @@
+{
+  "data_provenance": "fixture",
+  "note": "Synthetic stand-in for C2's element -> violated ADR links (adr_refs) on Online Boutique, for the T21 AV-on run only. C2 does not produce links yet, so real runs have AV inactive (C4-ADR-012). The two ADRs in this folder are hand-written fixtures.",
+  "links": {
+    "emailservice": [
+      "ADR-0001"
+    ],
+    "cartservice": [
+      "ADR-0002"
+    ]
+  }
+}

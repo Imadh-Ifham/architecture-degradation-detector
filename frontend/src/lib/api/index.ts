@@ -13,5 +13,6 @@
 export * from './client'
 export * from './degradation'
 export * from './repositories'
+export * from './scoring'
 export * from './server'
 export * from './validation'

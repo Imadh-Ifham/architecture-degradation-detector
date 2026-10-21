@@ -6,7 +6,7 @@
 # Sources return raw documents; C4 validates them, so every source behaves the same.
 
 from collections.abc import Mapping, Sequence
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class DegradationEventSource(Protocol):
@@ -67,3 +67,19 @@ class ScoringRunRepository(Protocol):
         features: Sequence[Mapping[str, object]],
         scores: Sequence[Mapping[str, object]],
     ) -> None: ...
+
+
+class SavedReportSource(Protocol):
+    # Reports already written by rank() (CLAUDE.md §6), for the read API: runs() = every run's
+    # c4_run_manifest.json document; reports(run_id) = the c4_report.json document of every run
+    # folder with that id (more than one only if two systems reuse an id).
+    def runs(self) -> Sequence[Mapping[str, object]]: ...
+
+    def reports(self, run_id: str) -> Sequence[Mapping[str, object]]: ...
+
+
+class DetectionHandoverSource(Protocol):
+    # What degradation detection (C3) leaves for scoring after a run: {"events": [...],
+    # "package": {...}} = its events.json and the release package of the window's last
+    # release; None when that run left no hand-over.
+    def read(self, system_id: str, detection_run_id: str) -> Mapping[str, Any] | None: ...

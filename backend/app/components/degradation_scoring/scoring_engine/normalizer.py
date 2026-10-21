@@ -1,5 +1,6 @@
 # Normaliser: puts every feature on [0, 1] and combines them into one value per criterion.
-# Robust min-max per system (winsorised P5-P95), small-n fallback, calibration freeze
+# Robust min-max per system (winsorised P5-P95), small-n fallback, calibration freeze;
+# a feature with zero range is left out of its criterion's mean (C4-ADR-015)
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -28,6 +29,7 @@ FEATURES: dict[Dimension, tuple[str, ...]] = {
 }
 AV_FEATURE = "av_weight"
 SPARSE_FALLBACK = "sparse_minmax"
+ZERO_RANGE = "zero_range"
 
 Weights = Mapping[Dimension, Mapping[str, float]]
 
@@ -42,9 +44,12 @@ def fit_bounds(
     values: Sequence[float], *, robust: bool, lower_percentile: float, upper_percentile: float
 ) -> FeatureBounds:
     # robust: [P_lower, P_upper] (numpy linear percentiles); else plain [min, max].
-    # If P_lower = P_upper but the values differ, plain min-max keeps the rare signal.
+    # If P_lower = P_upper but the values differ, plain min-max keeps the rare signal;
+    # if all values are equal the feature is marked zero_range (C4-ADR-015).
     data = np.asarray(values, dtype=float)
     low, high = float(data.min()), float(data.max())
+    if low == high:
+        return FeatureBounds(lower=low, upper=high, fallback=ZERO_RANGE)
     if not robust:
         return FeatureBounds(lower=low, upper=high)
     p_low, p_high = (float(p) for p in np.percentile(data, [lower_percentile, upper_percentile]))
@@ -53,10 +58,15 @@ def fit_bounds(
     return FeatureBounds(lower=p_low, upper=p_high)
 
 
+def zero_range(bounds: FeatureBounds) -> bool:
+    # also true for a frozen calibration saved before the zero_range mark existed
+    return bounds.upper == bounds.lower
+
+
 def scale(value: float, bounds: FeatureBounds) -> float:
-    # (x - lower) / (upper - lower) clipped to [0, 1]; zero range gives 0.5
-    if bounds.upper == bounds.lower:
-        return 0.5
+    # (x - lower) / (upper - lower) clipped to [0, 1]; a zero-range feature has no scale
+    if zero_range(bounds):
+        raise ValueError(f"zero range [{bounds.lower}, {bounds.upper}]: leave the feature out")
     return min(max((value - bounds.lower) / (bounds.upper - bounds.lower), 0.0), 1.0)
 
 
@@ -81,7 +91,7 @@ def fit_calibration(
                 lower_percentile=lower_percentile,
                 upper_percentile=upper_percentile,
             )
-            if bounds[key].fallback:
+            if bounds[key].fallback == SPARSE_FALLBACK:
                 log.info("normalisation_fallback", reason=SPARSE_FALLBACK, feature=key)
     return Calibration(
         system_id=system_id,
@@ -106,11 +116,15 @@ def check_calibration(calibration: Calibration, keys: Sequence[str], system_id: 
 
 
 def criterion_value(features: Mapping[str, float], weights: Mapping[str, float]) -> float:
-    # weighted mean of the criterion's normalised features (CLAUDE.md §5.1, §5.2, §5.4)
-    total = sum(weights.values())
-    if total <= 0:
+    # weighted mean of the criterion's normalised features (CLAUDE.md §5.1, §5.2, §5.4) over
+    # the features present; zero-range features are absent, and none left gives 0 (C4-ADR-015)
+    if sum(weights.values()) <= 0:
         raise ValueError(f"feature weights must sum to more than 0, got {dict(weights)}")
-    return sum(weight * features[key] for key, weight in weights.items()) / total
+    present = {key: weight for key, weight in weights.items() if key in features}
+    total = sum(present.values())
+    if total <= 0:
+        return 0.0
+    return sum(weight * features[key] for key, weight in present.items()) / total
 
 
 def normalise(
@@ -146,13 +160,20 @@ def normalise(
         )
     else:
         check_calibration(calibration, keys, system_id)
+    constant = {key for key in keys if rows and zero_range(calibration.bounds[key])}
     if rows:
-        for key in keys:
-            if calibration.bounds[key].lower == calibration.bounds[key].upper:
-                log.warning("normalisation_zero_range", reason="zero_range", feature=key)
+        for key in sorted(constant, key=keys.index):
+            log.warning(
+                "normalisation_zero_range", reason=ZERO_RANGE, feature=key, action="left_out"
+            )
+        for criterion in criteria:
+            if set(FEATURES.get(criterion, ())) and set(FEATURES[criterion]) <= constant:
+                log.warning("normalisation_constant_criterion", criterion=criterion, value=0.0)
     normalised = []
     for event, row in zip(events, rows, strict=True):
-        scaled = {key: scale(row[key], calibration.bounds[key]) for key in keys}
+        scaled = {
+            key: scale(row[key], calibration.bounds[key]) for key in keys if key not in constant
+        }
         values = {
             criterion: criterion_value(scaled, weights[criterion])
             for criterion in criteria

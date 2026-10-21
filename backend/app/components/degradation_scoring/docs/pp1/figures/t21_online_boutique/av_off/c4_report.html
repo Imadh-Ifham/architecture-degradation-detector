@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C4 severity report: online-boutique v0.10.7</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 960px; padding: 16px;
+         color: #1d1d1f; background: #fff; line-height: 1.4; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  h2 { font-size: 1.15rem; margin-top: 28px; }
+  .banner { background: #fff3cd; border: 2px solid #b8860b; padding: 10px 14px; font-weight: 700; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  th { font-weight: 600; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .card { border: 1px solid #ccc; border-radius: 6px; padding: 12px 14px; margin: 14px 0; }
+  .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .rank { display: inline-block; min-width: 2.2em; font-weight: 700; }
+  .bar { background: #eee; height: 12px; border-radius: 3px; overflow: hidden; margin: 6px 0; }
+  .bar span { display: block; height: 100%; background: #c0392b; }
+  .badge { display: inline-block; font-size: 0.8rem; padding: 1px 7px; margin: 2px 4px 2px 0;
+           border-radius: 9px; border: 1px solid #888; background: #f4f4f4; }
+  .badge.warn { border-color: #b8860b; background: #fff3cd; }
+  .badge.off { border-color: #777; background: #e6e6e6; }
+  .off { color: #777; }
+  .muted { color: #555; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<p class="banner" role="alert">FIXTURE EVENTS: the events and graph are hand-made; only the commit history is real. These numbers are not findings.</p>
+<h1>Severity report: online-boutique @ v0.10.7</h1>
+<p class="muted">Run t21-ob-av-off · schema 1.2.0</p>
+
+<h2>Summary</h2>
+<table>
+  <tr><th>Data source</th><td>fixture-events+live-history</td></tr>
+  <tr><th>Active dimensions</th><td>blast_radius, hotspot, persistence</td></tr>
+  <tr><th>Weights</th><td>ahp_v1 · provisional-author-elicited (elicited by Dahami)</td></tr>
+  <tr><th>AHP consistency</th><td>CR 0.011 (λmax 4.031); refused above 0.10</td></tr>
+  <tr><th>Ranking</th><td>TOPSIS fixed_reference · normalisation minmax_small_n</td></tr>
+  <tr><th>Events</th><td>6 payloads: 6 ranked, 0 skipped, 0 quarantined</td></tr>
+  <tr><th>Resolution rate</th><td>100.0%</td></tr>
+  <tr><th>Hotspot</th><td>on · unmapped line share 0.9% · paths from manual-mapping</td></tr>
+  <tr><th>ADR violation</th><td>off (no_adr_index)</td></tr>
+</table>
+
+<h3>AHP weights</h3>
+<table>
+  <tr><th>Dimension</th><th class="n">Elicited (all four)</th><th class="n">Used this run</th></tr>
+  <tr><td>Blast radius</td><td class="n">0.467</td><td class="n">0.556</td></tr>
+  <tr><td>Hotspot</td><td class="n">0.277</td><td class="n">0.330</td></tr>
+  <tr class="off"><td>ADR violation</td><td class="n">0.160</td><td class="n">off</td></tr>
+  <tr><td>Persistence</td><td class="n">0.095</td><td class="n">0.114</td></tr>
+</table>
+
+<h2>Ranked events</h2>
+<section class="card">
+  <h3><span class="rank">#1</span> HubLikeElement · DEG-C4OB-T21-0001</h3>
+  <div class="bar" title="severity 0.651"><span style="width: 65.1%"></span></div>
+  <p>Severity <strong>0.651</strong> · ELEMENT · productcatalogservice · review PENDING · context GENUINE</p>
+  <p>
+    <span class="badge warn">fallback: first seen</span>
+    <span class="badge warn">fallback: presence</span>
+    <span class="badge warn">manual mapping</span>
+    <span class="badge off">ADR off</span>
+  </p>
+  <table>
+    <tr><th>Dimension</th><th class="n">Value</th><th class="n">Weight</th><th class="n">Contribution</th><th>Features</th></tr>
+    <tr><td>Blast radius</td><td class="n">0.595</td><td class="n">0.556</td><td class="n">54.5%</td><td class="muted">fan_in_ratio 0.3333 · pagerank 0.1751 · betweenness 0 · depth 1</td></tr>
+    <tr><td>Hotspot</td><td class="n">0.910</td><td class="n">0.330</td><td class="n">44.8%</td><td class="muted">churn_decayed 13.38 · authors 2 · coupling 0 · bugfix_ratio 1 · commits 2</td></tr>
+    <tr class="off"><td>ADR violation</td><td class="n">off</td><td class="n">0</td><td class="n">0</td><td></td></tr>
+    <tr><td>Persistence</td><td class="n">0.325</td><td class="n">0.114</td><td class="n">0.7%</td><td class="muted">consecutive_releases 4 · growth_slope 0.16 · metric fan_in</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h3><span class="rank">#2</span> UnstableDependency · DEG-C4OB-T21-0002</h3>
+  <div class="bar" title="severity 0.524"><span style="width: 52.4%"></span></div>
+  <p>Severity <strong>0.524</strong> · ELEMENT · checkoutservice · review PENDING · context GENUINE</p>
+  <p>
+    <span class="badge warn">fallback: first seen</span>
+    <span class="badge warn">fallback: presence</span>
+    <span class="badge warn">manual mapping</span>
+    <span class="badge off">ADR off</span>
+  </p>
+  <table>
+    <tr><th>Dimension</th><th class="n">Value</th><th class="n">Weight</th><th class="n">Contribution</th><th>Features</th></tr>
+    <tr><td>Blast radius</td><td class="n">0.480</td><td class="n">0.556</td><td class="n">58.9%</td><td class="muted">fan_in_ratio 0.1111 · pagerank 0.08791 · betweenness 0.02778 · depth 1</td></tr>
+    <tr><td>Hotspot</td><td class="n">0.632</td><td class="n">0.330</td><td class="n">35.9%</td><td class="muted">churn_decayed 7.242 · authors 2 · coupling 0 · bugfix_ratio 0.5 · commits 2</td></tr>
+    <tr class="off"><td>ADR violation</td><td class="n">off</td><td class="n">0</td><td class="n">0</td><td></td></tr>
+    <tr><td>Persistence</td><td class="n">0.700</td><td class="n">0.114</td><td class="n">5.2%</td><td class="muted">consecutive_releases 7 · growth_slope 0.07143 · metric efferent_coupling</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h3><span class="rank">#3</span> InappropriateIntimacy · DEG-C4OB-T21-0004</h3>
+  <div class="bar" title="severity 0.519"><span style="width: 51.9%"></span></div>
+  <p>Severity <strong>0.519</strong> · INSTANCE · cartservice, checkoutservice · review PENDING · context GENUINE</p>
+  <p>
+    <span class="badge warn">fallback: first seen</span>
+    <span class="badge warn">fallback: presence</span>
+    <span class="badge warn">manual mapping</span>
+    <span class="badge off">ADR off</span>
+  </p>
+  <table>
+    <tr><th>Dimension</th><th class="n">Value</th><th class="n">Weight</th><th class="n">Contribution</th><th>Features</th></tr>
+    <tr><td>Blast radius</td><td class="n">0.719</td><td class="n">0.556</td><td class="n">99.0%</td><td class="muted">fan_in_ratio 0.125 · pagerank 0.1883 · betweenness 0.02778 · depth 1</td></tr>
+    <tr><td>Hotspot</td><td class="n">0.000</td><td class="n">0.330</td><td class="n">0.0%</td><td class="muted">churn_decayed 0 · authors 0 · coupling 0 · bugfix_ratio 0 · commits 0</td></tr>
+    <tr class="off"><td>ADR violation</td><td class="n">off</td><td class="n">0</td><td class="n">0</td><td></td></tr>
+    <tr><td>Persistence</td><td class="n">0.356</td><td class="n">0.114</td><td class="n">1.0%</td><td class="muted">consecutive_releases 3 · growth_slope 0.5 · metric shared_calls</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h3><span class="rank">#4</span> MetricDrift · DEG-C4OB-T21-0005</h3>
+  <div class="bar" title="severity 0.467"><span style="width: 46.7%"></span></div>
+  <p>Severity <strong>0.467</strong> · ELEMENT · cartservice · review PENDING · context UNCERTAIN</p>
+  <p>
+    <span class="badge warn">context uncertain</span>
+    <span class="badge warn">fallback: first seen</span>
+    <span class="badge warn">fallback: presence</span>
+    <span class="badge warn">manual mapping</span>
+    <span class="badge off">ADR off</span>
+  </p>
+  <table>
+    <tr><th>Dimension</th><th class="n">Value</th><th class="n">Weight</th><th class="n">Contribution</th><th>Features</th></tr>
+    <tr><td>Blast radius</td><td class="n">0.342</td><td class="n">0.556</td><td class="n">32.2%</td><td class="muted">fan_in_ratio 0.2222 · pagerank 0.1004 · betweenness 0 · depth 1</td></tr>
+    <tr><td>Hotspot</td><td class="n">0.833</td><td class="n">0.330</td><td class="n">67.4%</td><td class="muted">churn_decayed 18.35 · authors 1 · coupling 0 · bugfix_ratio 1 · commits 1</td></tr>
+    <tr class="off"><td>ADR violation</td><td class="n">off</td><td class="n">0</td><td class="n">0</td><td></td></tr>
+    <tr><td>Persistence</td><td class="n">0.178</td><td class="n">0.114</td><td class="n">0.4%</td><td class="muted">consecutive_releases 3 · growth_slope 0.1469 · metric afferent_coupling</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h3><span class="rank">#5</span> UnstableDependency · DEG-C4OB-T21-0006</h3>
+  <div class="bar" title="severity 0.353"><span style="width: 35.3%"></span></div>
+  <p>Severity <strong>0.353</strong> · ELEMENT · emailservice · review PENDING · context GENUINE</p>
+  <p>
+    <span class="badge warn">fallback: first seen</span>
+    <span class="badge warn">fallback: presence</span>
+    <span class="badge warn">manual mapping</span>
+    <span class="badge off">ADR off</span>
+  </p>
+  <table>
+    <tr><th>Dimension</th><th class="n">Value</th><th class="n">Weight</th><th class="n">Contribution</th><th>Features</th></tr>
+    <tr><td>Blast radius</td><td class="n">0.445</td><td class="n">0.556</td><td class="n">98.1%</td><td class="muted">fan_in_ratio 0.2222 · pagerank 0.09085 · betweenness 0 · depth 2</td></tr>
+    <tr><td>Hotspot</td><td class="n">0.000</td><td class="n">0.330</td><td class="n">0.0%</td><td class="muted">churn_decayed 0 · authors 0 · coupling 0 · bugfix_ratio 0 · commits 0</td></tr>
+    <tr class="off"><td>ADR violation</td><td class="n">off</td><td class="n">0</td><td class="n">0</td><td></td></tr>
+    <tr><td>Persistence</td><td class="n">0.300</td><td class="n">0.114</td><td class="n">1.9%</td><td class="muted">consecutive_releases 2 · growth_slope 0.6667 · metric afferent_coupling</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h3><span class="rank">#6</span> OversizedElement · DEG-C4OB-T21-0003</h3>
+  <div class="bar" title="severity 0.334"><span style="width: 33.4%"></span></div>
+  <p>Severity <strong>0.334</strong> · ELEMENT · frontend · review PENDING · context GENUINE</p>
+  <p>
+    <span class="badge warn">fallback: first seen</span>
+    <span class="badge warn">fallback: presence</span>
+    <span class="badge warn">manual mapping</span>
+    <span class="badge off">ADR off</span>
+  </p>
+  <table>
+    <tr><th>Dimension</th><th class="n">Value</th><th class="n">Weight</th><th class="n">Contribution</th><th>Features</th></tr>
+    <tr><td>Blast radius</td><td class="n">0.000</td><td class="n">0.556</td><td class="n">0.0%</td><td class="muted">fan_in_ratio 0 · pagerank 0.07839 · betweenness 0 · depth 0</td></tr>
+    <tr><td>Hotspot</td><td class="n">0.831</td><td class="n">0.330</td><td class="n">94.8%</td><td class="muted">churn_decayed 18.2 · authors 1 · coupling 0 · bugfix_ratio 1 · commits 1</td></tr>
+    <tr class="off"><td>ADR violation</td><td class="n">off</td><td class="n">0</td><td class="n">0</td><td></td></tr>
+    <tr><td>Persistence</td><td class="n">0.562</td><td class="n">0.114</td><td class="n">5.2%</td><td class="muted">consecutive_releases 6 · growth_slope 0.07619 · metric fan_out</td></tr>
+  </table>
+</section>
+
+<h2>Skipped (0)</h2>
+<p>None.</p>
+
+<h2>Quarantined (0)</h2>
+<p>None.</p>
+</body>
+</html>

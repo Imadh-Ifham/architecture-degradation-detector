@@ -54,7 +54,10 @@ import {
 import { PHASES, type PhaseId } from '../../layouts/navigation'
 import {
   describePipeline,
+  listScoringRuns,
   messageOf,
+  scoreDetectionRun,
+  scoringRunId,
   type RepositoryConfiguration,
   type StageDescription,
   type ValidationRun,
@@ -68,6 +71,7 @@ import type {
   SnapshotRun,
 } from '../../workspace/pipeline'
 import DetectionCard from './DetectionCard'
+import ScoringCard from './ScoringCard'
 import PipelineFlow, { type PhaseState } from './PipelineFlow'
 import RecoveryStages from './RecoveryStages'
 import ReleaseActions from './ReleaseActions'
@@ -151,6 +155,34 @@ export default function PipelinePage() {
   // snapshot, because the decisions screen is what started it.
   const validated = pipelineSnapshots.some((snapshot) => runFor(snapshot, runs))
 
+  // Scoring ranks the current detection run, from its own card; the phase is
+  // complete once that run has its ranking (`score-<detection run>`). A
+  // ranking of an older run, or of hand-made events, does not count. "Current"
+  // is what the detect phase calls fresh: over this session's validations.
+  const scoring = useRequest((options) => listScoringRuns(options), [])
+  const [isScoring, setIsScoring] = useState(false)
+  const [scoringError, setScoringError] = useState<string | null>(null)
+  const currentDetection = validated && degradation && !isDetectionStale ? degradation : null
+  const ranking = currentDetection
+    ? ((scoring.data ?? []).find(
+        (run) => run.run_id === scoringRunId(currentDetection.run.run_id),
+      ) ?? null)
+    : null
+
+  const score = async () => {
+    if (!currentDetection) return
+    setIsScoring(true)
+    setScoringError(null)
+    try {
+      await scoreDetectionRun(currentDetection.run.system_id, currentDetection.run.run_id)
+      scoring.reload()
+    } catch (cause) {
+      setScoringError(messageOf(cause))
+    } finally {
+      setIsScoring(false)
+    }
+  }
+
   const phaseStates = useMemo<Record<PhaseId, PhaseState>>(
     () => ({
       recover: recoverState(pipelinePhase, pipelineSnapshots, configurations.length),
@@ -161,7 +193,7 @@ export default function PipelinePage() {
         Boolean(degradation) && !isDetectionStale,
         validated,
       ),
-      prioritise: 'reserved',
+      prioritise: scoringState(isScoring, scoringError, ranking !== null, currentDetection !== null),
     }),
     [
       pipelinePhase,
@@ -172,6 +204,10 @@ export default function PipelinePage() {
       isDetectionStale,
       detectionError,
       degradation,
+      isScoring,
+      scoringError,
+      ranking,
+      currentDetection,
     ],
   )
 
@@ -210,6 +246,7 @@ export default function PipelinePage() {
             {validatingRelease && <Spinner label={`validating ${validatingRelease}`} />}
             {isPipelineRunning && <Spinner label="recovering" />}
             {isDetecting && <Spinner label="detecting" />}
+            {isScoring && <Spinner label="scoring" />}
 
             {isRecovered && (
               <Button
@@ -253,6 +290,20 @@ export default function PipelinePage() {
                     : 'Detect degradation'}
               </Button>
             )}
+
+            {hasFreshDetection &&
+              (ranking ? (
+                <Button
+                  variant="primary"
+                  onClick={() => navigate(`/priorities?run=${encodeURIComponent(ranking.run_id)}`)}
+                >
+                  Open priorities
+                </Button>
+              ) : (
+                <Button variant="primary" disabled={isScoring} onClick={() => void score()}>
+                  {isScoring ? 'Scoring…' : 'Score'}
+                </Button>
+              ))}
           </div>
         }
       />
@@ -345,6 +396,8 @@ export default function PipelinePage() {
                 ? 'Recovery runs for every configured snapshot, one at a time, when the pipeline starts.'
                 : phase.id === 'detect'
                   ? 'Detection reads the graph validation published for every release, finds the anti-patterns in each, and tests across the releases whether they are getting worse. It is started from its own card below, once the releases somebody wants compared are validated.'
+                  : phase.id === 'prioritise'
+                  ? 'Scoring reads what the detect phase found, adds how far each problem reaches, how actively its code changes, whether it breaks a recorded decision and how long it has lasted, and ranks the problems with a reason for each. It is started from its card below once detection has run; open the result to read the ranking.'
                   : 'Validation is started on the decisions screen, once somebody has chosen what these releases are judged against. The pipeline recovers the stack and stops there.'}
           </p>
         </div>
@@ -362,6 +415,17 @@ export default function PipelinePage() {
           isStale={!validated || isDetectionStale}
           onDetect={() => void detectDegradation()}
           onFocus={focusRelease}
+        />
+      )}
+
+      {isRecovered && (
+        <ScoringCard
+          events={currentDetection ? currentDetection.events.length : null}
+          ranking={ranking}
+          isScoring={isScoring}
+          error={scoringError}
+          canScore={currentDetection !== null}
+          onScore={() => void score()}
         />
       )}
 
@@ -957,6 +1021,18 @@ function detectState(
   if (!validated) return 'blocked'
   if (error) return 'failed'
   return hasFreshRun ? 'done' : 'waiting'
+}
+
+function scoringState(
+  isScoring: boolean,
+  error: string | null,
+  hasRanking: boolean,
+  hasDetection: boolean,
+): PhaseState {
+  if (isScoring) return 'running'
+  if (!hasDetection) return 'blocked'
+  if (error) return 'failed'
+  return hasRanking ? 'done' : 'waiting'
 }
 
 function countedFacts(run: ValidationRun | undefined): number {

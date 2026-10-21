@@ -12,7 +12,7 @@ from pydantic_core import PydanticCustomError
 from app.domain.boundary import BoundaryModel, NonEmptyStr
 from app.domain.degradation_event import ContextTag, ReviewStatus, Scope
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 
 # Weights and contributions are sums of floats, so they are compared with a tolerance.
 SUM_TOLERANCE = 1e-6
@@ -156,6 +156,8 @@ class SeverityRecord(BoundaryModel):
     dimensions: dict[Dimension, DimensionScore]
     contributions: dict[Dimension, UnitInterval]
     resolution: Resolution
+    # the graph elements the event resolved to, by name (else id) (1.2.0; empty before)
+    elements: list[NonEmptyStr] = Field(default_factory=list)
     explanation: str | None = None
     audit: AuditSummary | None = None
     evidence: list[EvidenceItem] = Field(default_factory=list)

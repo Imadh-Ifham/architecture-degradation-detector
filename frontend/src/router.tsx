@@ -20,10 +20,10 @@ import ValidationPage from './features/validation/ValidationPage'
 import RecoveryPage from './features/recovery/RecoveryPage'
 import DecisionsPage from './features/decisions/DecisionsPage'
 import PipelinePage from './features/pipeline/PipelinePage'
+import PrioritiesPage from './features/priorities/PrioritiesPage'
 import RepositoriesPage from './features/repositories/RepositoriesPage'
 import NotFound from './pages/NotFound'
 import DriftPage from './features/drift/DriftPage'
-import { PrioritiesPage } from './features/reserved/reservedPages'
 
 export const router = createBrowserRouter([
   {
