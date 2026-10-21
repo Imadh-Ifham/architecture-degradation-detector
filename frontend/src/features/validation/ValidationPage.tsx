@@ -197,6 +197,12 @@ function Outcome({ document }: { document: PublishedGraph }) {
   // A model is behind a verdict it produced, whether or not this run paid for
   // the call. Counting calls instead reported one fact in seventeen on a
   // warmed cache, four lines above a panel saying sixteen came from a model.
+  // Read off the document rather than written here, so the scale cannot
+  // drift from the scoring that produced the number.
+  const ceiling =
+    document.links.find((edge) => edge.confidence_maximum > 0)?.confidence_maximum ??
+    0.85
+
   const withModel = document.links.filter((edge) => edge.produced_by === 'model').length
   const liveCalls = document.links.reduce((total, edge) => total + edge.model_calls, 0)
 
@@ -205,27 +211,48 @@ function Outcome({ document }: { document: PublishedGraph }) {
       <Stat
         label="dependencies judged"
         value={document.links.length}
-        note={`${withModel} with a model behind them · ${liveCalls} live call${
+        note={`${counts.confirmed} confirmed · ${withModel} with a model behind them · ${liveCalls} live call${
           liveCalls === 1 ? '' : 's'
-        } on this run`}
+        } this run`}
       />
+      {/* The finding the component exists to produce, and it was computed
+          and then not shown: the summary counted confirmations, held-back
+          facts and ungoverned ones, and left out the only row anybody came
+          to this screen to read. */}
       <Stat
-        label="confidence"
-        value={document.graph.validation_confidence.toFixed(2)}
-        note="the mean across this release"
+        label="contradicted"
+        value={counts.contradicted}
+        note={
+          counts.contradicted > 0
+            ? 'runs against the recorded intent'
+            : 'nothing runs against the recorded intent'
+        }
+        tone={counts.contradicted > 0 ? 'bad' : 'ok'}
+      />
+      {/* The scale, not just the value. 0.85 is the most this method
+          publishes for anything, so a release where every fact is strongly
+          evidenced and fully checked reads 0.85 - and "0.85" alone looks
+          like a number that failed to reach 1.00 rather than one that
+          reached the top. */}
+      <Stat
+        label="how sure of the verdicts"
+        value={`${document.graph.validation_confidence.toFixed(2)} / ${ceiling.toFixed(2)}`}
+        note={
+          document.graph.validation_confidence >= ceiling
+            ? 'every dependency is as certain as this method gets'
+            : `the mean across this release · ${ceiling.toFixed(2)} is the maximum`
+        }
         tone={document.graph.validation_confidence > 0 ? 'ok' : 'neutral'}
       />
       <Stat
         label="needs a person"
         value={review}
-        note="held back rather than claimed"
+        note={
+          counts.uncovered > 0
+            ? `held back rather than claimed · ${counts.uncovered} governed by nothing`
+            : 'held back rather than claimed · every dependency is governed'
+        }
         tone={review > 0 ? 'warn' : 'neutral'}
-      />
-      <Stat
-        label="nothing governs"
-        value={counts.uncovered}
-        note="no decision covers these, and no model was called"
-        tone={counts.uncovered > 0 ? 'warn' : 'neutral'}
       />
     </StatRow>
   )

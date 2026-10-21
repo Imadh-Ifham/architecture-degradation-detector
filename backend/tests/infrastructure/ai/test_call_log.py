@@ -277,6 +277,64 @@ class TestTheSummary:
         assert counted["replayed"] == 1
 
 
+class TestAskingTheModelsAgain:
+    """Refreshing a release: read-through off, write-through on."""
+
+    def test_the_cache_is_not_read_inside_the_block(self, tmp_path):
+        log = CallLog()
+        provider = FakeProvider(VERDICT)
+        ai = client(tmp_path, log, provider)
+
+        ask(ai)
+        assert provider.call_count == 1
+
+        with ai.ignoring_the_cache():
+            ask(ai)
+
+        assert provider.call_count == 2, "the identical question was asked again"
+
+    def test_what_it_learns_leaves_the_cache_warm(self, tmp_path):
+        """The difference from deleting the directory by hand, which leaves
+        every other release cold as well."""
+
+        log = CallLog()
+        provider = FakeProvider(VERDICT)
+        ai = client(tmp_path, log, provider)
+
+        with ai.ignoring_the_cache():
+            ask(ai)
+        assert provider.call_count == 1
+
+        ask(ai)
+
+        assert provider.call_count == 1, "the refreshed answer was kept"
+
+    def test_outside_the_block_the_cache_is_read_again(self, tmp_path):
+        log = CallLog()
+        provider = FakeProvider(VERDICT)
+        ai = client(tmp_path, log, provider)
+
+        ask(ai)
+        with ai.ignoring_the_cache():
+            ask(ai)
+        ask(ai)
+
+        assert provider.call_count == 2, "only the block paid"
+
+    def test_a_refreshed_call_is_recorded_as_answered_not_replayed(self, tmp_path):
+        """A run of all live calls means the cache was cold or was bypassed,
+        and the transcript has to be able to tell them apart."""
+
+        log = CallLog()
+        ai = client(tmp_path, log)
+
+        ask(ai)
+        with log.capture() as calls, ai.ignoring_the_cache():
+            ask(ai)
+
+        assert calls[0].outcome == OUTCOME_ANSWERED
+
+
 class TestTheTranscriptStore:
     """What a run sent, kept beside the graph it published."""
 

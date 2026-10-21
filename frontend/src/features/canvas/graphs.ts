@@ -12,6 +12,7 @@
  */
 
 import type { GraphEdge, GraphNode } from '../../components/graph/GraphCanvas'
+import { band, explain } from '../validation/certainty'
 import { badgeOf, cyclicEdges, membership } from '../drift/graphs'
 import type {
   ArchitectureDetails,
@@ -97,11 +98,25 @@ export function validatedGraph(document: PublishedGraph): {
       dashed: verdictTone(edge.bucket) === 'faint',
       emphasis: verdictTone(edge.bucket) !== 'ok',
       label: edge.confidence > 0 ? edge.confidence.toFixed(2).slice(1) : undefined,
+      // The number on an edge is the one nobody can interpret unaided, and
+      // the one an examiner asks about. Hovering it says what it measures.
+      hint: `${edge.bucket.replace(/_/g, ' ')} · ${band(edge)}
+
+${explain(edge)}`,
     })),
   }
 }
 
-/** Which dependencies a model was involved in deciding, and which were not. */
+/**
+ * Which dependencies a model was involved in deciding, and which were not.
+ *
+ * **Keyed on who produced the verdict, not on what this run paid for.** It
+ * read `model_calls > 0` until 2026-10-21, and on a warm cache every edge
+ * has zero calls - so the whole graph drew grey and dashed, which says *no
+ * model was involved anywhere* about a run where a model decided every
+ * governed fact. The calls are a fact about the run; the author is a fact
+ * about the verdict, and this tab is about the author.
+ */
 export function provenanceGraph(document: PublishedGraph): {
   nodes: GraphNode[]
   edges: GraphEdge[]
@@ -112,15 +127,26 @@ export function provenanceGraph(document: PublishedGraph): {
       title: node.name,
       subtitle: node.kind.replace(/_/g, ' '),
     })),
-    edges: document.links.map((edge) => ({
-      id: edge.fact_id,
-      source: edge.source,
-      target: edge.target,
-      tone: edge.model_calls > 0 ? 'ai' : 'neutral',
-      dashed: edge.model_calls === 0,
-      emphasis: edge.model_calls > 0,
-      label: edge.model_calls > 0 ? `${edge.model_calls}` : undefined,
-    })),
+    edges: document.links.map((edge) => {
+      const byModel = edge.produced_by === 'model'
+
+      return {
+        id: edge.fact_id,
+        source: edge.source,
+        target: edge.target,
+        tone: byModel ? 'ai' : 'neutral',
+        dashed: !byModel,
+        emphasis: byModel,
+        // The call count when this run paid for one, and the word otherwise.
+        // "replayed" is not "no model": it is the same model's answer to the
+        // same question, and the two must not share a rendering.
+        label: byModel
+          ? edge.model_calls > 0
+            ? `${edge.model_calls} live`
+            : 'replayed'
+          : 'no model',
+      } satisfies GraphEdge
+    }),
   }
 }
 

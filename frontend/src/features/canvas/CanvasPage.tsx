@@ -53,7 +53,7 @@ const CAPTION: Record<View, string> = {
   validated:
     'The same system with a verdict on every dependency. This is the artifact the next phase reads.',
   provenance:
-    'The same graph again, showing which verdicts a language model was involved in reaching.',
+    'The same graph again, showing which verdicts a language model produced — whether this run called it or replayed what it said before.',
   antipatterns:
     'The same graph with the anti-patterns detection found in this release. Whether they are getting worse is on the drift screen.',
 }
@@ -365,8 +365,12 @@ function Legend({ view }: { view: View }) {
 
   return (
     <>
-      <GraphKey tone="ai">a model was asked · the number is how many calls</GraphKey>
+      <GraphKey tone="ai">a model produced the verdict</GraphKey>
       <GraphKey dashed>decided without a model</GraphKey>
+      <span className="text-ink-4">
+        the label says whether this run paid for the call or replayed the
+        model&rsquo;s earlier answer to the identical question
+      </span>
     </>
   )
 }

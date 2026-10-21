@@ -121,6 +121,12 @@ export interface ValidationRequest {
   decision_mode?: DecisionMode
   adr_repository_id?: string | null
   verify?: boolean
+  /**
+   * Ask the models again instead of replaying from the cache, and keep the
+   * answers. The run costs its full token budget and leaves the cache warm
+   * with the new verdicts, which is what refreshing a release means.
+   */
+  fresh?: boolean
   arm?: string
   released_at?: string | null
 }
@@ -260,6 +266,18 @@ export interface ValidatedEdge {
    * the field and read as an empty string.
    */
   evidence_hash: string
+  /**
+   * What the confidence is made of, as named contributions.
+   *
+   * The component's own rule is that a confidence number carries its score
+   * trace. Without it a reader is shown `0.85` on every edge with no way to
+   * learn what built it or what the scale is.
+   */
+  confidence_terms: Record<string, number>
+  /** The ceiling that held the number down, or null if none did. */
+  confidence_ceiling: string | null
+  /** The most this method can publish for any fact. */
+  confidence_maximum: number
   attributes: Record<string, unknown>
 }
 

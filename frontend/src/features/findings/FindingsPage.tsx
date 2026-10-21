@@ -42,6 +42,7 @@ import { useReleases } from '../../workspace/useReleases'
 import { useWorkspace } from '../../workspace/useWorkspace'
 import ReleasePicker from '../../components/ReleasePicker'
 import ReviewQueue from './ReviewQueue'
+import { explain } from '../validation/certainty'
 
 type Bucket = 'all' | 'confirmed' | 'contradicted' | 'needs_review' | 'uncovered'
 
@@ -204,7 +205,7 @@ export default function FindingsPage() {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr>
-                      {['dependency', 'verdict', 'confidence', 'judged against', 'produced by'].map(
+                      {['dependency', 'verdict', 'how sure of it', 'judged against', 'produced by'].map(
                         (head) => (
                           <th
                             key={head}
@@ -235,7 +236,9 @@ export default function FindingsPage() {
                           <Verdict bucket={edge.bucket} />
                         </td>
                         <td className="border-b border-line px-4 py-3.5 font-mono text-ink-2">
-                          {edge.confidence > 0 ? edge.confidence.toFixed(2) : '—'}
+                          <span title={explain(edge)} className="cursor-help">
+                            {edge.confidence > 0 ? edge.confidence.toFixed(2) : '—'}
+                          </span>
                         </td>
                         <td className="border-b border-line px-4 py-3.5 text-ink-3">
                           {edge.source_tier ? `tier ${edge.source_tier}` : 'nothing'}

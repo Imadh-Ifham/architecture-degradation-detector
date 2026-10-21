@@ -56,7 +56,7 @@ from datetime import datetime
 from enum import StrEnum
 
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 GENERATOR_NAME = "architecture_validation"
 GENERATOR_VERSION = "0.1.0"
 
@@ -211,6 +211,16 @@ class ValidatedEdge:
     conclusion; they are two axes, and a reader with only the first of them
     counted the facts awaiting an architect as zero.
 
+    `confidence_terms`, `confidence_ceiling` and `confidence_maximum` are
+    what the confidence is made of. The component's own rule is that a
+    confidence number carries its score trace, and until 1.3.0 the number
+    crossed this boundary alone - so a reader was shown `0.85` seventeen
+    times with no way to learn that it is built from three named
+    contributions, that 0.85 is the most this method can publish, and that
+    the missing 0.15 is what an uncalibrated score over an unlabelled
+    architecture cannot establish. A bare number that every edge shares is
+    not a measurement anybody can act on.
+
     `evidence_hash` names the sealed evidence package this verdict was
     reached from. It is the identifier the model request was keyed on, so it
     is what joins a published edge back to the exact question that produced
@@ -235,6 +245,9 @@ class ValidatedEdge:
     arbiter_agreement: str | None = None
     route: str = ""
     evidence_hash: str = ""
+    confidence_terms: dict = field(default_factory=dict)
+    confidence_ceiling: str | None = None
+    confidence_maximum: float = 0.0
     attributes: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -254,6 +267,9 @@ class ValidatedEdge:
             "arbiter_agreement": self.arbiter_agreement,
             "route": self.route,
             "evidence_hash": self.evidence_hash,
+            "confidence_terms": dict(self.confidence_terms),
+            "confidence_ceiling": self.confidence_ceiling,
+            "confidence_maximum": self.confidence_maximum,
             "attributes": dict(self.attributes),
         }
 

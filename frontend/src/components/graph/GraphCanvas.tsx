@@ -58,6 +58,14 @@ export interface GraphEdge {
   dashed?: boolean
   /** Drawn on the edge itself, for a verdict or a confidence. */
   label?: string
+  /**
+   * What the label means, shown on hover.
+   *
+   * A native `<title>`, because the same sentence has to work on an SVG
+   * edge, in a table cell and on a stat - and a number nobody can expand is
+   * a number nobody can defend when asked about it.
+   */
+  hint?: string
   emphasis?: boolean
 }
 
@@ -205,6 +213,7 @@ export default function GraphCanvas({
                   onSelectEdge(isSelected ? null : edge.id)
                 }}
               >
+                {edge.hint && <title>{edge.hint}</title>}
                 {/* A wider invisible path: a 1.3px line is a hard thing to hit. */}
                 <path d={path} fill="none" strokeWidth="14" className="stroke-transparent" />
                 <path

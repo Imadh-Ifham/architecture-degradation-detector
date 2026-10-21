@@ -241,7 +241,7 @@ class TestRecordingARun:
 
         assert stored["release_id"] == "v0.10.0"
         assert stored["released_at_source"] == "tagger"
-        assert stored["schema_version"] == "1.2.0"
+        assert stored["schema_version"] == "1.3.0"
         assert stages.scalar() == 1
         assert facts["bucket"] == "needs_review"
 

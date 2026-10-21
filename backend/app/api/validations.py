@@ -26,6 +26,7 @@ Description:
 """
 
 import time
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Literal
@@ -347,6 +348,18 @@ class ValidationRunRequest(BaseModel):
             "fact, where the gap between the two agreement rates is how much "
             "being shown the answer moves the second model. both is a "
             "measurement mode and not a demonstration one."
+        ),
+    )
+    fresh: bool = Field(
+        default=False,
+        description=(
+            "Ask the models again instead of replaying identical questions "
+            "from the response cache, and keep what they answer. The run then "
+            "costs its full token budget and the cache is left holding the "
+            "new answers, so the next ordinary run is warm again. For "
+            "refreshing a release whose evidence changed, or for showing the "
+            "models being called - not for an ordinary run, where a replayed "
+            "answer is the same model's answer to the same question."
         ),
     )
     verify: bool = Field(
@@ -1124,8 +1137,15 @@ def run_validation(
     # adapter, and a component that could see them is a component that could
     # start reasoning about them.
     calls = get_call_log()
+    # Nested on purpose: the refresh is about where answers come from and the
+    # capture is about recording what happened, and a refreshed run has to be
+    # recorded like any other.
+    client = get_ai_client()
+    asked_again = (
+        client.ignoring_the_cache() if request.fresh else nullcontext()
+    )
     try:
-        with calls.capture() as recorded:
+        with asked_again, calls.capture() as recorded:
             run = service.run(
                 request.repository_id,
                 request.release_id,
@@ -1164,7 +1184,7 @@ def run_validation(
             status_code=status.HTTP_409_CONFLICT, detail=str(error)
         ) from error
 
-    transcripts.write(_transcript(run, recorded))
+    transcripts.write(_transcript(run, recorded, fresh=request.fresh))
 
     return ValidationRunResponse(
         run_id=run.run_id,
@@ -1407,7 +1427,7 @@ def read_published_graph(repository_id: str, release_id: str):
     return document
 
 
-def _transcript(run, calls: list) -> dict:
+def _transcript(run, calls: list, fresh: bool = False) -> dict:
     """One run's calls, in the shape the store keeps and the screen reads.
 
     The summary is computed here rather than on the way out, so a transcript
@@ -1427,6 +1447,7 @@ def _transcript(run, calls: list) -> dict:
         "temperature": ai_settings.ai_temperature,
         "base_url": ai_settings.ai_base_url,
         "key_configured": bool(ai_settings.ai_api_key),
+        "asked_again": fresh,
         # Stamped on the transcript so a run with no calls in it is never
         # ambiguous: no calls because nothing was asked, or no calls because
         # everything replayed, are different runs and the screen must not
@@ -1501,6 +1522,15 @@ class TranscriptResponse(BaseModel):
     key_configured: bool = Field(
         description="Whether a key was configured when this ran. False with "
         "calls recorded is impossible; false with none is the keyless run."
+    )
+    asked_again: bool = Field(
+        default=False,
+        description=(
+            "Whether this run ignored the response cache and asked the models "
+            "again. A run of all live calls means one of two things - the "
+            "cache was cold, or it was deliberately bypassed - and this is "
+            "which."
+        ),
     )
     models_used: bool = Field(
         default=True,

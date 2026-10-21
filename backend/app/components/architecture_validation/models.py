@@ -936,6 +936,15 @@ class ScoreTrace:
     terms: dict
     total: float
     ceiling_applied: str | None = None
+    maximum: float = 0.0
+    """The most this method can publish for any fact.
+
+    Carried with the trace rather than looked up, because the subcomponent
+    that publishes the number may not import the one that scores it - and
+    because a total means nothing without the scale it is on. Every fact in
+    a corpus of strong, fully-checked evidence reaches it, and `0.85 out of
+    0.85` says that where `0.85` alone does not.
+    """
 
     def to_dict(self) -> dict:
         return {

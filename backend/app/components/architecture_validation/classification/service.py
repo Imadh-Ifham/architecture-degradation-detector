@@ -113,6 +113,7 @@ class ClassificationService:
                 terms=terms,
                 total=score,
                 ceiling_applied=held_back.name if held_back is not None else None,
+                maximum=rules.MAXIMUM_CONFIDENCE,
             ),
             route=rules.route_for(bucket, score),
             governing_decision=decision.decision_id,

@@ -28,7 +28,10 @@ Description:
 
 import hashlib
 import json
+import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -188,6 +191,7 @@ class ConfiguredAIClient:
         )
         self._local_provider = local_provider
         self._call_log = call_log
+        self._ignoring = threading.local()
 
     def _provider_for(self, task: str):
         """Return the adapter that reaches `task`'s endpoint.
@@ -210,6 +214,34 @@ class ConfiguredAIClient:
                 "No local runtime is configured. Set ai_local_base_url to reach one."
             )
         return self._local_provider
+
+    @contextmanager
+    def ignoring_the_cache(self) -> Iterator[None]:
+        """Ask the models again inside this block, and keep what they say.
+
+        **Read-through off, write-through on.** A run inside this block pays
+        for every answer and leaves the cache holding the new ones, so the
+        next ordinary run is warm again - which is what *refresh* means and
+        what clearing the directory by hand does not do: that leaves every
+        other release cold as well.
+
+        Here rather than as an argument on `complete`, because `complete` is
+        the port a component calls and no component may know a cache exists.
+        The composition root decides; the subcomponent still just names a
+        task and hands over evidence. Same placement, and the same reason, as
+        the call log's capture.
+
+        Thread-local, because the client is process-wide and a run is one
+        request: a flag on the instance would make one caller's refresh
+        everybody's.
+        """
+
+        previous = getattr(self._ignoring, "on", False)
+        self._ignoring.on = True
+        try:
+            yield
+        finally:
+            self._ignoring.on = previous
 
     def complete(
         self,
@@ -255,7 +287,7 @@ class ConfiguredAIClient:
             effort,
         )
         started = time.perf_counter()
-        cached = self._cache.get(key)
+        cached = None if getattr(self._ignoring, "on", False) else self._cache.get(key)
         if cached is not None:
             self._log(
                 task,
