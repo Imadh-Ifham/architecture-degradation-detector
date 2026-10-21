@@ -63,9 +63,9 @@ from app.domain.recovered_architecture import (
     RecoveredArchitecture,
 )
 
+from ..._release import release_sort_key
 from ...models import FactEndpoint, ObservedFact, RelationshipKind
 from .._identity import canonical_name, fact_id
-from ..._release import release_sort_key
 
 COMMUNICATION_LABELS = frozenset(
     {

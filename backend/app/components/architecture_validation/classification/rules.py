@@ -23,12 +23,12 @@ from app.domain.validated_architecture import ValidationBucket
 from ..models import (
     ArbiterAgreement,
     EvidenceStrength,
+    Route,
     SourceTier,
     Verdict,
     VerificationMode,
     VerificationOutcome,
 )
-from ..models import Route
 from .models import PUBLISH_THRESHOLD, Cap
 
 TERM_VERDICT_BASE = 0.50

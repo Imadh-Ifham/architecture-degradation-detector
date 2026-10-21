@@ -29,8 +29,8 @@ from app.domain.recovered_architecture import (
     StyleSource,
 )
 
-from ._identity import collisions
 from .._release import release_sort_key
+from ._identity import collisions
 from ._style import infer_style
 from .models import IdentityCollision, NormalizationOutcome
 from .styles import GENERIC_STYLE_NAME, KNOWN_LABELS, adapter_for

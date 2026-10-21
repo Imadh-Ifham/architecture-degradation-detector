@@ -76,6 +76,7 @@ class FakeProvider:
         temperature: float = 0.0,
         seed: int | None = 42,
         reasoning_effort: str = "",
+        max_output_tokens: int = 0,
     ) -> dict:
         """Return the next scripted response, or raise as scripted."""
 
@@ -88,6 +89,7 @@ class FakeProvider:
                 "temperature": temperature,
                 "seed": seed,
                 "reasoning_effort": reasoning_effort,
+                "max_output_tokens": max_output_tokens,
             }
         )
 

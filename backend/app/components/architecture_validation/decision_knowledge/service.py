@@ -20,12 +20,11 @@ Description:
     Research module: M2.
 """
 
-from .models import AppendOutcome, DecisionStageOutcome, ModeAvailability
+from datetime import datetime
+
 from .._identity import canonical_name
 from ..models import ExtractionMethod, ObservedFact, Resolution
 from ..ports import DecisionKnowledgeStore, SourceArtifactReader
-from datetime import datetime
-
 from ._events import (
     DECISION_BACKDATED,
     DECISION_RECORDED,
@@ -37,7 +36,7 @@ from ._events import (
     release_scanned_event,
 )
 from ._index import DecisionIndex
-from .supersession import CONSTRAINT_RELATIONSHIP, WILDCARD, resolve_fact
+from .models import AppendOutcome, DecisionStageOutcome, ModeAvailability
 from .sources import (
     MODES,
     SourceOutcome,
@@ -46,6 +45,7 @@ from .sources import (
     registered_modes,
     sources_for,
 )
+from .supersession import CONSTRAINT_RELATIONSHIP, WILDCARD, resolve_fact
 
 
 class DecisionStoreMissing(RuntimeError):

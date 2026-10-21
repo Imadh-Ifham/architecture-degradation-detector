@@ -299,6 +299,21 @@ export interface PublishedGraph {
 }
 
 /**
+ * Which releases of one repository have a published graph.
+ *
+ * Durable state, read off the store. The pipeline screen used to answer this
+ * from the runs the browser session happened to have started, so a refresh
+ * made validated releases read as unjudged - and the detection phase, which
+ * only appears once something is judged, disappeared with them.
+ */
+export function listValidatedReleases(repositoryId: string, options?: RequestOptions) {
+  return get<{ releases: string[] }>('/validations/validated', {
+    ...options,
+    query: { repository_id: repositoryId },
+  })
+}
+
+/**
  * The document the most recent completed run published.
  *
  * A 404 means that release has not been validated, which is a state with its

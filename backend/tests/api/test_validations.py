@@ -658,3 +658,80 @@ class TestARepositoryNobodyIngested:
 
         assert response.status_code == 409
         assert "Ingest it first" in response.json()["detail"]
+
+
+class TestTheValidatedReleasesRoute:
+    """Which releases have been judged, answered from the store.
+
+    It exists because a screen was answering it from memory. The pipeline
+    decided whether anything had been judged from the runs the browser session
+    happened to have started, so a refresh made validated releases read as
+    unjudged - and the detect phase, rendered only once something is judged,
+    disappeared with them while its input sat published on disk.
+    """
+
+    def store(self, monkeypatch, root):
+        from app.api import validations as module
+
+        monkeypatch.setattr(
+            module, "get_graph_file_store", lambda: ValidatedGraphFileStore(root)
+        )
+
+    def publish(self, root, repository: str, release: str) -> None:
+        """A release counts as validated when its `latest` document exists."""
+
+        directory = root / repository / release
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "latest.graph.json").write_text("{}", encoding="utf-8")
+
+    def test_it_lists_every_release_with_a_published_graph(
+        self, client, monkeypatch, tmp_path
+    ):
+        self.store(monkeypatch, tmp_path)
+        self.publish(tmp_path, "repo-1", "v0.8.1")
+        self.publish(tmp_path, "repo-1", "v0.10.0")
+
+        response = client.get("/validations/validated", params={"repository_id": "repo-1"})
+
+        assert response.status_code == 200
+        assert response.json() == {"releases": ["v0.10.0", "v0.8.1"]}
+
+    def test_a_directory_without_a_document_is_not_a_validated_release(
+        self, client, monkeypatch, tmp_path
+    ):
+        """A run that failed before publishing leaves the directory behind.
+        Counting it would put the detect phase on screen with nothing to read."""
+
+        self.store(monkeypatch, tmp_path)
+        self.publish(tmp_path, "repo-1", "v0.8.1")
+        (tmp_path / "repo-1" / "v0.9.0").mkdir(parents=True)
+
+        response = client.get("/validations/validated", params={"repository_id": "repo-1"})
+
+        assert response.json() == {"releases": ["v0.8.1"]}
+
+    def test_a_repository_with_nothing_validated_is_an_empty_list(
+        self, client, monkeypatch, tmp_path
+    ):
+        """Not a 404. "Nothing has been validated" is an answer the screen
+        acts on, and a repository nobody ingested is the same answer."""
+
+        self.store(monkeypatch, tmp_path)
+
+        response = client.get(
+            "/validations/validated", params={"repository_id": "never-ingested"}
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"releases": []}
+
+    def test_one_repository_does_not_report_another_s_releases(
+        self, client, monkeypatch, tmp_path
+    ):
+        self.store(monkeypatch, tmp_path)
+        self.publish(tmp_path, "repo-1", "v0.8.1")
+        self.publish(tmp_path, "repo-2", "v1.0.0")
+
+        response = client.get("/validations/validated", params={"repository_id": "repo-2"})
+
+        assert response.json() == {"releases": ["v1.0.0"]}
