@@ -215,17 +215,27 @@ export default function PipelinePage() {
     Boolean(validatingRelease) ||
     Boolean(stackProgress && stackProgress.done < stackProgress.total)
 
+  // Releases with a source picked for them: what the continue button runs,
+  // and therefore what "all the validations" means.
+  const ready = releases.filter((release) => decisionChoices[release])
+
   // A run reaches this screen through the session's runs, not through the
-  // snapshot, because the decisions screen is what started it.
+  // snapshot, because the decisions screen is what started it. Keyed by
+  // `runKey`, so the lookup works whether or not this session recovered the
+  // snapshot itself (see `runFor`).
   //
-  // **Asked of the repository, not of the rows.** Detection reads every
-  // published graph of the selected repository, so a validation of any of its
-  // releases is what unlocks it. Deriving it from the rows alone meant a stack
-  // whose snapshots were already recovered had nothing to match a run against,
-  // and the flow stopped dead after a successful validation.
-  const validated =
-    Object.keys(runs).some((key) => key.startsWith(`${repositoryKey}::`)) ||
-    pipelineSnapshots.some((snapshot) => runFor(snapshot, runs))
+  // **Every release that is going to be judged, not just one of them.**
+  // Detection reads the published graph of every release, so unlocking it
+  // after the first validation let a stack of three be detected over one -
+  // and a comparison of one release against nothing is not a degradation
+  // result. The releases in scope are the ones somebody picked a source for,
+  // which is exactly what the validate button runs; a release nobody chose a
+  // source for would otherwise keep the flow at validation for ever.
+  const judged = ready.filter((release) =>
+    Boolean(runs[runKey(repositoryKey, release)]),
+  ).length
+
+  const allValidated = ready.length > 0 && judged === ready.length
 
   // Scoring ranks the current detection run, from its own card; the phase is
   // complete once that run has its ranking (`score-<detection run>`). A
@@ -234,7 +244,8 @@ export default function PipelinePage() {
   const scoring = useRequest((options) => listScoringRuns(options), [])
   const [isScoring, setIsScoring] = useState(false)
   const [scoringError, setScoringError] = useState<string | null>(null)
-  const currentDetection = validated && degradation && !isDetectionStale ? degradation : null
+  const currentDetection =
+    allValidated && degradation && !isDetectionStale ? degradation : null
   const ranking = currentDetection
     ? ((scoring.data ?? []).find(
         (run) => run.run_id === scoringRunId(currentDetection.run.run_id),
@@ -263,12 +274,12 @@ export default function PipelinePage() {
         configurations.length,
         recoveredCount,
       ),
-      validate: validateState(shownPhase, validated),
+      validate: validateState(shownPhase, isValidating, judged, ready.length),
       detect: detectState(
         isDetecting,
         detectionError,
         Boolean(degradation) && !isDetectionStale,
-        validated,
+        allValidated,
       ),
       prioritise: scoringState(isScoring, scoringError, ranking !== null, currentDetection !== null),
     }),
@@ -277,7 +288,10 @@ export default function PipelinePage() {
       recoveryFailed,
       configurations.length,
       recoveredCount,
-      validated,
+      isValidating,
+      judged,
+      ready.length,
+      allValidated,
       isDetecting,
       isDetectionStale,
       detectionError,
@@ -290,8 +304,6 @@ export default function PipelinePage() {
   )
 
   // Releases with a source picked for them: what the continue button runs.
-  const ready = releases.filter((release) => decisionChoices[release])
-
   const recover = async (force = false) => {
     setToggled([])
 
@@ -305,11 +317,12 @@ export default function PipelinePage() {
 
   const phase = PHASES.find((item) => item.id === selectedPhase)!
 
-  // Once something is validated, detecting is the next thing to do, so it
-  // takes the primary button and validating steps back. "Again" only for a run
-  // that already describes this stack.
-  const detectIsNext = validated && (!degradation || isDetectionStale)
-  const hasFreshDetection = validated && Boolean(degradation) && !isDetectionStale
+  // Once every release has been judged, detecting is the next thing to do, so
+  // it takes the primary button and validating steps back. "Again" only for a
+  // run that already describes this stack.
+  const detectIsNext = allValidated && (!degradation || isDetectionStale)
+  const hasFreshDetection =
+    allValidated && Boolean(degradation) && !isDetectionStale
 
   return (
     <>
@@ -377,7 +390,7 @@ export default function PipelinePage() {
                   : `Recover ${pending.length} of ${configurations.length}`}
             </Button>
 
-            {validated && (
+            {allValidated && (
               <Button
                 variant={detectIsNext ? 'primary' : undefined}
                 disabled={isPipelineRunning || isValidating || isDetecting}
@@ -436,6 +449,8 @@ export default function PipelinePage() {
           snapshots={pipelineSnapshots}
           recovered={recoveredCount}
           total={configurations.length}
+          judged={judged}
+          inScope={ready.length}
           error={pipelineError}
           isRunning={isPipelineRunning}
         />
@@ -521,7 +536,7 @@ export default function PipelinePage() {
           isDetecting={isDetecting}
           error={detectionError}
           canDetect={releases.length > 0}
-          isStale={!validated || isDetectionStale}
+          isStale={!allValidated || isDetectionStale}
           onDetect={() => void detectDegradation()}
           onFocus={focusRelease}
         />
@@ -538,7 +553,7 @@ export default function PipelinePage() {
         />
       )}
 
-      {validated && (
+      {allValidated && (
         <Card title="The rest of this result">
           <div className="grid gap-5 sm:grid-cols-2">
             <Elsewhere
@@ -1103,6 +1118,8 @@ function RunStatus({
   snapshots,
   recovered,
   total,
+  judged,
+  inScope,
   error,
   isRunning,
 }: {
@@ -1111,6 +1128,10 @@ function RunStatus({
   /** Snapshots with nothing left to clone or recover, this session or before. */
   recovered: number
   total: number
+  /** Releases that have been judged, out of the ones in scope for validation. */
+  judged: number
+  /** Releases somebody picked a source for, so detection waits on all of them. */
+  inScope: number
   error: string | null
   isRunning: boolean
 }) {
@@ -1154,8 +1175,10 @@ function RunStatus({
       {!isRunning && phase === 'recovered' && (
         <div className="flex flex-col gap-1.5">
           <span className="text-sm text-ink">
-            {recovered} of {total} snapshots recovered. Nothing has been judged
-            yet.
+            {recovered} of {total} snapshots recovered.{' '}
+            {inScope === 0
+              ? 'Nothing has been judged yet.'
+              : `${judged} of ${inScope} releases judged.`}
           </span>
           <span className="font-mono text-xs text-ink-4">
             {skipped > 0
@@ -1165,7 +1188,13 @@ function RunStatus({
                 : 'nothing to do — every snapshot was already recovered'}
           </span>
           <span className="font-mono text-xs text-ink-4">
-            choose what they are validated against on the decisions screen
+            {inScope === 0
+              ? 'choose what they are validated against on the decisions screen'
+              : judged === inScope
+                ? 'every release has been judged — detect degradation is the next step'
+                : `detection opens once the other ${inScope - judged} ${
+                    inScope - judged === 1 ? 'release is' : 'releases are'
+                  } judged`}
           </span>
         </div>
       )}
@@ -1224,16 +1253,25 @@ function recoverState(
 }
 
 /**
- * The validate node, which this screen no longer runs.
+ * The validate node.
  *
- * It is `waiting` from the moment the stack is recovered until somebody has
- * chosen what judges it - waiting on a person rather than on a call, and for
- * as long as they take. Drawing it `done` before that would put a green phase
- * over a result that does not exist, and drawing it `blocked` would say the
- * stack is not ready when it is.
+ * **It stays here until every release in scope has been judged.** Detection
+ * reads what validation published for the whole stack, so drawing this `done`
+ * after the first release sent the flow on to a layer that would then compare
+ * a stack of three against one validated graph.
+ *
+ * `waiting` is waiting on a person when nothing is running (the source has to
+ * be chosen), and on the model calls when something is - which is why that
+ * case is `running` rather than a second kind of waiting.
  */
-function validateState(phase: PipelinePhase, validated: boolean): PhaseState {
-  if (validated) return 'done'
+function validateState(
+  phase: PipelinePhase,
+  isValidating: boolean,
+  judged: number,
+  inScope: number,
+): PhaseState {
+  if (isValidating) return 'running'
+  if (inScope > 0 && judged === inScope) return 'done'
   if (phase === 'recovered') return 'waiting'
   if (phase === 'recovering') return 'waiting'
   return 'blocked'
@@ -1243,8 +1281,8 @@ function validateState(phase: PipelinePhase, validated: boolean): PhaseState {
  * The detect node.
  *
  * **It follows the order, like every other node.** Detection reads what
- * validation published, so it is `blocked` until something has been validated
- * in this run - a stored detection from an earlier session describes an
+ * validation published for every release, so it is `blocked` until all of them
+ * have been judged - a stored detection from an earlier session describes an
  * earlier stack, and drawing it green beside an unjudged one would say this
  * stack had been checked when it had not.
  *
@@ -1256,10 +1294,10 @@ function detectState(
   isDetecting: boolean,
   error: string | null,
   hasFreshRun: boolean,
-  validated: boolean,
+  allValidated: boolean,
 ): PhaseState {
   if (isDetecting) return 'running'
-  if (!validated) return 'blocked'
+  if (!allValidated) return 'blocked'
   if (error) return 'failed'
   return hasFreshRun ? 'done' : 'waiting'
 }
